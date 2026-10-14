@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { CityCanvas } from "@/components/city/CityCanvas";
 import { useGame, useSeasonView } from "@/components/GameProvider";
 import { EventLog } from "@/components/home/EventLog";
-import { DevGauge, SavingsGauge, TechGauge } from "@/components/home/Gauges";
+import { DevGauge, SavingsGauge, TechGauge, WishSavingsGauge } from "@/components/home/Gauges";
 import { Onboarding } from "@/components/home/Onboarding";
 import { TilePanel } from "@/components/home/TilePanel";
 import { Button, Card, Coin, LinkButton, Modal, Stat } from "@/components/ui";
@@ -102,6 +102,7 @@ export default function HomePage() {
         <Card>
           <div className="space-y-4">
             <SavingsGauge v={v} />
+            <WishSavingsGauge v={v} />
             <TechGauge v={v} />
             <DevGauge v={v} />
           </div>

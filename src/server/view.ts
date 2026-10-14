@@ -15,7 +15,7 @@ import {
   TECH_THRESHOLDS,
 } from "@/game/config";
 import { exchangeRate } from "@/game/exchange";
-import { achievementRate, devLevel, goldMineLevel, nextThreshold, savingsProgress, silverMineLevel } from "@/game/levels";
+import { achievementRate, devLevel, goldMineLevel, nextThreshold, projectedRate, savingsProgress, silverMineLevel } from "@/game/levels";
 import { microToGold, ratePerMinute } from "@/game/mine";
 import { dayKey } from "@/game/time";
 import type { CityState } from "@/game/types";
@@ -81,6 +81,10 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
   });
   const { net, max } = savingsProgress(savings);
   const rate = achievementRate(net, season.goalAmount);
+  const patchedEstimate = ctx.seasonPatch.estimatedSavings;
+  const estimated = typeof patchedEstimate === "number" ? patchedEstimate : season.estimatedSavings;
+  // 欲しいもの貯金：未購入のほしい物への積立（像の積立金貨）
+  const openWishes = await tx.wishItem.findMany({ where: { userId: user.id, purchasedAt: null }, select: { price: true } });
   const metrics = computeMetrics(city);
   const dev = devLevel(city.devPoints);
   const levels = facilityLevels(ctx);
@@ -113,11 +117,18 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
       net,
       max,
       rate,
+      estimated,
+      projectedRate: projectedRate(net, estimated, season.goalAmount),
       bankLevel: city.bankLevel,
       bankBonus: BANK_EXCHANGE_BONUS[city.bankLevel - 1],
       savingsTimeline: savings.map((s) => ({ at: s.createdAt.getTime(), date: s.date, delta: s.kind === "DEPOSIT" ? s.amount : -s.amount })),
     },
     currencies: { ...ctx.balances },
+    wishSavings: {
+      reserved: ctx.balances.reserved,
+      target: openWishes.reduce((a, w) => a + w.price, 0),
+      count: openWishes.length,
+    },
     mine: {
       uncollected: microToGold(mine.uncollected),
       debt: microToGold(mine.debt),

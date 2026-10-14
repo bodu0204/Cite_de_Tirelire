@@ -24,9 +24,28 @@ export function achievementRate(netSavings: number, goal: number): number {
   return (Math.max(0, netSavings) / goal) * 100;
 }
 
+/**
+ * 表示用の達成率(%)：記録した純増額に見込み貯金を上乗せしたもの。
+ * 見込み貯金は金貨で資源を得た額（現実で使わずに済んだお金）で、貯金を記録すると実額に置き換わる。
+ * 技術Lv・銀行Lv・目標達成の判定には使わない（記録した実額だけで決める）。
+ */
+export function projectedRate(netSavings: number, estimated: number, goal: number): number {
+  return achievementRate(Math.max(0, netSavings) + Math.max(0, estimated), goal);
+}
+
 /** 銀行Lv：1〜5、6 は「完成」 */
 export function bankLevel(ratePercent: number): number {
   return levelFrom(BANK_LEVEL_THRESHOLDS, ratePercent);
+}
+
+/**
+ * 銀行Lvの区間を金額で返す（現在Lvの到達額 → 次のLvに必要な額）。完成（Lv6）なら next は null。
+ * 例：目標100,000円・Lv2 → { from: 20,000, next: 40,000 }
+ */
+export function bankLevelBand(goal: number, lv: number): { from: number; next: number | null } {
+  const from = Math.round((goal * (BANK_LEVEL_THRESHOLDS[lv - 1] ?? 0)) / 100);
+  const nextPct = BANK_LEVEL_THRESHOLDS[lv];
+  return { from, next: nextPct === undefined ? null : Math.round((goal * nextPct) / 100) };
 }
 
 export function techLevel(maxNetSavings: number): number {

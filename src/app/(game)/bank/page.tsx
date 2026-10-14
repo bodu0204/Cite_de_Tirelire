@@ -1,7 +1,7 @@
 "use client";
 
 import { useSeasonView } from "@/components/GameProvider";
-import { SavingsGauge, TechGauge } from "@/components/home/Gauges";
+import { SavingsGauge, TechGauge, WishSavingsGauge } from "@/components/home/Gauges";
 import { Card, LinkButton, Stat } from "@/components/ui";
 import { BANK_LEVEL_THRESHOLDS } from "@/game/config";
 import { fmt, formatDate, yen } from "@/lib/api";
@@ -47,11 +47,14 @@ export default function BankPage() {
         <p className="mt-1 text-sm text-muted">現実の貯金目標を表す施設です。達成率に応じて成長し、金貨・銀貨から資源への交換効率が上がります。</p>
       </div>
       <Card>
-        <SavingsGauge v={v} />
+        <div className="space-y-4">
+          <SavingsGauge v={v} />
+          <WishSavingsGauge v={v} />
+        </div>
       </Card>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <Stat label="貯金目標" value={yen(s.goal)} sub={`シーズン${s.number}`} />
-        <Stat label="今回の純増額" value={yen(s.net)} sub={`最高 ${yen(s.max)}`} />
+        <Stat label="今回の純増額" value={yen(s.net)} sub={s.estimated > 0 ? `見込み +${yen(s.estimated)}` : `最高 ${yen(s.max)}`} />
         <Stat label="銀行" value={s.bankLevel >= 6 ? "完成" : `Lv${s.bankLevel}`} sub={nextBank !== null ? `次は達成率${nextBank}%` : undefined} />
         <Stat label="交換ボーナス" value={`+${Math.round(s.bankBonus * 100)}%`} sub="金貨・銀貨とも" />
       </div>

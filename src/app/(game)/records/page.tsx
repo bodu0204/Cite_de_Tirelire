@@ -105,14 +105,14 @@ function PurchaseForm({ initial, onDone, tz }: { initial?: Purchase; onDone: () 
           <span className="block text-xs text-muted">サブスク料金はすでに金鉱の採掘から差し引かれているため、金貨の精算から外します（二重計上の防止）。</span>
         </span>
       </label>
-      <Button type="submit" className="w-full" disabled={busy}>
+      <Button type="submit" className="w-full" disabled={busy || Number(f.amount) <= 0 || !f.date || !f.name.trim()}>
         {initial ? "保存" : `購入を記録（+${REWARD_PURCHASE}S）`}
       </Button>
     </form>
   );
 }
 
-function SavingsForm({ initial, onDone, tz }: { initial?: Savings; onDone: () => void; tz: string }) {
+function SavingsForm({ initial, onDone, tz, estimated = 0 }: { initial?: Savings; onDone: () => void; tz: string; estimated?: number }) {
   const { act, toast, busy } = useGame();
   const [f, setF] = useState({
     kind: initial?.kind ?? ("DEPOSIT" as Savings["kind"]),
@@ -130,8 +130,9 @@ function SavingsForm({ initial, onDone, tz }: { initial?: Savings; onDone: () =>
         const r = initial ? await act(`/api/savings/${initial.id}`, body, "PATCH") : await act<{ reward: number }>("/api/savings", body);
         if (!r) return;
         if (!initial) {
-          const rr = r as { reward: number };
-          toast(rr.reward > 0 ? `記録しました！ 銀貨 +${rr.reward}S` : "記録しました（今日の記録報酬は上限に達しています）", rr.reward > 0 ? "reward" : "info");
+          const rr = r as { reward: number; replacedEstimate?: number };
+          const fix = rr.replacedEstimate ? `見込み ${fmt(rr.replacedEstimate)}円を実額に置き換えました。` : "";
+          toast(rr.reward > 0 ? `記録しました！ 銀貨 +${rr.reward}S ${fix}` : `記録しました（今日の記録報酬は上限に達しています）${fix}`, rr.reward > 0 ? "reward" : "info");
           setF((p) => ({ ...p, amount: "", memo: "" }));
         }
         onDone();
@@ -157,7 +158,12 @@ function SavingsForm({ initial, onDone, tz }: { initial?: Savings; onDone: () =>
         <input maxLength={500} value={f.memo} onChange={(e) => set("memo", e.target.value)} />
       </Field>
       {f.kind === "WITHDRAW" && <p className="text-xs text-muted">引出は目標の達成率を下げますが、解放済みの技術や建物は失われません。</p>}
-      <Button type="submit" className="w-full" disabled={busy}>
+      {!initial && estimated > 0 && (
+        <p className="rounded-lg bg-gold-soft px-3 py-2 text-xs">
+          今の見込み貯金は {yen(estimated)} です（金貨で資源を得た分）。この記録で見込みは消え、記録した実額が貯金目標に反映されます。
+        </p>
+      )}
+      <Button type="submit" className="w-full" disabled={busy || Number(f.amount) <= 0 || !f.date}>
         {initial ? "保存" : `${f.kind === "DEPOSIT" ? "貯金" : "引出"}を記録（+${REWARD_SAVINGS}S）`}
       </Button>
     </form>
@@ -214,7 +220,7 @@ export default function RecordsPage() {
       )}
       {tab === "savings" && (
         <Card>
-          <SavingsForm tz={tz} onDone={reload} />
+          <SavingsForm tz={tz} onDone={reload} estimated={v?.season.estimated ?? 0} />
         </Card>
       )}
       {tab === "history" && (

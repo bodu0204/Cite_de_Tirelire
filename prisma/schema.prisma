@@ -70,6 +70,10 @@ model Season {
   mineSettledMonth  Int      @default(0)
   mineTotalCollected Int     @default(0)
 
+  /// 見込み貯金（円）：金貨で資源を得た額。現実で使わなかった＝貯金に回せるはずのお金。
+  /// 貯金を記録すると実額に置き換わる（0に戻る）。表示の達成率にだけ上乗せする
+  estimatedSavings Int @default(0)
+
   /// 有効な記録件数（銀鉱の経験値）
   rewardedRecords Int @default(0)
   /// 達成率の節目（25/50/75/100）で既にイベントを出したもの

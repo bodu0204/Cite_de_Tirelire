@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { STATUE_GOLD_FROM } from "../config";
 import { exchangeRate, quoteResourceExchange } from "../exchange";
-import { achievementRate, bankLevel, savingsProgress, statueRank, techLevel } from "../levels";
+import { achievementRate, bankLevel, bankLevelBand, projectedRate, savingsProgress, statueRank, techLevel } from "../levels";
 
 describe("AT-003 貯金記録と銀行", () => {
   it("目標100,000円に20,000円で達成率20%・銀行Lv2", () => {
@@ -11,8 +11,29 @@ describe("AT-003 貯金記録と銀行", () => {
     expect(bankLevel(rate)).toBe(2);
   });
 
+  it("銀行Lvの区間を金額で返す", () => {
+    expect(bankLevelBand(100000, 2)).toEqual({ from: 20000, next: 40000 });
+    expect(bankLevelBand(100000, 1)).toEqual({ from: 0, next: 20000 });
+    expect(bankLevelBand(100000, 6)).toEqual({ from: 100000, next: null });
+  });
+
   it("100%で銀行は完成（Lv6）", () => {
     expect(bankLevel(achievementRate(100000, 100000))).toBe(6);
+  });
+});
+
+describe("見込み貯金", () => {
+  it("表示の達成率は記録した純増額に見込みを上乗せする", () => {
+    expect(projectedRate(20000, 5000, 100000)).toBe(25);
+  });
+
+  it("純増額が負でも見込みだけは表示に乗る", () => {
+    expect(projectedRate(-3000, 5000, 100000)).toBe(5);
+  });
+
+  it("見込みを含めると銀行Lvが変わってしまうため、判定には実額の達成率を使う", () => {
+    expect(bankLevel(achievementRate(15000, 100000))).toBe(1);
+    expect(bankLevel(projectedRate(15000, 10000, 100000))).toBe(2);
   });
 });
 

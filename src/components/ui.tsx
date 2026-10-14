@@ -44,11 +44,20 @@ export function LinkButton({ href, children, variant = "secondary", className = 
   );
 }
 
-export function Gauge({ value, max, color, label }: { value: number; max: number; color: string; label: string }) {
-  const pct = max > 0 ? Math.max(0, Math.min(100, (value / max) * 100)) : 100;
+/** extra は value の後ろに続く「見込み」の区間（斜線で表示） */
+export function Gauge({ value, max, color, label, extra = 0 }: { value: number; max: number; color: string; label: string; extra?: number }) {
+  const clamp = (v: number) => Math.max(0, Math.min(100, v));
+  const pct = max > 0 ? clamp((value / max) * 100) : 100;
+  const extraPct = max > 0 ? clamp(((value + extra) / max) * 100) - pct : 0;
   return (
-    <div role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pct)} className="h-3 w-full overflow-hidden rounded-sm border border-line bg-surface-2">
+    <div role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pct)} className="flex h-3 w-full overflow-hidden rounded-sm border border-line bg-surface-2">
       <div className="h-full transition-[width] duration-700" style={{ width: `${pct}%`, background: color }} />
+      {extraPct > 0 && (
+        <div
+          className="h-full transition-[width] duration-700"
+          style={{ width: `${extraPct}%`, background: `repeating-linear-gradient(135deg, ${color} 0 3px, transparent 3px 6px)`, opacity: 0.75 }}
+        />
+      )}
     </div>
   );
 }
@@ -69,6 +78,7 @@ export function Tabs<T extends string>({ value, onChange, items }: { value: T; o
       {items.map((it) => (
         <button
           key={it.value}
+          type="button"
           role="tab"
           aria-selected={value === it.value}
           onClick={() => onChange(it.value)}

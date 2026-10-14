@@ -26,13 +26,19 @@ echo "== savings 10000 -> tech 3"; req POST /api/savings "{\"kind\":\"DEPOSIT\",
 echo "== state";         req GET /api/state | j '[o.season.net, o.season.rate, o.tech.level, o.currencies, o.silverMine, o.city.buildings.filter(b=>b.special).map(b=>b.special)]'
 echo "== daily cap: 4th record gives 0"; req POST /api/purchases "{\"amount\":300,\"date\":\"$TODAY\",\"name\":\"コーヒー\"}"
 echo "== g2s with 0 gold fails"; req POST /api/exchange '{"kind":"gold_to_silver","amount":10}'
-echo "== silver->wood";  req POST /api/exchange '{"kind":"to_resource","currency":"silver","resource":"wood","amount":20}'
+echo "== silver->wood (no estimate)";  req POST /api/exchange '{"kind":"to_resource","currency":"silver","resource":"wood","amount":20}'
+echo "== seed gold, gold->stone adds estimate"
+docker compose exec -T db psql -U tirelire -qtAc "UPDATE \"Season\" SET gold = gold + 3000 WHERE id = (SELECT s.id FROM \"Season\" s JOIN \"User\" u ON u.id = s.\"userId\" WHERE u.email = '$EMAIL' AND s.status <> 'COMPLETED')" >/dev/null
+req POST /api/exchange '{"kind":"to_resource","currency":"gold","resource":"stone","amount":2000}'
+req GET /api/state | j '[o.season.estimated, o.season.rate, o.season.projectedRate, o.tech.level, o.wishSavings]'
+echo "== wish contribution counts as wish savings"; req POST /api/wishes/$W/contribute '{"amount":500}'
+req GET /api/state | j '[o.wishSavings, o.season.estimated]'
 echo "== manual build";  req POST /api/city '{"type":"build","line":"housing","x":4,"y":3}'
 echo "== rush";          JOB=$(req GET /api/state | j 'o.city.jobs.find(j=>!j.auto)?.id'); req POST /api/city "{\"type\":\"rush\",\"jobId\":\"$JOB\"}"
 echo "== zone + policy"; req POST /api/city '{"type":"zone","x":5,"y":6,"zone":"residential"}'; req POST /api/city '{"type":"policy","preset":"housing"}'
 echo "== timelapse locked"; SID=$(req GET /api/state | j 'o.season.id'); req GET /api/seasons/$SID/timelapse
-echo "== reach goal";    req POST /api/savings "{\"kind\":\"DEPOSIT\",\"amount\":5000,\"date\":\"$TODAY\"}"
-req GET /api/state | j '[o.season.status, o.season.rate, o.tech.level]'
+echo "== reach goal (savings record replaces estimate)";    req POST /api/savings "{\"kind\":\"DEPOSIT\",\"amount\":5000,\"date\":\"$TODAY\"}"
+req GET /api/state | j '[o.season.status, o.season.rate, o.season.estimated, o.season.projectedRate, o.tech.level]'
 echo "== complete";      req POST /api/season/complete
 echo "== build after complete fails"; req POST /api/city '{"type":"build","line":"housing","x":3,"y":6}'
 echo "== timelapse";     req GET /api/seasons/$SID/timelapse | j '[o.season.number, !!o.start, !!o.final, o.events.length, o.events.map(e=>e.type).filter((v,i,a)=>a.indexOf(v)===i).join(",")]'

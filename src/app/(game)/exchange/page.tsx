@@ -38,6 +38,7 @@ export default function ExchangePage() {
         <h1 className="font-pixel text-2xl">資源交換</h1>
         <p className="mt-1 text-sm text-muted">
           金貨は資源への交換効率が高く、銀貨は手動操作の手数料に使えます。金貨→銀貨は 1:1 で無料、逆はできません。
+          金貨で資源を得た額（1G＝1円）は、現実で使わずに済んだお金として貯金目標に「見込み」で表示されます。
         </p>
       </div>
       <Tabs
@@ -58,7 +59,13 @@ export default function ExchangePage() {
                 ? await act("/api/exchange", { kind: "gold_to_silver", amount: n })
                 : await act<{ gain: number }>("/api/exchange", { kind: "to_resource", currency, resource, amount: n });
             if (r) {
-              toast(mode === "g2s" ? `銀貨 ${fmt(n)}S を手に入れました` : `${resLabel} ${fmt((r as { gain: number }).gain)} を手に入れました`, "reward");
+              const rr = r as { gain: number; estimatedAdded?: number };
+              toast(
+                mode === "g2s"
+                  ? `銀貨 ${fmt(n)}S を手に入れました`
+                  : `${resLabel} ${fmt(rr.gain)} を手に入れました${rr.estimatedAdded ? `（見込み貯金 +${fmt(rr.estimatedAdded)}円）` : ""}`,
+                "reward",
+              );
               setAmount("");
             }
           }}
@@ -116,6 +123,12 @@ export default function ExchangePage() {
                 <dd className="num text-right">
                   {fmt(cur.silver)} → {fmt(cur.silver - q.silverCost)}S
                 </dd>
+                {q.goldCost > 0 && (
+                  <>
+                    <dt className="text-muted">見込み貯金</dt>
+                    <dd className="num text-right">+{fmt(q.goldCost)}円</dd>
+                  </>
+                )}
               </dl>
             )}
           </div>

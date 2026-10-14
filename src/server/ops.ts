@@ -252,8 +252,11 @@ export async function recordSavings(ctx: GameCtx, body: Body) {
   const input = savingsInput(body);
   const tx = await ctx.tx.savingsTransaction.create({ data: { ...input, userId: ctx.user.id, seasonId: ctx.season?.id ?? null } });
   const progress = ctx.season ? await refreshSavings(ctx) : null;
+  // 記録した実額が正。それまでの見込み貯金は置き換える（誤差修正）
+  const replacedEstimate = ctx.season?.estimatedSavings ?? 0;
+  if (ctx.season) ctx.seasonPatch.estimatedSavings = 0;
   const reward = await grantReward(ctx, `savings:${tx.id}`, REWARD_SAVINGS);
-  return { id: tx.id, reward, progress };
+  return { id: tx.id, reward, progress, replacedEstimate };
 }
 
 async function ownSavings(ctx: GameCtx, id: string) {
@@ -304,7 +307,9 @@ export function exchange(ctx: GameCtx, body: Body) {
   addCurrency(ctx, "SILVER", -q.silverCost, "exchange_resource");
   addCurrency(ctx, "GOLD", -q.goldCost, "exchange_resource");
   ctx.city!.stock[resource] += q.gain;
-  return q;
+  // 金貨（1G＝1円相当）をゲーム内で使った分は、現実で使わずに済んだお金＝見込み貯金
+  if (q.goldCost > 0) ctx.seasonPatch.estimatedSavings = { increment: q.goldCost };
+  return { ...q, estimatedAdded: q.goldCost };
 }
 
 // ---- 街の操作 ----
