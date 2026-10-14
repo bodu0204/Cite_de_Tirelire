@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { HOUR, MINUTE } from "../config";
-import { accrue, collect, newMine, ratePerMinute, refundPurchase, settlePurchase } from "../mine";
+import { accrue, collect, goldBalance, newMine, ratePerMinute, refundPurchase, repayDebtFromHeld, settlePurchase } from "../mine";
 import { zonedTimeToUtc } from "../time";
 
 const TZ = "Asia/Tokyo";
@@ -71,5 +71,27 @@ describe("購入の精算", () => {
     const r = refundPurchase(mine, 1500);
     expect(r.mine.debt).toBe(0n);
     expect(r.toHeld).toBe(500);
+  });
+});
+
+describe("所持金貨のマイナス", () => {
+  it("所持金貨を超える購入はマイナスで表示され、採掘で戻っていく", () => {
+    const start = SEP1;
+    const r = settlePurchase(newMine(start, TZ), 300, 1000);
+    const held = 300 - r.fromHeld;
+    expect(goldBalance(held, r.mine)).toBe(-700);
+    // 60分で75G採掘 → 負債の返済に充てられる
+    const later = accrue(r.mine, { budget: 60000, subs, tz: TZ, until: start + 60 * MINUTE }).mine;
+    expect(goldBalance(held, later)).toBe(-625);
+  });
+
+  it("マイナスの間に手持ちへ入った金貨は返済に充てる", () => {
+    const mine = settlePurchase(newMine(SEP1, TZ), 0, 1000).mine;
+    const r = repayDebtFromHeld(mine, 400);
+    expect(r.used).toBe(400);
+    expect(goldBalance(0, r.mine)).toBe(-600);
+    const all = repayDebtFromHeld(mine, 5000);
+    expect(all.used).toBe(1000);
+    expect(goldBalance(5000 - all.used, all.mine)).toBe(4000);
   });
 });

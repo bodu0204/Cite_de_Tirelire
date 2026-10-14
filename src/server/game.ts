@@ -5,7 +5,7 @@ import { placeOffMapSpecials, syncParks, syncStatues, type ParkSource, type Stat
 import { applyTechLevel, simulate } from "@/game/city/sim";
 import { fail } from "@/game/errors";
 import { achievementRate, bankLevel, goldMineLevel, savingsProgress, silverMineLevel, techLevel } from "@/game/levels";
-import { accrue, type MineState, type SubWindow } from "@/game/mine";
+import { accrue, repayDebtFromHeld, type MineState, type SubWindow } from "@/game/mine";
 import { parseDateInTz } from "@/game/time";
 import type { CityEvent, CityState } from "@/game/types";
 import { prisma } from "./db";
@@ -166,6 +166,12 @@ async function load(tx: Tx, userId: string, now: number): Promise<GameCtx> {
 async function save(ctx: GameCtx) {
   const { tx, season } = ctx;
   if (!season || !ctx.city || !ctx.mine) return;
+  // 所持金貨がマイナス（採掘負債あり）の間に手持ちへ入った金貨は、まず負債の返済に充てる
+  const repay = repayDebtFromHeld(ctx.mine, ctx.balances.gold);
+  if (repay.used > 0) {
+    ctx.mine = repay.mine;
+    addCurrency(ctx, "GOLD", -repay.used, "debt_repay");
+  }
   await tx.season.update({
     where: { id: season.id },
     data: {

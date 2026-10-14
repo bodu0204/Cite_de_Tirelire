@@ -46,12 +46,18 @@ export default function GoldMinePage() {
           >
             回収する
           </Button>
-          {mine.debt > 0 && <p className="text-center text-sm">採掘負債 {fmt(Math.ceil(mine.debt))}G：今後の採掘からまず返済されます。</p>}
+          {v.currencies.gold < 0 && (
+            <p className="rounded-lg bg-danger/10 px-3 py-2 text-center text-sm">
+              所持金貨が <span className="num font-semibold text-danger">{fmt(v.currencies.gold)}G</span> です（所持金貨を超えて購入した分）。
+              <br />
+              <span className="text-xs text-muted">今後の採掘からまず返済されます。月末に残ったマイナスは予算超過として記録し、翌月には繰り越しません。</span>
+            </p>
+          )}
         </div>
       </Card>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
         <Stat label="採掘速度" value={`${fmt(mine.ratePerMinute, 3)}G/分`} sub={`1日あたり ${fmt(mine.ratePerMinute * 1440)}G`} />
-        <Stat label="所持金貨" value={`${fmt(v.currencies.gold)}G`} sub={v.currencies.reserved > 0 ? `像に積立 ${fmt(v.currencies.reserved)}G` : undefined} />
+        <Stat label="所持金貨" value={<span className={v.currencies.gold < 0 ? "text-danger" : ""}>{fmt(v.currencies.gold)}G</span>} sub={v.currencies.reserved > 0 ? `像に積立 ${fmt(v.currencies.reserved)}G` : undefined} />
         <Stat label="当月の採掘累計" value={`${fmt(Math.floor(mine.minedThisMonth))}G`} sub={mine.monthKey} />
         <Stat label="当月の購入精算額" value={yen(mine.settledThisMonth)} />
         <Stat label="月間サブスク" value={yen(mine.subscriptionsMonthly)} sub={`予算 ${yen(v.user.monthlyBudget)}`} />

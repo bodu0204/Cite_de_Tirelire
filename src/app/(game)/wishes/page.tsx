@@ -187,7 +187,7 @@ export default function WishesPage() {
               <input inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^\d-]/g, ""))} placeholder="1000" />
             </Field>
             <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="secondary" onClick={() => setAmount(String(Math.min(gold, Math.max(0, fund.price - fund.reserved))))}>
+              <Button type="button" variant="secondary" onClick={() => setAmount(String(Math.max(0, Math.min(gold, fund.price - fund.reserved))))}>
                 残りを全部
               </Button>
               {fund.reserved > 0 && (

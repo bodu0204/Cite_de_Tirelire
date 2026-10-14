@@ -162,4 +162,26 @@ export function refundPurchase(mine: MineState, amount: number): { mine: MineSta
   return { mine: m, toHeld: Number(rest / MICRO_PER_GOLD) };
 }
 
+/**
+ * 所持金貨（表示）＝ 手持ちの金貨 − 採掘負債。
+ * 購入が所持金貨を超えると、超えた分が負債になりマイナスで表示される。負債は今後の採掘から返済される。
+ */
+export function goldBalance(held: number, mine: MineState): number {
+  return held - Number((mine.debt + MICRO_PER_GOLD - 1n) / MICRO_PER_GOLD);
+}
+
+/** 手持ちの金貨があれば採掘負債の返済に充てる（マイナスの間は手持ちを0に保つ） */
+export function repayDebtFromHeld(mine: MineState, held: number): { mine: MineState; used: number } {
+  if (mine.debt <= 0n || held <= 0) return { mine, used: 0 };
+  const m: MineState = { ...mine };
+  const used = Math.min(held, Number((m.debt + MICRO_PER_GOLD - 1n) / MICRO_PER_GOLD));
+  m.debt -= BigInt(used) * MICRO_PER_GOLD;
+  if (m.debt < 0n) {
+    // 端数の払いすぎは未回収へ戻す
+    m.uncollected += -m.debt;
+    m.debt = 0n;
+  }
+  return { mine: m, used };
+}
+
 export const microToGold = (v: bigint) => Number(v) / Number(MICRO_PER_GOLD);

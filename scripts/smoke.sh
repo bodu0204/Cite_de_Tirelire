@@ -20,17 +20,19 @@ echo "== subscription";  req POST /api/subscriptions "{\"name\":\"動画配信\"
 echo "== wish";          W=$(req POST /api/wishes '{"name":"ヘッドホン","price":8000,"priority":1}' | j 'o.id'); echo $W
 echo "== purchase";      P=$(req POST /api/purchases "{\"amount\":1200,\"date\":\"$TODAY\",\"name\":\"ランチ\"}"); echo $P
 PID=$(echo "$P" | j 'o.id')
+echo "== gold goes negative when purchase exceeds held gold"; req GET /api/state | j '[o.currencies.gold, o.mine.debt.toFixed(2)]'
 echo "== edit purchase (no extra reward)"; req PATCH /api/purchases/$PID '{"amount":1000}'
+req GET /api/state | j 'o.currencies.gold'
 echo "== same idempotency key twice"; K=$(uuidgen); req POST /api/savings "{\"kind\":\"DEPOSIT\",\"amount\":5000,\"date\":\"$TODAY\"}" $K; req POST /api/savings "{\"kind\":\"DEPOSIT\",\"amount\":5000,\"date\":\"$TODAY\"}" $K
 echo "== savings 10000 -> tech 3"; req POST /api/savings "{\"kind\":\"DEPOSIT\",\"amount\":10000,\"date\":\"$TODAY\"}"
 echo "== state";         req GET /api/state | j '[o.season.net, o.season.rate, o.tech.level, o.currencies, o.silverMine, o.city.buildings.filter(b=>b.special).map(b=>b.special)]'
 echo "== daily cap: 4th record gives 0"; req POST /api/purchases "{\"amount\":300,\"date\":\"$TODAY\",\"name\":\"コーヒー\"}"
 echo "== g2s with 0 gold fails"; req POST /api/exchange '{"kind":"gold_to_silver","amount":10}'
 echo "== silver->wood (no estimate)";  req POST /api/exchange '{"kind":"to_resource","currency":"silver","resource":"wood","amount":20}'
-echo "== seed gold, gold->stone adds estimate"
-docker compose exec -T db psql -U tirelire -qtAc "UPDATE \"Season\" SET gold = gold + 3000 WHERE id = (SELECT s.id FROM \"Season\" s JOIN \"User\" u ON u.id = s.\"userId\" WHERE u.email = '$EMAIL' AND s.status <> 'COMPLETED')" >/dev/null
+echo "== seed 5000 gold (repays the negative first), gold->stone adds estimate"
+docker compose exec -T db psql -U tirelire -qtAc "UPDATE \"Season\" SET gold = gold + 5000 WHERE id = (SELECT s.id FROM \"Season\" s JOIN \"User\" u ON u.id = s.\"userId\" WHERE u.email = '$EMAIL' AND s.status <> 'COMPLETED')" >/dev/null
 req POST /api/exchange '{"kind":"to_resource","currency":"gold","resource":"stone","amount":2000}'
-req GET /api/state | j '[o.season.estimated, o.season.rate, o.season.projectedRate, o.tech.level, o.wishSavings]'
+req GET /api/state | j '[o.currencies.gold, o.season.estimated, o.season.rate, o.season.projectedRate, o.tech.level, o.wishSavings]'
 echo "== wish contribution counts as wish savings"; req POST /api/wishes/$W/contribute '{"amount":500}'
 req GET /api/state | j '[o.wishSavings, o.season.estimated]'
 echo "== manual build";  req POST /api/city '{"type":"build","line":"housing","x":4,"y":3}'

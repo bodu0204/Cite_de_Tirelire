@@ -16,7 +16,7 @@ import {
 } from "@/game/config";
 import { exchangeRate } from "@/game/exchange";
 import { achievementRate, devLevel, goldMineLevel, nextThreshold, projectedRate, savingsProgress, silverMineLevel } from "@/game/levels";
-import { microToGold, ratePerMinute } from "@/game/mine";
+import { goldBalance, microToGold, ratePerMinute } from "@/game/mine";
 import { dayKey } from "@/game/time";
 import type { CityState } from "@/game/types";
 import { monthlyEquivalent, subWindows, type GameCtx } from "./game";
@@ -123,7 +123,8 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
       bankBonus: BANK_EXCHANGE_BONUS[city.bankLevel - 1],
       savingsTimeline: savings.map((s) => ({ at: s.createdAt.getTime(), date: s.date, delta: s.kind === "DEPOSIT" ? s.amount : -s.amount })),
     },
-    currencies: { ...ctx.balances },
+    // gold は手持ち − 採掘負債（購入が所持金貨を超えるとマイナス）
+    currencies: { ...ctx.balances, gold: goldBalance(ctx.balances.gold, mine) },
     wishSavings: {
       reserved: ctx.balances.reserved,
       target: openWishes.reduce((a, w) => a + w.price, 0),

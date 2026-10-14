@@ -63,7 +63,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="ml-auto flex items-center gap-3 text-sm">
             {cur && (
               <>
-                <span className="num flex items-center gap-1" title="所持金貨">
+                <span className={`num flex items-center gap-1 ${cur.gold < 0 ? "font-semibold text-danger" : ""}`} title="所持金貨">
                   <Coin kind="gold" />
                   {fmt(cur.gold)}G
                 </span>
