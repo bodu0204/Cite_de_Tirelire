@@ -84,7 +84,11 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
   const patchedEstimate = ctx.seasonPatch.estimatedSavings;
   const estimated = typeof patchedEstimate === "number" ? patchedEstimate : season.estimatedSavings;
   // 欲しいもの貯金：未購入のほしい物への積立（像の積立金貨）
-  const openWishes = await tx.wishItem.findMany({ where: { userId: user.id, purchasedAt: null }, select: { price: true } });
+  const wishes = await tx.wishItem.findMany({
+    where: { userId: user.id },
+    include: { contributions: { where: { seasonId: season.id }, select: { amount: true } } },
+  });
+  const openWishes = wishes.filter((w) => !w.purchasedAt);
   const metrics = computeMetrics(city);
   const dev = devLevel(city.devPoints);
   const levels = facilityLevels(ctx);
@@ -125,6 +129,21 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
     },
     // gold は手持ち − 採掘負債（購入が所持金貨を超えるとマイナス）
     currencies: { ...ctx.balances, gold: goldBalance(ctx.balances.gold, mine) },
+    /** マップ上の公園・像の元データ（refId → 名前と詳細） */
+    specials: {
+      parks: Object.fromEntries(
+        ctx.subs.map((s) => [
+          s.id,
+          { name: s.name, amount: s.amount, cycle: s.cycle, monthly: monthlyEquivalent(s), startDate: s.startDate, endDate: s.endDate },
+        ]),
+      ),
+      statues: Object.fromEntries(
+        wishes.map((w) => [
+          w.id,
+          { name: w.name, price: w.price, priority: w.priority, reserved: w.contributions.reduce((a, c) => a + c.amount, 0), purchased: !!w.purchasedAt },
+        ]),
+      ),
+    },
     wishSavings: {
       reserved: ctx.balances.reserved,
       target: openWishes.reduce((a, w) => a + w.price, 0),

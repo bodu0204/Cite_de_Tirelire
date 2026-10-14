@@ -5,6 +5,7 @@ import { drawBuilding } from "@/components/city/draw";
 import { useGame, useSeasonView } from "@/components/GameProvider";
 import { Button, Card, Empty, Field, Gauge, Modal } from "@/components/ui";
 import { statueStage } from "@/game/city/actions";
+import { STATUE_DESCRIPTION, statueStageLabel } from "@/game/describe";
 import { STATUE_RANK_LABELS, statueRank } from "@/game/levels";
 import { fmt, yen } from "@/lib/api";
 import { useList } from "@/lib/useList";
@@ -40,8 +41,24 @@ function StatueIcon({ w }: { w: Wish }) {
   );
 }
 
+/** 像の状態の1行説明 */
+function StatueLine({ w, where }: { w: Wish; where?: { x: number; y: number } }) {
+  const stage = statueStage({ id: w.id, name: w.name, price: w.price, progress: w.reserved / w.price, purchased: !!w.purchasedAt });
+  return (
+    <p className="mt-1 rounded-md bg-surface-2 px-2 py-1 text-xs">
+      <span className="font-medium">{w.name}の像</span>
+      <span className="text-muted">
+        {" ・ "}
+        {STATUE_RANK_LABELS[statueRank(w.price)]} ・ {statueStageLabel(stage)}
+        {where && ` ・ ${where.x >= 0 ? `マス(${where.x + 1}, ${where.y + 1})` : "置く場所の空き待ち"}`}
+        {!w.purchasedAt && stage < 4 && ` ・ 次の段階まであと${fmt(Math.max(0, Math.ceil(((stage + 1) * w.price) / 4) - w.reserved))}G`}
+      </span>
+    </p>
+  );
+}
+
 function WishForm({ initial, onDone }: { initial?: Wish; onDone: () => void }) {
-  const { act, busy } = useGame();
+  const { act, busy, toast } = useGame();
   const [f, setF] = useState({ name: initial?.name ?? "", price: initial ? String(initial.price) : "", priority: String(initial?.priority ?? 2), memo: initial?.memo ?? "" });
   const price = Number(f.price || 0);
   return (
@@ -50,8 +67,10 @@ function WishForm({ initial, onDone }: { initial?: Wish; onDone: () => void }) {
       onSubmit={async (e) => {
         e.preventDefault();
         const body = { ...f, price, priority: Number(f.priority) };
-        const r = initial ? await act(`/api/wishes/${initial.id}`, body, "PATCH") : await act("/api/wishes", body);
+        const r = initial ? await act<{ returned?: number }>(`/api/wishes/${initial.id}`, body, "PATCH") : await act("/api/wishes", body);
         if (r) {
+          const returned = (r as { returned?: number }).returned ?? 0;
+          if (returned > 0) toast(`価格を超えていた積立 ${fmt(returned)}G を所持金貨に戻しました`);
           if (!initial) setF({ name: "", price: "", priority: "2", memo: "" });
           onDone();
         }
@@ -75,7 +94,7 @@ function WishForm({ initial, onDone }: { initial?: Wish; onDone: () => void }) {
       <Field label="メモ（任意）">
         <input maxLength={500} value={f.memo} onChange={(e) => setF({ ...f, memo: e.target.value })} />
       </Field>
-      <Button type="submit" className="w-full" disabled={busy}>
+      <Button type="submit" className="w-full" disabled={busy || !f.name.trim() || price <= 0}>
         {initial ? "保存" : "ほしい物を追加"}
       </Button>
     </form>
@@ -91,6 +110,22 @@ export default function WishesPage() {
   const [amount, setAmount] = useState("");
   const gold = v?.currencies.gold ?? 0;
 
+  // 積立の入力チェック：価格を超える積立・所持金貨を超える積立・積立額を超える取消はできない
+  const remaining = fund ? Math.max(0, fund.price - fund.reserved) : 0;
+  const fundAmount = amount === "" || amount === "-" ? NaN : Number(amount);
+  const fundError = !fund || !Number.isInteger(fundAmount) || fundAmount === 0
+    ? null
+    : fundAmount > 0 && fundAmount > remaining
+      ? remaining > 0
+        ? `積み立てられるのはあと ${fmt(remaining)}G までです（価格 ${yen(fund.price)}）`
+        : "積立はすでに価格に達しています"
+      : fundAmount > 0 && fundAmount > gold
+        ? `所持金貨が足りません（所持 ${fmt(gold)}G）`
+        : fundAmount < 0 && -fundAmount > fund.reserved
+          ? `取り消せるのは積立済みの ${fmt(fund.reserved)}G までです`
+          : null;
+
+  const statueAt = (id: string) => v?.city.buildings.find((b) => b.special === "statue" && b.refId === id);
   const open = items?.filter((w) => !w.purchasedAt) ?? [];
   const done = items?.filter((w) => w.purchasedAt) ?? [];
 
@@ -106,6 +141,7 @@ export default function WishesPage() {
         <WishForm onDone={reload} />
       </Card>
       <Card title="計画中の像">
+        <p className="mb-3 text-xs text-muted">{STATUE_DESCRIPTION}</p>
         {open.length === 0 ? (
           <Empty>ほしい物はまだありません</Empty>
         ) : (
@@ -119,9 +155,11 @@ export default function WishesPage() {
                     <span className="num shrink-0 text-sm">{yen(w.price)}</span>
                   </div>
                   <Gauge value={w.reserved} max={w.price} color="var(--gold)" label={`${w.name}の積立`} />
+                  <StatueLine w={w} where={statueAt(w.id)} />
+                  {w.memo && <p className="mt-1 text-xs whitespace-pre-wrap break-words">メモ：{w.memo}</p>}
                   <div className="mt-0.5 flex justify-between text-xs text-muted">
                     <span>
-                      {STATUE_RANK_LABELS[statueRank(w.price)]} ・ 優先度{PRIORITY[w.priority]} ・ 積立 {fmt(w.reserved)}G（{Math.floor((w.reserved / w.price) * 100)}%）
+                      優先度{PRIORITY[w.priority]} ・ 積立 {fmt(w.reserved)}G（{Math.floor((w.reserved / w.price) * 100)}%）
                     </span>
                     <span className="flex gap-2">
                       <button className="underline" disabled={!v} onClick={() => (setFund(w), setAmount(""))}>
@@ -154,8 +192,14 @@ export default function WishesPage() {
             {done.map((w) => (
               <li key={w.id} className="flex items-center gap-3 text-sm">
                 <StatueIcon w={w} />
-                <span className="flex-1">{w.name}</span>
-                <span className="num text-muted">{yen(w.price)}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex justify-between gap-2">
+                    <span className="truncate">{w.name}</span>
+                    <span className="num text-muted">{yen(w.price)}</span>
+                  </div>
+                  <StatueLine w={w} where={statueAt(w.id)} />
+                  {w.memo && <p className="mt-1 text-xs whitespace-pre-wrap break-words">メモ：{w.memo}</p>}
+                </div>
               </li>
             ))}
           </ul>
@@ -181,13 +225,18 @@ export default function WishesPage() {
             }}
           >
             <p className="text-sm text-muted">
-              所持金貨 {fmt(gold)}G ・ 積立済み {fmt(fund.reserved)}G ・ 残り {fmt(Math.max(0, fund.price - fund.reserved))}G
+              所持金貨 {fmt(gold)}G ・ 積立済み {fmt(fund.reserved)}G ・ 残り {fmt(remaining)}G
             </p>
             <Field label="金貨（取り消す場合はマイナス）">
               <input inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^\d-]/g, ""))} placeholder="1000" />
             </Field>
+            {fundError && (
+              <p role="alert" className="text-sm text-danger">
+                {fundError}
+              </p>
+            )}
             <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="secondary" onClick={() => setAmount(String(Math.max(0, Math.min(gold, fund.price - fund.reserved))))}>
+              <Button type="button" variant="secondary" disabled={remaining <= 0 || gold <= 0} onClick={() => setAmount(String(Math.max(0, Math.min(gold, remaining))))}>
                 残りを全部
               </Button>
               {fund.reserved > 0 && (
@@ -196,7 +245,7 @@ export default function WishesPage() {
                 </Button>
               )}
             </div>
-            <Button type="submit" variant="gold" className="w-full" disabled={busy || !amount || amount === "-" || Number(amount) === 0}>
+            <Button type="submit" variant="gold" className="w-full" disabled={busy || !Number.isInteger(fundAmount) || fundAmount === 0 || !!fundError}>
               確定
             </Button>
           </form>

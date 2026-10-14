@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import {
   evolveCost,
@@ -18,9 +19,10 @@ import {
 import { buildingOutput } from "@/game/city/economy";
 import { idx, tileUnlockLevel } from "@/game/city/layout";
 import { FEE_MOVE, FEE_RUSH_PER_10MIN, feeBuild, feeUpgrade, MINUTE } from "@/game/config";
+import { PARK_DESCRIPTION, PARK_SIZE_LABELS, STATUE_DESCRIPTION, statueStageLabel } from "@/game/describe";
 import { STATUE_RANK_LABELS } from "@/game/levels";
 import type { Building } from "@/game/types";
-import { fmt } from "@/lib/api";
+import { fmt, yen } from "@/lib/api";
 import type { ActiveView } from "@/server/view";
 import { useGame } from "../GameProvider";
 import { Button } from "../ui";
@@ -58,6 +60,53 @@ function outputText(v: ActiveView, b: Building): string {
   if (t.workers) parts.push(`働き手 ${fmt(t.workers * lm, 1)}人`);
   if (t.power) parts.push(`電力消費 ${fmt(t.power * lm, 1)}`);
   return parts.join(" ・ ");
+}
+
+type ParkInfo = ActiveView["specials"]["parks"][string];
+type StatueInfo = ActiveView["specials"]["statues"][string];
+
+function parkRows(b: Building, p?: ParkInfo): [string, string][] {
+  const rows: [string, string][] = [
+    ["状態", b.closed ? "閉園中（解約済み）" : "開園中"],
+    ["大きさ", PARK_SIZE_LABELS[b.tier] ?? ""],
+  ];
+  if (p) {
+    rows.push(["料金", p.cycle === "YEARLY" ? `${yen(p.amount)}/年（月${yen(p.monthly)}）` : `${yen(p.amount)}/月`]);
+    rows.push(["契約期間", `${p.startDate}〜${p.endDate ?? ""}`]);
+  }
+  return rows;
+}
+
+function statueRows(b: Building, w?: StatueInfo): [string, string][] {
+  const rows: [string, string][] = [
+    ["種類", STATUE_RANK_LABELS[(["bronze", "silver", "gold"] as const)[b.tier]]],
+    ["状態", statueStageLabel(b.level)],
+  ];
+  if (w) {
+    rows.push(["価格", yen(w.price)]);
+    if (!w.purchased) rows.push(["積立", `${fmt(w.reserved)}G（${Math.floor((w.reserved / w.price) * 100)}%）`]);
+    rows.push(["優先度", ["", "高", "中", "低"][w.priority] ?? ""]);
+  }
+  return rows;
+}
+
+function SpecialDetail({ rows, description, href, linkLabel }: { rows: [string, string][]; description: string; href: string; linkLabel: string }) {
+  return (
+    <div className="mt-2 space-y-2">
+      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
+        {rows.map(([k, val]) => (
+          <div key={k} className="contents">
+            <dt className="text-muted">{k}</dt>
+            <dd className="num">{val}</dd>
+          </div>
+        ))}
+      </dl>
+      <p className="text-xs text-muted">{description}</p>
+      <Link href={href} className="inline-block text-xs underline">
+        {linkLabel}
+      </Link>
+    </div>
+  );
 }
 
 export function TilePanel({
@@ -139,7 +188,18 @@ export function TilePanel({
   }
 
   if (b) {
-    const name = b.line ? tierDef(b.line, b.tier).name : b.special ? SPECIAL_LABELS[b.special] : "";
+    const park = b.special === "park" && b.refId ? v.specials.parks[b.refId] : undefined;
+    const statue = b.special === "statue" && b.refId ? v.specials.statues[b.refId] : undefined;
+    // 公園・像は「[対象名]の公園」「[対象名]の像」と表示する
+    const name = b.line
+      ? tierDef(b.line, b.tier).name
+      : park
+        ? `${park.name}の公園`
+        : statue
+          ? `${statue.name}の像`
+          : b.special
+            ? SPECIAL_LABELS[b.special]
+            : "";
     const bJob = city.jobs.find((j) => j.buildingId === b.id);
     const canUpgrade = b.line && b.level < v.dev.levelCap;
     const nextTier = b.line && b.tier + 1 < LINES[b.line].tiers.length ? b.tier + 1 : null;
@@ -151,12 +211,10 @@ export function TilePanel({
           <p className="font-pixel text-base">
             {name}
             {b.line && <span className="ml-2 text-xs text-muted">Lv{b.level}</span>}
-            {b.special === "statue" && <span className="ml-2 text-xs text-muted">{STATUE_RANK_LABELS[(["bronze", "silver", "gold"] as const)[b.tier]]}</span>}
-            {b.closed && <span className="ml-2 text-xs text-muted">閉園</span>}
           </p>
           {b.line && <p className="mt-1 text-xs text-muted">{outputText(v, b)}</p>}
-          {b.special === "statue" && <p className="mt-1 text-xs text-muted">{b.level >= 5 ? "購入済み・完成" : `積立 ${b.level * 25}% 以上`}（ほしい物リストで積立）</p>}
-          {b.special === "park" && <p className="mt-1 text-xs text-muted">サブスクリプションの公園。周辺の幸福度を上げます。</p>}
+          {b.special === "park" && <SpecialDetail rows={parkRows(b, park)} description={PARK_DESCRIPTION} href="/subscriptions" linkLabel="サブスク一覧で編集" />}
+          {b.special === "statue" && <SpecialDetail rows={statueRows(b, statue)} description={STATUE_DESCRIPTION} href="/wishes" linkLabel="ほしい物リストで積立・編集" />}
           {b.locked && b.line && <p className="mt-1 text-xs">固定中：自動開発の対象外です</p>}
         </div>
 

@@ -9,6 +9,23 @@ export interface DescribableEvent {
 
 const yen = (n: number) => `${n.toLocaleString("ja-JP")}円`;
 
+/** 公園の大きさ（parkSize の段階）。月額換算 500円・1,500円・3,000円 で一段ずつ大きくなる */
+export const PARK_SIZE_LABELS = ["小さな広場", "公園", "大きな公園", "噴水のある庭園"];
+
+export const PARK_DESCRIPTION =
+  "契約中のサブスク1件につき公園が1つできます。月額が高いほど大きく（500円・1,500円・3,000円で一段ずつ）、開園中は街の幸福度を上げます。公園が増えるほど1つあたりの効果は小さくなります（合計+15まで）。解約すると閉園し、閉園した公園は撤去できます。";
+
+export const STATUE_DESCRIPTION =
+  "ほしい物1件につき像が1体できます。価格で銅像（5,000円未満）・銀像（30,000円未満）・金像に分かれ、金貨の積立が25%進むごとに像が高くなります。100%で資金準備完了、購入を記録すると完成します。像は自動開発で撤去されません。";
+
+/** 像の段階（statueStage）の説明 */
+export function statueStageLabel(stage: number): string {
+  if (stage >= 5) return "完成（購入済み）";
+  if (stage >= 4) return "資金準備完了（購入を記録すると完成）";
+  if (stage === 0) return "土台のみ（積立0〜24%）";
+  return `建築中（積立${stage * 25}%以上）`;
+}
+
 export function describeEvent(e: DescribableEvent): string {
   const p = e.payload as Record<string, never>;
   const who = e.auto ? "" : "（手動）";

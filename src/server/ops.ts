@@ -446,9 +446,21 @@ async function ownWish(ctx: GameCtx, id: string) {
 
 export async function updateWish(ctx: GameCtx, id: string, body: Body) {
   const w = await ownWish(ctx, id);
-  await ctx.tx.wishItem.update({ where: { id }, data: wishInput({ ...w, ...body }) });
+  const input = wishInput({ ...w, ...body });
+  await ctx.tx.wishItem.update({ where: { id }, data: input });
+  // 価格を積立額より下げたら、超えた分の金貨を返す（価格を超える積立を残さない）
+  let returned = 0;
+  if (ctx.season && !w.purchasedAt) {
+    const reserved = await reservedFor(ctx, id);
+    returned = Math.max(0, reserved - input.price);
+    if (returned > 0) {
+      await ctx.tx.wishContribution.create({ data: { seasonId: ctx.season.id, wishItemId: id, amount: -returned } });
+      addCurrency(ctx, "RESERVED", -returned, "wish_price_down", id);
+      addCurrency(ctx, "GOLD", returned, "wish_price_down", id);
+    }
+  }
   await syncSpecials(ctx);
-  return { id };
+  return { id, returned };
 }
 
 export async function deleteWish(ctx: GameCtx, id: string) {
@@ -472,6 +484,11 @@ export async function contributeWish(ctx: GameCtx, id: string, body: Body) {
   if (amount === 0) fail("invalid", "金貨を入力してください");
   const reserved = await reservedFor(ctx, id);
   if (amount < 0 && -amount > reserved) fail("invalid", `取り消せるのは積立済みの ${reserved}G までです`);
+  // 価格を超えて積み立てることはできない
+  if (amount > 0 && reserved + amount > w.price) {
+    const rest = Math.max(0, w.price - reserved);
+    fail("over_price", rest > 0 ? `積み立てられるのはあと ${rest.toLocaleString("ja-JP")}G までです` : "積立はすでに価格に達しています");
+  }
   addCurrency(ctx, "GOLD", -amount, amount > 0 ? "wish_contribute" : "wish_withdraw", id);
   addCurrency(ctx, "RESERVED", amount, amount > 0 ? "wish_contribute" : "wish_withdraw", id);
   await ctx.tx.wishContribution.create({ data: { seasonId: ctx.season!.id, wishItemId: id, amount } });

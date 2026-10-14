@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useGame, useSeasonView } from "@/components/GameProvider";
 import { Button, Card, Empty, Field, Modal } from "@/components/ui";
 import { parkSize } from "@/game/city/actions";
+import { PARK_DESCRIPTION, PARK_SIZE_LABELS as SIZE } from "@/game/describe";
 import { todayIn, yen } from "@/lib/api";
 import { useList } from "@/lib/useList";
 
@@ -18,7 +19,12 @@ interface Sub {
 }
 
 const monthly = (s: Pick<Sub, "amount" | "cycle">) => (s.cycle === "YEARLY" ? Math.round(s.amount / 12) : s.amount);
-const SIZE = ["小さな広場", "公園", "大きな公園", "噴水のある庭園"];
+
+/** 次の大きさまでの月額（parkSize の段階：500円・1,500円・3,000円） */
+function nextSize(m: number): string {
+  const next = [500, 1500, 3000].find((t) => m < t);
+  return next ? `（月額があと${yen(next - m)}で${SIZE[parkSize(next)]}）` : "（最大の大きさ）";
+}
 
 function SubForm({ initial, onDone, tz }: { initial?: Sub; onDone: () => void; tz: string }) {
   const { act, busy } = useGame();
@@ -103,6 +109,7 @@ export default function SubscriptionsPage() {
         )}
       </Card>
       <Card title="契約一覧">
+        <p className="mb-2 text-xs text-muted">{PARK_DESCRIPTION}</p>
         {!items?.length ? (
           <Empty>登録されたサブスクはありません</Empty>
         ) : (
@@ -119,8 +126,17 @@ export default function SubscriptionsPage() {
                     {yen(s.amount)}/{s.cycle === "YEARLY" ? "年" : "月"}
                     {s.cycle === "YEARLY" && <span className="text-xs text-muted">（月{yen(monthly(s))}）</span>}
                   </span>
-                  <span className="w-full text-xs text-muted">
-                    {s.startDate}〜{s.endDate ?? ""} ・ {park ? `${park.closed ? "閉園した" : ""}${SIZE[park.tier]}（マス ${park.x >= 0 ? `${park.x + 1},${park.y + 1}` : "空き待ち"}）` : `公園：${SIZE[parkSize(monthly(s))]}`}
+                  <span className="w-full text-xs text-muted">契約期間 {s.startDate}〜{s.endDate ?? ""}</span>
+                  <span className="w-full rounded-md bg-surface-2 px-2 py-1 text-xs">
+                    <span className="font-medium">{s.name}の公園</span>
+                    <span className="text-muted">
+                      {" ・ "}
+                      {park ? (park.closed ? "閉園中" : "開園中") : s.startDate > today ? "契約開始日に開園" : "閉園"}
+                      {" ・ "}
+                      {SIZE[park?.tier ?? parkSize(monthly(s))]}
+                      {park && ` ・ ${park.x >= 0 ? `マス(${park.x + 1}, ${park.y + 1})` : "置く場所の空き待ち"}`}
+                      {nextSize(monthly(s))}
+                    </span>
                   </span>
                   <span className="flex gap-3 text-xs">
                     <button className="underline" onClick={() => setEdit(s)}>
