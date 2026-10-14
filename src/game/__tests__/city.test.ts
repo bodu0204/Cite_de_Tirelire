@@ -1,0 +1,218 @@
+import { describe, expect, it } from "vitest";
+import { tierDef } from "../catalog";
+import { DAY, HOUR, TICK_MS } from "../config";
+import { manualBuild, manualUpgrade, rushJob, syncParks } from "../city/actions";
+import { computeMetrics } from "../city/economy";
+import { createCity } from "../city/init";
+import { isTileUnlocked, tileUnlockLevel } from "../city/layout";
+import { applyTechLevel, simulate } from "../city/sim";
+import { devLevel } from "../levels";
+import type { CityEvent, CityState } from "../types";
+
+const T0 = Date.UTC(2026, 9, 1, 0, 0, 0);
+
+function run(s: CityState, ms: number) {
+  const events: CityEvent[] = [];
+  simulate(s, s.simTime + ms, events);
+  return events;
+}
+
+const clone = (s: CityState): CityState => structuredClone(s);
+
+describe("AT-009 無操作での街の発展", () => {
+  it("24時間で資源・発展ptが増え、自動で建物が増える", () => {
+    const s = createCity(T0);
+    const before = clone(s);
+    const events = run(s, DAY);
+    expect(s.devPoints).toBeGreaterThan(before.devPoints);
+    expect(s.population).toBeGreaterThan(before.population);
+    const built = events.filter((e) => e.type === "BUILD" || e.type === "UPGRADE");
+    expect(built.length).toBeGreaterThan(0);
+    expect(built.every((e) => e.auto)).toBe(true);
+  });
+});
+
+describe("AT-012 長期間の放置", () => {
+  it("7日間で時系列のイベント、資源は負にならない", () => {
+    const s = createCity(T0);
+    applyTechLevel(s, 2, T0, []);
+    const events = run(s, 7 * DAY);
+    for (let i = 1; i < events.length; i++) expect(events[i].at).toBeGreaterThanOrEqual(events[i - 1].at);
+    expect(s.stock.wood).toBeGreaterThanOrEqual(0);
+    expect(s.stock.stone).toBeGreaterThanOrEqual(0);
+    expect(s.stock.food).toBeGreaterThanOrEqual(0);
+    expect(s.treasury).toBeGreaterThanOrEqual(0);
+    expect(devLevel(s.devPoints)).toBeGreaterThanOrEqual(2);
+    expect(events.some((e) => e.type === "DISTRICT_UNLOCKED")).toBe(true);
+  });
+
+  it("決定的：まとめて計算しても小分けにしても同じ結果になる", () => {
+    const a = createCity(T0);
+    const b = createCity(T0);
+    run(a, 3 * DAY);
+    const eb: CityEvent[] = [];
+    // 不規則な時刻にアクセスしてもティックは絶対時刻に揃う
+    let t = T0;
+    for (const step of [7 * 60_000, 3 * HOUR + 123, 11 * HOUR, 5 * 60_000, DAY, 3 * DAY]) {
+      t = Math.min(T0 + 3 * DAY, t + step);
+      simulate(b, t, eb);
+    }
+    simulate(b, T0 + 3 * DAY, eb);
+    expect(b).toEqual(a);
+  });
+
+  it("同じ時刻で再計算しても二重計上しない", () => {
+    const s = createCity(T0);
+    run(s, DAY);
+    const snapshot = clone(s);
+    simulate(s, s.simTime + TICK_MS - 1, []);
+    expect(s).toEqual(snapshot);
+  });
+});
+
+describe("AT-010 貯金による技術解放", () => {
+  it("技術Lv3で工業系が建設可能になり、既存建物に技術ボーナス。発展ptは付与しない", () => {
+    const s = createCity(T0);
+    run(s, 3 * DAY); // 発展Lv2 へ
+    const dev = s.devPoints;
+    const prodBefore = computeMetrics(s).production.wood;
+    const events: CityEvent[] = [];
+    applyTechLevel(s, 3, s.simTime, events);
+    expect(events.map((e) => e.payload.level)).toEqual([2, 3]);
+    expect(s.devPoints).toBe(dev);
+    expect(computeMetrics(s).production.wood).toBeGreaterThan(prodBefore);
+    expect(devLevel(s.devPoints)).toBeGreaterThanOrEqual(2);
+    // 工場（工業系 段階1）が手動で建てられる
+    s.stock.wood = 1000;
+    s.stock.stone = 1000;
+    const free = { x: 6, y: 6 };
+    s.buildings = s.buildings.filter((b) => !(b.x === free.x && b.y === free.y));
+    s.jobs = s.jobs.filter((j) => !(j.x === free.x && j.y === free.y));
+    expect(() => manualBuild(s, { line: "factory", tier: 1, ...free }, s.simTime, 1000)).not.toThrow();
+  });
+});
+
+describe("AT-011 技術が高く発展度が低い場合", () => {
+  it("発展Lvが足りない施設は建設されず、放置で発展Lvが上がる", () => {
+    const s = createCity(T0);
+    applyTechLevel(s, 5, T0, []);
+    expect(devLevel(s.devPoints)).toBe(1);
+    expect(() => manualBuild(s, { line: "office", x: 4, y: 3 }, T0, 1000)).toThrow(/解放/);
+    const events = run(s, 2 * DAY);
+    const levelOf = new Map<string, number>();
+    for (const e of events) if (e.type === "DEV_LEVEL") levelOf.set(String(e.at), e.payload.level as number);
+    // 建った建物はすべて、その時点の発展Lvの条件を満たしている
+    let lv = 1;
+    for (const e of events) {
+      if (e.type === "DEV_LEVEL") lv = e.payload.level as number;
+      if (e.type === "BUILD") {
+        const b = e.payload.building as { line: never; tier: number };
+        expect(tierDef(b.line, b.tier).dev).toBeLessThanOrEqual(lv);
+      }
+    }
+    expect(devLevel(s.devPoints)).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("AT-013 銀貨が0の場合", () => {
+  it("自動発展は続き、銀貨が必要な手動操作だけ制限される", () => {
+    const s = createCity(T0);
+    const events = run(s, DAY);
+    expect(events.some((e) => e.type === "BUILD" || e.type === "UPGRADE")).toBe(true);
+    const fresh = createCity(T0);
+    expect(() => manualUpgrade(fresh, "b3", T0, 0)).toThrow(/銀貨/);
+    expect(() => manualBuild(fresh, { line: "housing", x: 4, y: 3 }, T0, 0)).toThrow(/銀貨/);
+  });
+});
+
+describe("AT-014 技術解放後の建物進化", () => {
+  it("技術Lv2の農場が、技術Lv3で機械化農場へ自動進化する", () => {
+    const s = createCity(T0);
+    applyTechLevel(s, 2, T0, []);
+    run(s, 4 * DAY);
+    const farm = s.buildings.find((b) => b.line === "farm" && b.tier === 1);
+    expect(farm, "技術Lv2の農場が存在する").toBeDefined();
+    expect(devLevel(s.devPoints)).toBeGreaterThanOrEqual(2);
+    const foodBefore = computeMetrics(s).production.food;
+
+    applyTechLevel(s, 3, s.simTime, []);
+    const events = run(s, 5 * DAY);
+    const evolved = events.find((e) => e.type === "EVOLVE" && (e.payload.to as string) === "機械化農場");
+    expect(evolved, "機械化農場への進化イベント").toBeDefined();
+    expect(evolved!.auto).toBe(true);
+    expect(computeMetrics(s).production.food).toBeGreaterThan(foodBefore);
+  });
+
+  it("技術Lvが上がっても一瞬で全部は置き換わらない", () => {
+    const s = createCity(T0);
+    applyTechLevel(s, 2, T0, []);
+    const events = run(s, HOUR);
+    expect(events.filter((e) => e.type === "EVOLVE").length).toBeLessThanOrEqual(1);
+  });
+});
+
+describe("手動操作", () => {
+  it("手動建設は資材と銀貨で払い、都市資金を使わない。即時完了できる", () => {
+    const s = createCity(T0);
+    const treasury = s.treasury;
+    const r = manualBuild(s, { line: "housing", x: 4, y: 3 }, T0, 100);
+    expect(r.silverFee).toBeGreaterThan(0);
+    expect(s.treasury).toBe(treasury);
+    const events: CityEvent[] = [];
+    rushJob(s, s.jobs[0].id, T0, 100, events);
+    expect(events[0].type).toBe("BUILD");
+    expect(events[0].auto).toBe(false);
+    expect(s.buildings.find((b) => b.x === 4 && b.y === 3)?.manual).toBe(true);
+  });
+
+  it("建設・撤去を繰り返しても発展ptは重複計上しない", () => {
+    const s = createCity(T0);
+    s.stock.wood = 1000;
+    const pts: number[] = [];
+    for (let i = 0; i < 3; i++) {
+      manualBuild(s, { line: "housing", x: 4, y: 3 }, T0, 100);
+      rushJob(s, s.jobs[s.jobs.length - 1].id, T0, 100, []);
+      pts.push(s.devPoints);
+      s.buildings = s.buildings.filter((b) => !(b.x === 4 && b.y === 3));
+    }
+    expect(pts[1]).toBe(pts[0]);
+    expect(pts[2]).toBe(pts[0]);
+  });
+
+  it("解放前の区画には建てられない", () => {
+    const s = createCity(T0);
+    expect(tileUnlockLevel(0, 0)).toBe(5);
+    expect(isTileUnlocked(2, 2, 1)).toBe(false);
+    expect(() => manualBuild(s, { line: "housing", x: 2, y: 2 }, T0, 100)).toThrow(/解放/);
+  });
+});
+
+describe("公園", () => {
+  it("サブスクの公園は幸福度を上げ、効果は逓減する", () => {
+    const s = createCity(T0);
+    const h0 = computeMetrics(s).happinessTarget;
+    syncParks(s, [{ id: "a", name: "A", monthly: 1000, active: true }], T0, []);
+    const h1 = computeMetrics(s).happinessTarget;
+    syncParks(
+      s,
+      [
+        { id: "a", name: "A", monthly: 1000, active: true },
+        { id: "b", name: "B", monthly: 1000, active: true },
+      ],
+      T0,
+      [],
+    );
+    const h2 = computeMetrics(s).happinessTarget;
+    expect(h1).toBeGreaterThan(h0);
+    expect(h2 - h1).toBeLessThan(h1 - h0);
+  });
+
+  it("解約すると閉園になる", () => {
+    const s = createCity(T0);
+    const ev: CityEvent[] = [];
+    syncParks(s, [{ id: "a", name: "A", monthly: 1000, active: true }], T0, ev);
+    syncParks(s, [{ id: "a", name: "A", monthly: 1000, active: false }], T0, ev);
+    expect(ev.map((e) => e.type)).toEqual(["PARK_OPENED", "PARK_CLOSED"]);
+    expect(s.buildings.find((b) => b.special === "park")?.closed).toBe(true);
+  });
+});

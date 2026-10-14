@@ -1,0 +1,207 @@
+"use client";
+
+import { useState } from "react";
+import { drawBuilding } from "@/components/city/draw";
+import { useGame, useSeasonView } from "@/components/GameProvider";
+import { Button, Card, Empty, Field, Gauge, Modal } from "@/components/ui";
+import { statueStage } from "@/game/city/actions";
+import { STATUE_RANK_LABELS, statueRank } from "@/game/levels";
+import { fmt, yen } from "@/lib/api";
+import { useList } from "@/lib/useList";
+
+interface Wish {
+  id: string;
+  name: string;
+  price: number;
+  priority: number;
+  memo: string | null;
+  purchasedAt: string | null;
+  reserved: number;
+}
+
+const PRIORITY = ["", "高", "中", "低"];
+const RANKS = ["bronze", "silver", "gold"] as const;
+
+function StatueIcon({ w }: { w: Wish }) {
+  return (
+    <canvas
+      width={16}
+      height={16}
+      aria-hidden
+      className="pixelated h-12 w-12 shrink-0 rounded-md bg-[#66bb6a]"
+      ref={(c) => {
+        const ctx = c?.getContext("2d");
+        if (!ctx) return;
+        ctx.clearRect(0, 0, 16, 16);
+        const stage = statueStage({ id: w.id, name: w.name, price: w.price, progress: w.reserved / w.price, purchased: !!w.purchasedAt });
+        drawBuilding(ctx, { id: w.id, special: "statue", tier: RANKS.indexOf(statueRank(w.price)), level: stage, x: 0, y: 0 }, 0, 0, 1, 0);
+      }}
+    />
+  );
+}
+
+function WishForm({ initial, onDone }: { initial?: Wish; onDone: () => void }) {
+  const { act, busy } = useGame();
+  const [f, setF] = useState({ name: initial?.name ?? "", price: initial ? String(initial.price) : "", priority: String(initial?.priority ?? 2), memo: initial?.memo ?? "" });
+  const price = Number(f.price || 0);
+  return (
+    <form
+      className="space-y-3"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        const body = { ...f, price, priority: Number(f.priority) };
+        const r = initial ? await act(`/api/wishes/${initial.id}`, body, "PATCH") : await act("/api/wishes", body);
+        if (r) {
+          if (!initial) setF({ name: "", price: "", priority: "2", memo: "" });
+          onDone();
+        }
+      }}
+    >
+      <Field label="商品名">
+        <input required maxLength={100} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
+      </Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="価格（円）" hint={price > 0 ? `${STATUE_RANK_LABELS[statueRank(price)]}になります` : undefined}>
+          <input inputMode="numeric" required value={f.price} onChange={(e) => setF({ ...f, price: e.target.value.replace(/\D/g, "") })} />
+        </Field>
+        <Field label="購入優先度">
+          <select value={f.priority} onChange={(e) => setF({ ...f, priority: e.target.value })}>
+            <option value="1">高</option>
+            <option value="2">中</option>
+            <option value="3">低</option>
+          </select>
+        </Field>
+      </div>
+      <Field label="メモ（任意）">
+        <input maxLength={500} value={f.memo} onChange={(e) => setF({ ...f, memo: e.target.value })} />
+      </Field>
+      <Button type="submit" className="w-full" disabled={busy}>
+        {initial ? "保存" : "ほしい物を追加"}
+      </Button>
+    </form>
+  );
+}
+
+export default function WishesPage() {
+  const { act, toast, busy } = useGame();
+  const v = useSeasonView();
+  const { items, reload } = useList<Wish>("/api/wishes");
+  const [edit, setEdit] = useState<Wish | null>(null);
+  const [fund, setFund] = useState<Wish | null>(null);
+  const [amount, setAmount] = useState("");
+  const gold = v?.currencies.gold ?? 0;
+
+  const open = items?.filter((w) => !w.purchasedAt) ?? [];
+  const done = items?.filter((w) => w.purchasedAt) ?? [];
+
+  return (
+    <div className="mx-auto max-w-2xl space-y-4">
+      <div>
+        <h1 className="font-pixel text-2xl">ほしい物リスト</h1>
+        <p className="mt-1 text-sm text-muted">
+          ほしい物は街の像になります。金貨を少しずつ積み立てると像が育ち、実際に購入を記録すると完成します。積立は現実の預金ではなく、ゲーム内の予約です。
+        </p>
+      </div>
+      <Card title="追加する">
+        <WishForm onDone={reload} />
+      </Card>
+      <Card title="計画中の像">
+        {open.length === 0 ? (
+          <Empty>ほしい物はまだありません</Empty>
+        ) : (
+          <ul className="space-y-3">
+            {open.map((w) => (
+              <li key={w.id} className="flex items-center gap-3">
+                <StatueIcon w={w} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="truncate font-medium">{w.name}</span>
+                    <span className="num shrink-0 text-sm">{yen(w.price)}</span>
+                  </div>
+                  <Gauge value={w.reserved} max={w.price} color="var(--gold)" label={`${w.name}の積立`} />
+                  <div className="mt-0.5 flex justify-between text-xs text-muted">
+                    <span>
+                      {STATUE_RANK_LABELS[statueRank(w.price)]} ・ 優先度{PRIORITY[w.priority]} ・ 積立 {fmt(w.reserved)}G（{Math.floor((w.reserved / w.price) * 100)}%）
+                    </span>
+                    <span className="flex gap-2">
+                      <button className="underline" disabled={!v} onClick={() => (setFund(w), setAmount(""))}>
+                        積立
+                      </button>
+                      <button className="underline" onClick={() => setEdit(w)}>
+                        編集
+                      </button>
+                      <button
+                        className="text-danger underline"
+                        onClick={async () => {
+                          if (!confirm(`${w.name}を削除しますか？積立済みの金貨は戻ります。`)) return;
+                          if (await act(`/api/wishes/${w.id}`, undefined, "DELETE")) reload();
+                        }}
+                      >
+                        削除
+                      </button>
+                    </span>
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="mt-3 text-xs text-muted">購入したら、銀鉱の「購入を記録」でこのほしい物を選んでください。積立済みの金貨が購入の精算に充てられます。</p>
+      </Card>
+      {done.length > 0 && (
+        <Card title="完成した像">
+          <ul className="space-y-2">
+            {done.map((w) => (
+              <li key={w.id} className="flex items-center gap-3 text-sm">
+                <StatueIcon w={w} />
+                <span className="flex-1">{w.name}</span>
+                <span className="num text-muted">{yen(w.price)}</span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+
+      <Modal open={!!edit} onClose={() => setEdit(null)} title="ほしい物を編集">
+        {edit && <WishForm key={edit.id} initial={edit} onDone={() => (setEdit(null), reload())} />}
+      </Modal>
+      <Modal open={!!fund} onClose={() => setFund(null)} title={`${fund?.name ?? ""}に金貨を積み立てる`}>
+        {fund && (
+          <form
+            className="space-y-3"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              const n = Number(amount);
+              const r = await act(`/api/wishes/${fund.id}/contribute`, { amount: n });
+              if (r) {
+                toast(n > 0 ? `${fmt(n)}G を積み立てました` : `${fmt(-n)}G を取り消しました`);
+                setFund(null);
+                reload();
+              }
+            }}
+          >
+            <p className="text-sm text-muted">
+              所持金貨 {fmt(gold)}G ・ 積立済み {fmt(fund.reserved)}G ・ 残り {fmt(Math.max(0, fund.price - fund.reserved))}G
+            </p>
+            <Field label="金貨（取り消す場合はマイナス）">
+              <input inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^\d-]/g, ""))} placeholder="1000" />
+            </Field>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="secondary" onClick={() => setAmount(String(Math.min(gold, Math.max(0, fund.price - fund.reserved))))}>
+                残りを全部
+              </Button>
+              {fund.reserved > 0 && (
+                <Button type="button" variant="secondary" onClick={() => setAmount(String(-fund.reserved))}>
+                  全額取り消し
+                </Button>
+              )}
+            </div>
+            <Button type="submit" variant="gold" className="w-full" disabled={busy || !amount || amount === "-" || Number(amount) === 0}>
+              確定
+            </Button>
+          </form>
+        )}
+      </Modal>
+    </div>
+  );
+}

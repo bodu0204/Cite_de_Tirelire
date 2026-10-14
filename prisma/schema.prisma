@@ -1,0 +1,275 @@
+// データモデル。要件上のテーブルとの対応は docs/requirements.md 9.1 を参照。
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  passwordHash  String
+  /// 月間自由予算（円）
+  monthlyBudget Int      @default(0)
+  timezone      String   @default("Asia/Tokyo")
+  createdAt     DateTime @default(now())
+
+  sessions        Session[]
+  seasons         Season[]
+  purchases       Purchase[]
+  savings         SavingsTransaction[]
+  subscriptions   Subscription[]
+  wishItems       WishItem[]
+  rewardClaims    RewardClaim[]
+  idempotencyKeys IdempotencyKey[]
+}
+
+model Session {
+  /// トークンの SHA-256
+  id        String   @id
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+enum SeasonStatus {
+  ACTIVE
+  GOAL_REACHED
+  COMPLETED
+}
+
+model Season {
+  id          String       @id @default(cuid())
+  userId      String
+  number      Int
+  goalAmount  Int
+  status      SeasonStatus @default(ACTIVE)
+  startedAt   DateTime     @default(now())
+  reachedAt   DateTime?
+  completedAt DateTime?
+
+  // 通貨（台帳 CurrencyLedger の残高）
+  gold         Int @default(0)
+  silver       Int @default(0)
+  /// 像に積み立てた金貨（通常の交換に使えない）
+  reservedGold Int @default(0)
+
+  // 金鉱（金額は 10^-6 G 単位）
+  mineUncollected   BigInt   @default(0)
+  mineDebt          BigInt   @default(0)
+  mineLastAccrualAt DateTime
+  mineMonthKey      String
+  mineMinedMonth    BigInt   @default(0)
+  mineSettledMonth  Int      @default(0)
+  mineTotalCollected Int     @default(0)
+
+  /// 有効な記録件数（銀鉱の経験値）
+  rewardedRecords Int @default(0)
+  /// 達成率の節目（25/50/75/100）で既にイベントを出したもの
+  milestones      Int[] @default([])
+  /// 前回訪問時の要約（放置中の変化表示用）
+  lastSeenAt      DateTime?
+  lastSeenStats   Json?
+
+  user          User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  city          CityState?
+  events        CityEvent[]
+  snapshots     CitySnapshot[]
+  ledger        CurrencyLedger[]
+  contributions WishContribution[]
+  overspends    MonthlyOverspend[]
+
+  @@unique([userId, number])
+  @@index([userId, status])
+}
+
+/// 街の状態（建物・資源・都市資金・発展度・技術Lv・地区・開発方針・自動建築ジョブ・最終計算時刻）
+model CityState {
+  seasonId  String   @id
+  version   Int      @default(0)
+  state     Json
+  updatedAt DateTime @updatedAt
+  season    Season   @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+}
+
+model CityEvent {
+  id        BigInt   @id @default(autoincrement())
+  seasonId  String
+  at        DateTime
+  type      String
+  auto      Boolean  @default(false)
+  important Boolean  @default(false)
+  payload   Json
+  season    Season   @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+
+  @@index([seasonId, at, id])
+}
+
+model CitySnapshot {
+  id       String   @id @default(cuid())
+  seasonId String
+  kind     String // START | FINAL
+  at       DateTime
+  state    Json
+  season   Season   @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+
+  @@unique([seasonId, kind])
+}
+
+enum Currency {
+  GOLD
+  SILVER
+  RESERVED
+}
+
+model CurrencyLedger {
+  id           BigInt   @id @default(autoincrement())
+  seasonId     String
+  currency     Currency
+  delta        Int
+  balanceAfter Int
+  reason       String
+  refId        String?
+  createdAt    DateTime @default(now())
+  season       Season   @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+
+  @@index([seasonId, createdAt])
+}
+
+model MonthlyOverspend {
+  id       String @id @default(cuid())
+  seasonId String
+  monthKey String
+  amount   Int
+  season   Season @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+
+  @@unique([seasonId, monthKey])
+}
+
+model Purchase {
+  id          String    @id @default(cuid())
+  userId      String
+  /// 記録した時点のシーズン（家計履歴自体はシーズンをまたいで残る）
+  seasonId    String?
+  amount      Int
+  date        String // YYYY-MM-DD（ユーザーのタイムゾーン）
+  name        String
+  category    String?
+  memo        String?
+  /// サブスク支払いとして入力した（金鉱の精算から外す）
+  isSubscription Boolean @default(false)
+  wishItemId  String?
+  /// 金鉱で精算済みの額と、その月
+  settledAmount Int     @default(0)
+  settledMonth  String?
+  /// 像の積立金貨から充当した額
+  reservedApplied Int   @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, date])
+}
+
+enum SavingsKind {
+  DEPOSIT
+  WITHDRAW
+}
+
+model SavingsTransaction {
+  id        String      @id @default(cuid())
+  userId    String
+  seasonId  String?
+  kind      SavingsKind
+  amount    Int
+  date      String
+  memo      String?
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  deletedAt DateTime?
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, seasonId])
+}
+
+enum BillingCycle {
+  MONTHLY
+  YEARLY
+}
+
+model Subscription {
+  id        String       @id @default(cuid())
+  userId    String
+  name      String
+  amount    Int
+  cycle     BillingCycle @default(MONTHLY)
+  startDate String
+  endDate   String?
+  memo      String?
+  createdAt DateTime     @default(now())
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model WishItem {
+  id          String    @id @default(cuid())
+  userId      String
+  name        String
+  price       Int
+  priority    Int       @default(2)
+  memo        String?
+  purchasedAt DateTime?
+  purchaseId  String?
+  createdAt   DateTime  @default(now())
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contributions WishContribution[]
+
+  @@index([userId])
+}
+
+model WishContribution {
+  id         String   @id @default(cuid())
+  seasonId   String
+  wishItemId String
+  /// 正で積立、負で取消・購入への充当
+  amount     Int
+  createdAt  DateTime @default(now())
+  season     Season   @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  wishItem   WishItem @relation(fields: [wishItemId], references: [id], onDelete: Cascade)
+
+  @@index([seasonId, wishItemId])
+}
+
+model RewardClaim {
+  id        String   @id @default(cuid())
+  userId    String
+  seasonId  String
+  /// "purchase:<id>" / "savings:<id>"：同じ記録の報酬は1回だけ
+  recordKey String   @unique
+  dayKey    String
+  amount    Int
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, dayKey])
+}
+
+model IdempotencyKey {
+  userId    String
+  key       String
+  status    Int
+  response  Json
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, key])
+}

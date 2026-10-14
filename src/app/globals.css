@@ -1,0 +1,137 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #f6f0e1;
+  --surface: #fffaf0;
+  --surface-2: #efe5cf;
+  --ink: #2b2620;
+  --muted: #6e6455;
+  --line: #d9ccb0;
+  --accent: #2f6f4e;
+  --accent-ink: #ffffff;
+  --gold: #b8860b;
+  --gold-soft: #fbe7a1;
+  --silver: #6b7a86;
+  --silver-soft: #dfe6ea;
+  --danger: #b3261e;
+  --tech: #3949ab;
+  --dev: #2e7d32;
+  --map-frame: #5b4a32;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #1b1a17;
+    --surface: #252320;
+    --surface-2: #2f2c27;
+    --ink: #f1ead9;
+    --muted: #b3a891;
+    --line: #443f36;
+    --accent: #6fcf97;
+    --accent-ink: #10231a;
+    --gold: #f2c14e;
+    --gold-soft: #4a3d18;
+    --silver: #c3ced6;
+    --silver-soft: #33393d;
+    --danger: #ff8a80;
+    --tech: #9fa8ff;
+    --dev: #81c784;
+    --map-frame: #0f0e0c;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #1b1a17;
+  --surface: #252320;
+  --surface-2: #2f2c27;
+  --ink: #f1ead9;
+  --muted: #b3a891;
+  --line: #443f36;
+  --accent: #6fcf97;
+  --accent-ink: #10231a;
+  --gold: #f2c14e;
+  --gold-soft: #4a3d18;
+  --silver: #c3ced6;
+  --silver-soft: #33393d;
+  --danger: #ff8a80;
+  --tech: #9fa8ff;
+  --dev: #81c784;
+  --map-frame: #0f0e0c;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-gold: var(--gold);
+  --color-gold-soft: var(--gold-soft);
+  --color-silver: var(--silver);
+  --color-silver-soft: var(--silver-soft);
+  --color-danger: var(--danger);
+  --color-tech: var(--tech);
+  --color-dev: var(--dev);
+  --font-pixel: var(--font-dot), ui-monospace, monospace;
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--ink);
+}
+
+body {
+  font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.pixelated {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+:focus-visible {
+  outline: 3px solid var(--tech);
+  outline-offset: 2px;
+}
+
+input,
+select,
+textarea {
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.5rem 0.65rem;
+  width: 100%;
+  font-size: 1rem;
+}
+
+@keyframes rise {
+  from {
+    transform: translateY(8px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.rise {
+  animation: rise 0.35s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rise {
+    animation: none;
+  }
+}

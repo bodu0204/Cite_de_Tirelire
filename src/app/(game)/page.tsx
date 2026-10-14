@@ -1,0 +1,152 @@
+"use client";
+
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import { CityCanvas } from "@/components/city/CityCanvas";
+import { useGame, useSeasonView } from "@/components/GameProvider";
+import { EventLog } from "@/components/home/EventLog";
+import { DevGauge, SavingsGauge, TechGauge } from "@/components/home/Gauges";
+import { Onboarding } from "@/components/home/Onboarding";
+import { TilePanel } from "@/components/home/TilePanel";
+import { Button, Card, Coin, LinkButton, Modal, Stat } from "@/components/ui";
+import { devLevel } from "@/game/levels";
+import { fmt } from "@/lib/api";
+
+export default function HomePage() {
+  const { view, error, act, toast, busy } = useGame();
+  const v = useSeasonView();
+  const [tile, setTile] = useState<{ x: number; y: number } | null>(null);
+  const [moving, setMoving] = useState<string | null>(null);
+  const [showZones, setShowZones] = useState(false);
+  const [away, setAway] = useState<NonNullable<NonNullable<typeof v>["away"]> | null>(null);
+  const [highlights, setHighlights] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (v?.away && (v.away.built || v.away.upgraded || v.away.evolved || v.away.population || v.away.devPoints)) {
+      setAway(v.away);
+      setHighlights(new Set(v.away.tiles.map(([x, y]) => `${x},${y}`)));
+      const t = setTimeout(() => setHighlights(new Set()), 20_000);
+      return () => clearTimeout(t);
+    }
+  }, [v?.away]);
+
+  // 端末時刻とサーバー時刻の差（工事の進捗表示用）
+  const offset = useMemo(() => (v ? v.serverNow - Date.now() : 0), [v]);
+
+  if (error && !view) return <p className="text-danger">{error}</p>;
+  if (!view) return <p className="text-muted">街を読み込んでいます…</p>;
+  if (!v) return <Onboarding />;
+
+  const m = v.metrics;
+  const c = v.city;
+  const uncollected = Math.floor(v.mine.uncollected);
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
+      <div className="space-y-4">
+        {v.season.status === "GOAL_REACHED" && (
+          <Link href="/goal" className="rise block rounded-xl border-2 border-gold bg-gold-soft px-4 py-3">
+            <span className="font-pixel text-lg">貯金目標に到達しました！</span>
+            <span className="block text-sm">内容を確認して、街を完成させましょう →</span>
+          </Link>
+        )}
+
+        <div>
+          <CityCanvas
+            label={`${v.dev.name}の街。人口${Math.floor(m.population)}人、建物${c.buildings.length}棟。矢印キーでマスを選べます`}
+            buildings={c.buildings}
+            jobs={c.jobs}
+            zones={c.zones}
+            noAuto={c.noAuto}
+            devLevel={devLevel(c.devPoints)}
+            bankLevel={c.bankLevel}
+            selected={tile}
+            highlights={highlights}
+            showZones={showZones}
+            serverOffset={offset}
+            onSelect={setTile}
+          />
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
+            <span>マスを選ぶと建物の操作ができます。街は操作しなくても自動で発展します。</span>
+            <label className="flex shrink-0 items-center gap-1.5 whitespace-nowrap">
+              <input type="checkbox" className="w-auto" checked={showZones} onChange={(e) => setShowZones(e.target.checked)} />
+              土地用途を表示
+            </label>
+          </div>
+        </div>
+
+        {tile && (
+          <Card title={`マス (${tile.x + 1}, ${tile.y + 1})`} action={<button className="text-sm text-muted" onClick={() => (setTile(null), setMoving(null))}>閉じる</button>}>
+            <TilePanel v={v} tile={tile} moving={moving} setMoving={setMoving} />
+          </Card>
+        )}
+
+        <Card title="街の様子">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <Stat label="人口" value={`${fmt(Math.floor(m.population))}人`} sub={`住宅 ${fmt(m.housingCap)}人分`} />
+            <Stat label="幸福度" value={fmt(c.happiness)} sub={`目標 ${fmt(m.happinessTarget)}`} />
+            <Stat label="雇用" value={`${Math.round(m.employment * 100)}%`} sub={`仕事 ${fmt(m.jobSlots)}`} />
+            <Stat label="都市資金" value={fmt(Math.floor(c.treasury))} sub={`+${fmt(m.production.treasury, 1)}/時`} />
+            <Stat label="木材" value={fmt(Math.floor(c.stock.wood))} sub={`+${fmt(m.production.wood, 1)}/時`} />
+            <Stat label="石材" value={fmt(Math.floor(c.stock.stone))} sub={`+${fmt(m.production.stone, 1)}/時`} />
+            <Stat label="食料" value={fmt(Math.floor(c.stock.food))} sub={`${m.production.food - m.foodUse >= 0 ? "+" : ""}${fmt(m.production.food - m.foodUse, 1)}/時`} />
+            <Stat label="電力" value={m.powerDemand > 0 ? `${Math.round(m.powerRatio * 100)}%` : "—"} sub={`供給 ${fmt(m.powerSupply)} / 需要 ${fmt(m.powerDemand)}`} />
+          </div>
+          <p className="mt-3 text-xs text-muted">
+            物流効率 {Math.round(m.logistics * 100)}% ・ 技術倍率 ×{fmt(m.techMultiplier, 2)}（技術活用率 {Math.round(m.techUtilization * 100)}%） ・ 工事中 {c.jobs.length}件
+          </p>
+        </Card>
+      </div>
+
+      <div className="space-y-4">
+        <Card>
+          <div className="space-y-4">
+            <SavingsGauge v={v} />
+            <TechGauge v={v} />
+            <DevGauge v={v} />
+          </div>
+        </Card>
+
+        <div className="grid grid-cols-2 gap-2">
+          <LinkButton href="/records" variant="primary" className="min-h-14 text-base">
+            ⛏ 銀鉱に記録
+          </LinkButton>
+          <Button
+            variant="gold"
+            className="min-h-14 text-base"
+            disabled={busy || uncollected < 1}
+            onClick={async () => {
+              const r = await act<{ collected: number }>("/api/mine/collect");
+              if (r) toast(`金貨 ${fmt(r.collected)}G を回収しました`, "reward");
+            }}
+          >
+            <Coin kind="gold" size={18} /> {fmt(uncollected)}G 回収
+          </Button>
+        </div>
+
+        <Card title="自動発展ログ">
+          <EventLog events={v.log} tz={view.user.timezone} />
+        </Card>
+      </div>
+
+      <Modal open={!!away} onClose={() => setAway(null)} title={`前回から${away?.hours ?? 0}時間が経過しました`}>
+        {away && (
+          <div className="space-y-3">
+            <ul className="space-y-1 text-sm">
+              {away.population !== 0 && <li>人口 {away.population > 0 ? "+" : ""}{fmt(away.population)}人</li>}
+              {away.built > 0 && <li>建物 {away.built}棟を建設</li>}
+              {away.upgraded > 0 && <li>建物 {away.upgraded}件をアップグレード</li>}
+              {away.evolved > 0 && <li>建物 {away.evolved}棟が進化</li>}
+              <li>発展ポイント +{fmt(away.devPoints)}</li>
+              <li>都市資金 {away.treasury >= 0 ? "+" : ""}{fmt(away.treasury)}</li>
+            </ul>
+            <p className="text-xs text-muted">変化した場所を地図上で光らせています。金貨・銀貨は使っていません。</p>
+            <Button className="w-full" onClick={() => setAway(null)}>
+              街を見る
+            </Button>
+          </div>
+        )}
+      </Modal>
+    </div>
+  );
+}

@@ -49,3 +49,8 @@ coverage/
 # Temporary files
 tmp/
 *.tmp
+
+# Next.js
+.next/
+next-env.d.ts
+*.tsbuildinfo
