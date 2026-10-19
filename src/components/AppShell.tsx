@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { fmt } from "@/lib/api";
 import { useGame } from "./GameProvider";
-import { Coin } from "./ui";
+import { BondIcon, Coin, CustomIcon } from "./ui";
 
 const NAV = [
   { href: "/", label: "街", icon: "🏘" },
@@ -13,12 +13,15 @@ const NAV = [
   { href: "/gold", label: "金鉱", icon: "✦" },
   { href: "/bank", label: "銀行", icon: "🏦" },
   { href: "/exchange", label: "資源交換", short: "交換", icon: "⇄" },
+  { href: "/currencies", label: "通貨", icon: "🪙" },
   { href: "/wishes", label: "ほしい物", icon: "🗿" },
   { href: "/subscriptions", label: "サブスク", icon: "🌳" },
   { href: "/timelapse", label: "タイムラプス", icon: "▶" },
   { href: "/settings", label: "設定", icon: "⚙" },
 ];
 const MOBILE = ["/", "/records", "/gold", "/exchange"];
+/** 右上に並べるユーザ通貨の数（残りは「+n」で通貨画面へ） */
+const HEADER_CUSTOM = 3;
 
 function isActive(path: string, href: string) {
   return href === "/" ? path === "/" : path.startsWith(href);
@@ -60,10 +63,10 @@ export function AppShell({ children }: { children: ReactNode }) {
           <Link href="/" className="font-pixel text-lg md:hidden">
             Tirelire
           </Link>
-          <div className="ml-auto flex items-center gap-3 text-sm">
+          <div className="ml-auto flex min-w-0 items-center gap-3 overflow-x-auto text-sm whitespace-nowrap">
             {cur && (
               <>
-                <span className={`num flex items-center gap-1 ${cur.gold < 0 ? "font-semibold text-danger" : ""}`} title="所持金貨">
+                <span className="num flex items-center gap-1" title="所持金貨">
                   <Coin kind="gold" />
                   {fmt(cur.gold)}G
                 </span>
@@ -71,6 +74,21 @@ export function AppShell({ children }: { children: ReactNode }) {
                   <Coin kind="silver" />
                   {fmt(cur.silver)}S
                 </span>
+                <span className={`num flex items-center gap-1 ${cur.bond < 0 ? "font-semibold text-danger" : ""}`} title="債券">
+                  <BondIcon />
+                  {fmt(cur.bond)}
+                </span>
+                {cur.custom.slice(0, HEADER_CUSTOM).map((c) => (
+                  <span key={c.id} className="num flex items-center gap-1" title={c.name}>
+                    <CustomIcon icon={c.icon} />
+                    {fmt(c.balance)}
+                  </span>
+                ))}
+                {cur.custom.length > HEADER_CUSTOM && (
+                  <Link href="/currencies" className="text-xs text-muted underline" title="ほかのユーザ通貨">
+                    +{cur.custom.length - HEADER_CUSTOM}
+                  </Link>
+                )}
               </>
             )}
           </div>

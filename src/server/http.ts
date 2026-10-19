@@ -24,7 +24,7 @@ export function json(data: unknown, status = 200) {
 }
 
 export function errorResponse(e: unknown) {
-  if (e instanceof GameError) return json({ error: { code: e.code, message: e.message } }, e.status);
+  if (e instanceof GameError) return json({ error: { code: e.code, message: e.message, details: e.details } }, e.status);
   console.error(e);
   return json({ error: { code: "internal", message: "サーバーでエラーが発生しました" } }, 500);
 }

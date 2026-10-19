@@ -51,7 +51,11 @@ export function simulate(s: CityState, until: number, events: CityEvent[]): void
   while (s.simTime < target) tick(s, s.simTime + TICK_MS, events);
 }
 
-function tick(s: CityState, end: number, events: CityEvent[]) {
+/**
+ * 1ティック進める。devMultiplier（債券倍率）は時間発展にだけ掛ける。
+ * 建設時間・人口増加・建設完了などの発展ptは変えない。
+ */
+export function tick(s: CityState, end: number, events: CityEvent[], devMultiplier = 1) {
   completeJobs(s, end, events);
 
   const m = computeMetrics(s);
@@ -87,7 +91,7 @@ function tick(s: CityState, end: number, events: CityEvent[]) {
   }
 
   const devBefore = devLevel(s.devPoints);
-  s.devPoints += DEV_PER_HOUR * dtH * m.operation;
+  s.devPoints += DEV_PER_HOUR * dtH * m.operation * devMultiplier;
   emitDevLevel(s, devBefore, end, events);
 
   const foodShort = foodRatio < 1;

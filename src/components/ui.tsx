@@ -144,6 +144,28 @@ export function Coin({ kind, size = 14 }: { kind: "gold" | "silver"; size?: numb
   );
 }
 
+/** 債券（巻いた証書） */
+export function BondIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 8 8" className="pixelated inline-block shrink-0" aria-hidden>
+      <rect x="1" y="1" width="6" height="6" fill="#3d6b8f" />
+      <rect x="2" y="1" width="5" height="5" fill="#e8eef3" />
+      <rect x="3" y="2" width="3" height="1" fill="#3d6b8f" />
+      <rect x="3" y="4" width="2" height="1" fill="#3d6b8f" />
+      <rect x="1" y="6" width="6" height="1" fill="#2a4a63" />
+    </svg>
+  );
+}
+
+/** ユーザ定義通貨のアイコン（絵文字） */
+export function CustomIcon({ icon, size = 14 }: { icon: string; size?: number }) {
+  return (
+    <span aria-hidden className="inline-block shrink-0 leading-none" style={{ fontSize: size }}>
+      {icon}
+    </span>
+  );
+}
+
 export function Empty({ children }: { children: ReactNode }) {
   return <p className="rounded-lg border border-dashed border-line px-3 py-6 text-center text-sm text-muted">{children}</p>;
 }

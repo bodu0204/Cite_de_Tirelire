@@ -9,12 +9,13 @@ import { Gauge } from "../ui";
 export function SavingsGauge({ v }: { v: ActiveView }) {
   const s = v.season;
   const recorded = Math.max(0, s.net);
-  const total = recorded + s.estimated;
+  // 表示は 純増額 ＋ 見込み貯金 ＋ 債券（マイナスなら減らす。0未満にしない）
+  const total = Math.max(0, recorded + s.estimated + s.bond);
   // バーは次の銀行Lvまでの達成率。区間は記録した実額で決まる現在の銀行Lvを基準にする
   const band = bankLevelBand(s.goal, s.bankLevel);
   const done = band.next === null;
   const need = done ? 1 : band.next! - band.from;
-  const solid = done ? 1 : Math.max(0, recorded - band.from);
+  const solid = done ? 1 : Math.max(0, Math.min(recorded, total) - band.from);
   const extra = done ? 0 : Math.max(0, total - band.from) - solid;
   return (
     <div>
@@ -98,7 +99,10 @@ export function DevGauge({ v }: { v: ActiveView }) {
       <Gauge value={d.next === null ? 1 : d.points - prev} max={d.next === null ? 1 : d.next - prev} color="var(--dev)" label="次の発展Lvまで" />
       <p className="mt-1 text-xs text-muted">
         {d.next === null ? "最大の都市規模です。建物の高層化で成長を続けます" : <>あと {fmt(d.next - d.points)}pt</>}
-        <span> ・ 発展速度 {fmt(d.ratePerHour, 1)}pt/時（稼働 {Math.round(d.operation * 100)}%）</span>
+        <span>
+          {" "}
+          ・ 発展速度 {fmt(d.ratePerHour, 1)}pt/時（稼働 {Math.round(d.operation * 100)}%{d.bondMultiplier > 1 && ` ・ 債券 ×${fmt(d.bondMultiplier, 2)}`}）
+        </span>
         {d.nextDistrict && <span> ・ 次に「{d.nextDistrict}」を開放</span>}
       </p>
     </div>

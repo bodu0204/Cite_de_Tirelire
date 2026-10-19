@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { STATUE_GOLD_FROM } from "../config";
 import { exchangeRate, quoteResourceExchange } from "../exchange";
-import { achievementRate, bankLevel, bankLevelBand, projectedRate, savingsProgress, statueRank, techLevel } from "../levels";
+import { achievementRate, bankLevel, bankLevelBand, DISPLAYED, JUDGED, projectedRate, savingsAmount, savingsProgress, statueRank, techLevel } from "../levels";
 
 describe("AT-003 貯金記録と銀行", () => {
   it("目標100,000円に20,000円で達成率20%・銀行Lv2", () => {
@@ -34,6 +34,23 @@ describe("見込み貯金", () => {
   it("見込みを含めると銀行Lvが変わってしまうため、判定には実額の達成率を使う", () => {
     expect(bankLevel(achievementRate(15000, 100000))).toBe(1);
     expect(bankLevel(projectedRate(15000, 10000, 100000))).toBe(2);
+  });
+});
+
+describe("BND-08 債券は表示の達成率にだけ含める", () => {
+  it("純増額 ＋ 見込み ＋ 債券", () => {
+    expect(projectedRate(20000, 5000, 100000, 10000)).toBe(35);
+  });
+
+  it("債券がマイナスなら減らすが、全体は0未満にしない", () => {
+    expect(projectedRate(20000, 0, 100000, -5000)).toBe(15);
+    expect(projectedRate(1000, 0, 100000, -5000)).toBe(0);
+  });
+
+  it("判定に使う額には含めない（切り替えは include で1か所）", () => {
+    const parts = { net: 20000, estimated: 5000, bond: 10000 };
+    expect(savingsAmount(parts, JUDGED)).toBe(20000);
+    expect(savingsAmount(parts, DISPLAYED)).toBe(35000);
   });
 });
 

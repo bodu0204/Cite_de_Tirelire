@@ -1,13 +1,15 @@
 // バランス確認：貯金スケジュールに沿って街を放置したときの推移を表示する。
 // 実行: npx tsx scripts/balance.ts
-import { simulate, applyTechLevel } from "../src/game/city/sim";
+// 債券倍率 k（時間発展にだけ掛かる）を変えて確かめる: K=1.5 npx tsx scripts/balance.ts
+import { alignTick, applyTechLevel, tick } from "../src/game/city/sim";
 import { createCity } from "../src/game/city/init";
 import { computeMetrics } from "../src/game/city/economy";
 import { devLevel, techLevel } from "../src/game/levels";
-import { DAY } from "../src/game/config";
+import { DAY, TICK_MS } from "../src/game/config";
 import type { CityEvent } from "../src/game/types";
 
 const T0 = Date.UTC(2026, 9, 1);
+const K = Number(process.env.K ?? 1);
 const s = createCity(T0);
 // 1日目 5,000円、7日目 +10,000円、14日目 +15,000円、21日目 +30,000円、28日目 +40,000円
 const savings: [number, number][] = [[1, 5000], [7, 10000], [14, 15000], [21, 30000], [28, 40000], [40, 100000]];
@@ -15,7 +17,7 @@ let total = 0;
 const events: CityEvent[] = [];
 for (let d = 1; d <= 50; d++) {
   for (const [day, amt] of savings) if (day === d) { total += amt; applyTechLevel(s, techLevel(total), s.simTime, events); }
-  simulate(s, T0 + d * DAY, events);
+  while (s.simTime < alignTick(T0 + d * DAY)) tick(s, s.simTime + TICK_MS, events, K);
   const m = computeMetrics(s);
   const count = (l: string) => s.buildings.filter((b) => b.line === l).length;
   console.log(

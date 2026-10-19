@@ -1,4 +1,5 @@
 // クライアントへ返す状態（ホーム画面・各施設画面で共通）。
+import { bondCap, bondMiningStatus, bondMultiplier, bondShare } from "@/game/bond";
 import { highestUnlockedTier, LINE_IDS, LINES, unlocksAtTech } from "@/game/catalog";
 import { computeMetrics } from "@/game/city/economy";
 import { DISTRICT_NAMES, unlockedTileCount } from "@/game/city/layout";
@@ -16,10 +17,11 @@ import {
 } from "@/game/config";
 import { exchangeRate } from "@/game/exchange";
 import { achievementRate, devLevel, goldMineLevel, nextThreshold, projectedRate, savingsProgress, silverMineLevel } from "@/game/levels";
-import { goldBalance, microToGold, ratePerMinute } from "@/game/mine";
+import { microToGold, ratePerMinute } from "@/game/mine";
 import { dayKey } from "@/game/time";
 import type { CityState } from "@/game/types";
-import { monthlyEquivalent, subWindows, type GameCtx } from "./game";
+import { currencySummaries } from "./currencies";
+import { budgetPlan, monthlyEquivalent, type GameCtx } from "./game";
 import { facilityLevels } from "./ops";
 
 export interface AwayStats {
@@ -69,7 +71,7 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
   const { user, season, city, mine, tx } = ctx;
   const base = {
     serverNow: ctx.now,
-    user: { email: user.email, monthlyBudget: user.monthlyBudget, timezone: user.timezone },
+    user: { email: user.email, monthlyBudget: user.monthlyBudget, timezone: user.timezone, bondMiningRate: user.bondMiningRate },
     hasArchive: (await tx.season.count({ where: { userId: user.id, status: "COMPLETED" } })) > 0,
   };
   if (!season || !city || !mine) return { ...base, season: null };
@@ -105,6 +107,11 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
   const nextTech = nextThreshold(TECH_THRESHOLDS, city.techLevel);
   const nextDev = nextThreshold(DEV_THRESHOLDS, dev);
   const overspends = await tx.monthlyOverspend.findMany({ where: { seasonId: season.id }, orderBy: { monthKey: "desc" } });
+  const bond = ctx.balances.bond;
+  const k = bondMultiplier(bond, user.monthlyBudget);
+  const cap = bondCap(user.monthlyBudget);
+  const plan = budgetPlan(ctx);
+  const custom = currencySummaries(ctx);
 
   // 次の技術Lvで建てられるようになる建物（発展Lvも満たすもの）
   const nextTechBuildable = nextTech !== null ? LINE_IDS.filter((l) => highestUnlockedTier(l, city.techLevel + 1, dev) > highestUnlockedTier(l, city.techLevel, dev)).map((l) => LINES[l].tiers[highestUnlockedTier(l, city.techLevel + 1, dev)].name) : [];
@@ -122,13 +129,18 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
       max,
       rate,
       estimated,
-      projectedRate: projectedRate(net, estimated, season.goalAmount),
+      /** 債券（表示の達成率にだけ含める。マイナスなら減らす） */
+      bond,
+      projectedRate: projectedRate(net, estimated, season.goalAmount, bond),
       bankLevel: city.bankLevel,
       bankBonus: BANK_EXCHANGE_BONUS[city.bankLevel - 1],
       savingsTimeline: savings.map((s) => ({ at: s.createdAt.getTime(), date: s.date, delta: s.kind === "DEPOSIT" ? s.amount : -s.amount })),
     },
-    // gold は手持ち − 採掘負債（購入が所持金貨を超えるとマイナス）
-    currencies: { ...ctx.balances, gold: goldBalance(ctx.balances.gold, mine) },
+    // 金貨・銀貨・ユーザ通貨は0以上。マイナスになり得るのは債券だけ
+    currencies: {
+      ...ctx.balances,
+      custom: custom.map((c) => ({ id: c.id, name: c.name, icon: c.icon, categoryIds: c.categoryIds, balance: c.balance, nextIssue: c.nextIssue, nextExpiry: c.nextExpiry })),
+    },
     /** マップ上の公園・像の元データ（refId → 名前と詳細） */
     specials: {
       parks: Object.fromEntries(
@@ -151,8 +163,16 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
     },
     mine: {
       uncollected: microToGold(mine.uncollected),
-      debt: microToGold(mine.debt),
-      ratePerMinute: ratePerMinute(user.monthlyBudget, subWindows(ctx.subs, tz), ctx.now, tz),
+      ratePerMinute: ratePerMinute(plan, ctx.now, tz),
+      /** 採掘速度の内訳（月あたり）：max(0, B − S − C) */
+      breakdown: { budget: user.monthlyBudget, subs: plan.subsAt(ctx.now), custom: plan.customAt(ctx.now), net: plan.netAt(ctx.now) },
+      bond: {
+        rate: user.bondMiningRate,
+        cap,
+        status: bondMiningStatus(bond, user.bondMiningRate, cap),
+        /** 今の採掘のうち債券へ回る割合（%） */
+        share: bondShare(bond, user.bondMiningRate, cap),
+      },
       minedThisMonth: microToGold(mine.minedThisMonth),
       settledThisMonth: mine.settledThisMonth,
       monthKey: mine.monthKey,
@@ -189,8 +209,9 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
       name: DEV_NAMES[dev - 1],
       points: city.devPoints,
       next: nextDev,
-      ratePerHour: DEV_PER_HOUR * metrics.operation,
+      ratePerHour: DEV_PER_HOUR * metrics.operation * k,
       operation: metrics.operation,
+      bondMultiplier: k,
       nextDistrict: DISTRICT_NAMES[dev + 1] ?? null,
       tiles: unlockedTileCount(dev),
       levelCap: levelCap(dev),

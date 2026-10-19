@@ -10,13 +10,15 @@ datasource db {
 }
 
 model User {
-  id            String   @id @default(cuid())
-  email         String   @unique
-  passwordHash  String
+  id             String   @id @default(cuid())
+  email          String   @unique
+  passwordHash   String
   /// 月間自由予算（円）
-  monthlyBudget Int      @default(0)
-  timezone      String   @default("Asia/Tokyo")
-  createdAt     DateTime @default(now())
+  monthlyBudget  Int      @default(0)
+  timezone       String   @default("Asia/Tokyo")
+  /// 採掘の債券化率（%、0〜100、10刻み）
+  bondMiningRate Int      @default(0)
+  createdAt      DateTime @default(now())
 
   sessions        Session[]
   seasons         Season[]
@@ -26,6 +28,8 @@ model User {
   wishItems       WishItem[]
   rewardClaims    RewardClaim[]
   idempotencyKeys IdempotencyKey[]
+  categories      Category[]
+  currencyDefs    CurrencyDef[]
 }
 
 model Session {
@@ -60,35 +64,40 @@ model Season {
   silver       Int @default(0)
   /// 像に積み立てた金貨（通常の交換に使えない）
   reservedGold Int @default(0)
+  /// 債券（マイナス可）。急な出費の肩代わりと発展速度の倍率に使う
+  bond         Int @default(0)
 
   // 金鉱（金額は 10^-6 G 単位）
-  mineUncollected   BigInt   @default(0)
-  mineDebt          BigInt   @default(0)
-  mineLastAccrualAt DateTime
-  mineMonthKey      String
-  mineMinedMonth    BigInt   @default(0)
-  mineSettledMonth  Int      @default(0)
-  mineTotalCollected Int     @default(0)
+  mineUncollected    BigInt   @default(0)
+  /// 債券化した採掘の端数
+  mineBondFraction   BigInt   @default(0)
+  mineLastAccrualAt  DateTime
+  mineMonthKey       String
+  mineMinedMonth     BigInt   @default(0)
+  mineSettledMonth   Int      @default(0)
+  mineTotalCollected Int      @default(0)
 
   /// 見込み貯金（円）：金貨で資源を得た額。現実で使わなかった＝貯金に回せるはずのお金。
   /// 貯金を記録すると実額に置き換わる（0に戻る）。表示の達成率にだけ上乗せする
   estimatedSavings Int @default(0)
 
   /// 有効な記録件数（銀鉱の経験値）
-  rewardedRecords Int @default(0)
+  rewardedRecords Int       @default(0)
   /// 達成率の節目（25/50/75/100）で既にイベントを出したもの
-  milestones      Int[] @default([])
+  milestones      Int[]     @default([])
   /// 前回訪問時の要約（放置中の変化表示用）
   lastSeenAt      DateTime?
   lastSeenStats   Json?
 
-  user          User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user          User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   city          CityState?
   events        CityEvent[]
   snapshots     CitySnapshot[]
   ledger        CurrencyLedger[]
   contributions WishContribution[]
   overspends    MonthlyOverspend[]
+  currencyLots  CurrencyLot[]
+  accruals      CurrencyAccrual[]
 
   @@unique([userId, number])
   @@index([userId, status])
@@ -131,12 +140,17 @@ enum Currency {
   GOLD
   SILVER
   RESERVED
+  BOND
+  /// ユーザ定義通貨（currencyId で区別）
+  CUSTOM
 }
 
 model CurrencyLedger {
   id           BigInt   @id @default(autoincrement())
   seasonId     String
   currency     Currency
+  /// CUSTOM のときの通貨
+  currencyId   String?
   delta        Int
   balanceAfter Int
   reason       String
@@ -147,6 +161,7 @@ model CurrencyLedger {
   @@index([seasonId, createdAt])
 }
 
+/// その月に不足分として債券から払った額（履歴・エクスポート用）
 model MonthlyOverspend {
   id       String @id @default(cuid())
   seasonId String
@@ -158,29 +173,115 @@ model MonthlyOverspend {
 }
 
 model Purchase {
-  id          String    @id @default(cuid())
-  userId      String
+  id              String            @id @default(cuid())
+  userId          String
   /// 記録した時点のシーズン（家計履歴自体はシーズンをまたいで残る）
-  seasonId    String?
-  amount      Int
-  date        String // YYYY-MM-DD（ユーザーのタイムゾーン）
-  name        String
-  category    String?
-  memo        String?
+  seasonId        String?
+  amount          Int
+  date            String // YYYY-MM-DD（ユーザーのタイムゾーン）
+  name            String
+  /// 表示用のジャンル名（categoryId の名前を写す）
+  category        String?
+  categoryId      String?
+  memo            String?
   /// サブスク支払いとして入力した（金鉱の精算から外す）
-  isSubscription Boolean @default(false)
-  wishItemId  String?
+  isSubscription  Boolean           @default(false)
+  wishItemId      String?
   /// 金鉱で精算済みの額と、その月
-  settledAmount Int     @default(0)
-  settledMonth  String?
+  settledAmount   Int               @default(0)
+  settledMonth    String?
   /// 像の積立金貨から充当した額
-  reservedApplied Int   @default(0)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  deletedAt   DateTime?
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reservedApplied Int               @default(0)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  deletedAt       DateTime?
+  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  categoryRef     Category?         @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  payments        PurchasePayment[]
 
   @@index([userId, date])
+}
+
+/// 購入の支払い内訳（払い戻しを逆順に行うため）
+model PurchasePayment {
+  id         String   @id @default(cuid())
+  purchaseId String
+  /// 支払いは GOLD / BOND / CUSTOM / RESERVED、手数料は SILVER と BOND（不足分）
+  currency   Currency
+  /// "pay" | "fee"
+  kind       String
+  currencyId String?
+  lotId      String?
+  amount     Int
+  purchase   Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+
+  @@index([purchaseId])
+}
+
+/// ジャンル（購入のカテゴリ）のマスタ
+model Category {
+  id         String     @id @default(cuid())
+  userId     String
+  name       String
+  archivedAt DateTime?
+  createdAt  DateTime   @default(now())
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  purchases  Purchase[]
+
+  @@unique([userId, name])
+}
+
+enum RemainderPolicy {
+  KEEP
+  TO_BOND
+}
+
+/// ユーザ定義通貨。定義はシーズンをまたいで引き継ぎ、残高（ロット）はシーズンごと
+model CurrencyDef {
+  id            String          @id @default(cuid())
+  userId        String
+  name          String
+  /// 絵文字1文字
+  icon          String
+  categoryIds   String[]
+  /// 発生ルールの配列（1つ以上。形は src/game/currency.ts の Rule）
+  rules         Json
+  remainder     RemainderPolicy @default(KEEP)
+  remainderDays Int?
+  startDate     String
+  endDate       String?
+  sortOrder     Int             @default(0)
+  createdAt     DateTime        @default(now())
+  deletedAt     DateTime?
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+/// ユーザ通貨の発生1回分（同じ日に発生したルールはまとめる）
+model CurrencyLot {
+  id         String    @id @default(cuid())
+  seasonId   String
+  currencyId String
+  issuedAt   DateTime
+  expiresAt  DateTime?
+  amount     Int
+  remaining  Int
+  season     Season    @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+
+  @@index([seasonId, currencyId, expiresAt])
+}
+
+/// ユーザ通貨の発生の進み具合（シーズン×通貨）
+model CurrencyAccrual {
+  seasonId      String
+  currencyId    String
+  lastAccrualAt DateTime
+  /// 毎分ルールの端数（10^-6 単位）
+  fraction      BigInt   @default(0)
+  season        Season   @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+
+  @@id([seasonId, currencyId])
 }
 
 enum SavingsKind {
@@ -225,16 +326,16 @@ model Subscription {
 }
 
 model WishItem {
-  id          String    @id @default(cuid())
-  userId      String
-  name        String
-  price       Int
-  priority    Int       @default(2)
-  memo        String?
-  purchasedAt DateTime?
-  purchaseId  String?
-  createdAt   DateTime  @default(now())
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id            String             @id @default(cuid())
+  userId        String
+  name          String
+  price         Int
+  priority      Int                @default(2)
+  memo          String?
+  purchasedAt   DateTime?
+  purchaseId    String?
+  createdAt     DateTime           @default(now())
+  user          User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   contributions WishContribution[]
 
   @@index([userId])

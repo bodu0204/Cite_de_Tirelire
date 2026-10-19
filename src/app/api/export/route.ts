@@ -12,11 +12,14 @@ export async function GET(req: NextRequest) {
         monthlyBudget: true,
         timezone: true,
         createdAt: true,
-        purchases: true,
+        bondMiningRate: true,
+        purchases: { include: { payments: true } },
         savings: true,
         subscriptions: true,
+        categories: true,
+        currencyDefs: true,
         wishItems: { include: { contributions: true } },
-        seasons: { include: { events: true, ledger: true, overspends: true } },
+        seasons: { include: { events: true, ledger: true, overspends: true, currencyLots: true, accruals: true } },
       },
     });
     const body = JSON.stringify({ exportedAt: new Date().toISOString(), ...user }, (_k, v) => (typeof v === "bigint" ? v.toString() : v), 2);

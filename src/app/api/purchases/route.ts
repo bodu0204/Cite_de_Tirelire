@@ -9,6 +9,7 @@ export async function GET(req: NextRequest) {
     items: await prisma.purchase.findMany({
       where: { userId, deletedAt: null },
       orderBy: [{ date: "desc" }, { createdAt: "desc" }],
+      include: { payments: { orderBy: { id: "asc" } } },
       take: 500,
     }),
   }));

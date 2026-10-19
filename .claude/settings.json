@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -v -E '\\\\.\\(png|jpg|svg|ico\\)$')",
+      "Bash(mkdir -p prisma/migrations/20261019090000_bond_custom_currency)",
+      "Bash(npx prisma *)",
+      "Bash(rmdir prisma/migrations/20261019090000_bond_custom_currency)",
+      "Bash(docker compose *)",
+      "Bash(python3 -)"
+    ]
+  }
+}

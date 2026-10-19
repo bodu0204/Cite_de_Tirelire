@@ -8,9 +8,12 @@ import { EventLog } from "@/components/home/EventLog";
 import { DevGauge, SavingsGauge, TechGauge, WishSavingsGauge } from "@/components/home/Gauges";
 import { Onboarding } from "@/components/home/Onboarding";
 import { TilePanel } from "@/components/home/TilePanel";
-import { Button, Card, Coin, LinkButton, Modal, Stat } from "@/components/ui";
+import { BondIcon, Button, Card, Coin, CustomIcon, LinkButton, Modal, Stat } from "@/components/ui";
 import { devLevel } from "@/game/levels";
 import { fmt } from "@/lib/api";
+
+/** ホームに最初から出すユーザ通貨の数（残りは折りたたむ） */
+const CUSTOM_SHOWN = 3;
 
 export default function HomePage() {
   const { view, error, act, toast, busy } = useGame();
@@ -20,6 +23,7 @@ export default function HomePage() {
   const [showZones, setShowZones] = useState(false);
   const [away, setAway] = useState<NonNullable<NonNullable<typeof v>["away"]> | null>(null);
   const [highlights, setHighlights] = useState<Set<string>>(new Set());
+  const [allCurrencies, setAllCurrencies] = useState(false);
 
   useEffect(() => {
     if (v?.away && (v.away.built || v.away.upgraded || v.away.evolved || v.away.population || v.away.devPoints)) {
@@ -106,6 +110,44 @@ export default function HomePage() {
             <TechGauge v={v} />
             <DevGauge v={v} />
           </div>
+        </Card>
+
+        <Card title="通貨" action={<Link href="/currencies" className="text-xs text-muted underline">ユーザ通貨を管理</Link>}>
+          <ul className="num space-y-1.5 text-sm">
+            <li className="flex items-center gap-2">
+              <Coin kind="gold" />
+              <span className="flex-1">金貨</span>
+              <span>{fmt(v.currencies.gold)}G</span>
+            </li>
+            <li className="flex items-center gap-2">
+              <Coin kind="silver" />
+              <span className="flex-1">銀貨</span>
+              <span>{fmt(v.currencies.silver)}S</span>
+            </li>
+            <li className="flex items-center gap-2">
+              <BondIcon />
+              <span className="flex-1">
+                債券
+                {v.dev.bondMultiplier > 1 && <span className="ml-1 text-xs text-muted">発展 ×{fmt(v.dev.bondMultiplier, 2)}</span>}
+              </span>
+              <span className={v.currencies.bond < 0 ? "font-semibold text-danger" : ""}>{fmt(v.currencies.bond)}</span>
+            </li>
+            {(allCurrencies ? v.currencies.custom : v.currencies.custom.slice(0, CUSTOM_SHOWN)).map((c) => (
+              <li key={c.id} className="flex items-center gap-2">
+                <CustomIcon icon={c.icon} />
+                <span className="min-w-0 flex-1 truncate">
+                  {c.name}
+                  {c.nextIssue && <span className="ml-1 text-xs text-muted">次 {c.nextIssue.date.slice(5)} +{fmt(c.nextIssue.amount)}</span>}
+                </span>
+                <span>{fmt(c.balance)}</span>
+              </li>
+            ))}
+          </ul>
+          {v.currencies.custom.length > CUSTOM_SHOWN && (
+            <button className="mt-2 text-xs text-muted underline" onClick={() => setAllCurrencies((x) => !x)}>
+              {allCurrencies ? "たたむ" : `ほか ${v.currencies.custom.length - CUSTOM_SHOWN} 種類を表示`}
+            </button>
+          )}
         </Card>
 
         <div className="grid grid-cols-2 gap-2">

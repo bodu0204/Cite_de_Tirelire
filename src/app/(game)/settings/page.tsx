@@ -6,16 +6,22 @@ import { useGame, useSeasonView } from "@/components/GameProvider";
 import { Button, Card, Field, Modal } from "@/components/ui";
 import { NEED_LABELS, POLICY_PRESETS } from "@/game/city/init";
 import type { NeedKey } from "@/game/types";
-import { api, yen } from "@/lib/api";
+import { api, ApiError, yen } from "@/lib/api";
+
+interface Overrun {
+  monthKey: string;
+  over: number;
+}
 
 export default function SettingsPage() {
   const router = useRouter();
-  const { view, act, toast, busy } = useGame();
+  const { view, act, toast, busy, refresh } = useGame();
   const v = useSeasonView();
   const [budget, setBudget] = useState("");
   const [tz, setTz] = useState("");
   const [del, setDel] = useState(false);
   const [password, setPassword] = useState("");
+  const [overruns, setOverruns] = useState<Overrun[]>([]);
 
   useEffect(() => {
     if (view) {
@@ -43,7 +49,17 @@ export default function SettingsPage() {
           className="space-y-3"
           onSubmit={async (e) => {
             e.preventDefault();
-            if (await act("/api/settings", { monthlyBudget: Number(budget || 0), timezone: tz }, "PATCH")) toast("保存しました");
+            // 予算を下げてユーザ通貨が自由予算を超える月が出る場合は保存できない。超える月を表示する
+            try {
+              await api("/api/settings", { method: "PATCH", body: { monthlyBudget: Number(budget || 0), timezone: tz } });
+              setOverruns([]);
+              await refresh();
+              toast("保存しました");
+            } catch (err) {
+              const details = err instanceof ApiError ? (err.details as { overruns?: Overrun[] } | undefined) : undefined;
+              setOverruns(details?.overruns ?? []);
+              toast(err instanceof Error ? err.message : "保存できませんでした", "error");
+            }
           }}
         >
           <Field label="月間自由予算（円）" hint="変更は今この時点からの採掘量に反映されます。過去の採掘分は変わりません。">
@@ -52,6 +68,19 @@ export default function SettingsPage() {
           <Field label="タイムゾーン" hint="月の区切りと記録日の判定に使います。">
             <input value={tz} onChange={(e) => setTz(e.target.value)} placeholder="Asia/Tokyo" />
           </Field>
+          {overruns.length > 0 && (
+            <div className="rounded-lg bg-danger/10 px-3 py-2 text-sm">
+              <p className="font-medium">この予算では、ユーザ通貨の発生額が自由予算を超える月があるため保存できません。</p>
+              <ul className="num mt-1 text-xs">
+                {overruns.map((o) => (
+                  <li key={o.monthKey}>
+                    {o.monthKey}：{yen(o.over)} 超過
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-1 text-xs text-muted">通貨の画面で発生の量を減らしてから、もう一度保存してください。</p>
+            </div>
+          )}
           <Button type="submit" disabled={busy}>
             保存
           </Button>
@@ -123,7 +152,14 @@ export default function SettingsPage() {
           <div>
             <dt className="font-semibold">金貨と銀貨</dt>
             <dd className="text-muted">
-              金貨は自由予算から時間で採掘され（1G＝1円相当）、購入はまず金貨で精算されます。銀貨は記録の報酬で、手動操作の手数料に使います。どちらもゲーム内の通貨で、換金はできません。
+              金貨は自由予算から時間で採掘され（1G＝1円相当）、購入はユーザ通貨・金貨の順に精算されます。銀貨は記録の報酬で、手動操作の手数料に使います。どちらもゲーム内の通貨で、換金はできません。
+            </dd>
+          </div>
+          <div>
+            <dt className="font-semibold">債券とユーザ通貨</dt>
+            <dd className="text-muted">
+              債券は急な出費に備えるお金です。金貨が足りない購入を肩代わりし（使った額の10%・上限50Sの銀貨の手数料がかかります）、持っているほど街の時間発展が速くなります（最大1.5倍）。
+              ユーザ通貨は「食費コイン」のように、自由予算の一部を決まったジャンルの購入用に分けたものです。その分は金鉱の採掘から差し引かれます。
             </dd>
           </div>
           <div>

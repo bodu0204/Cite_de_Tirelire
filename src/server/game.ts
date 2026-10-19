@@ -1,11 +1,16 @@
 // ゲームの正本はサーバー。1ユーザーの操作はユーザー単位のロックを取ったトランザクションで直列化し、
 // 「最終計算時刻から現在まで」の放置計算をしてから操作を適用する。
-import { Prisma, type Season, type Subscription, type User, type WishItem } from "@prisma/client";
+import { randomUUID } from "node:crypto";
+import { Prisma, type CurrencyDef, type Season, type Subscription, type User, type WishItem } from "@prisma/client";
+import { bondCap } from "@/game/bond";
 import { placeOffMapSpecials, syncParks, syncStatues, type ParkSource, type StatueSource } from "@/game/city/actions";
-import { applyTechLevel, simulate } from "@/game/city/sim";
+import { applyTechLevel } from "@/game/city/sim";
+import { BudgetPlan, type CurrencyDefLite, type Rule } from "@/game/currency";
 import { fail } from "@/game/errors";
+import { advance, type Accrual } from "@/game/idle";
 import { achievementRate, bankLevel, goldMineLevel, savingsProgress, silverMineLevel, techLevel } from "@/game/levels";
-import { accrue, repayDebtFromHeld, type MineState, type SubWindow } from "@/game/mine";
+import { floorMinute, type MineState, type SubWindow } from "@/game/mine";
+import type { Lot, Purse } from "@/game/settle";
 import { parseDateInTz } from "@/game/time";
 import type { CityEvent, CityState } from "@/game/types";
 import { prisma } from "./db";
@@ -13,10 +18,12 @@ import { prisma } from "./db";
 export type Tx = Prisma.TransactionClient;
 
 export interface LedgerRow {
-  currency: "GOLD" | "SILVER" | "RESERVED";
+  currency: "GOLD" | "SILVER" | "RESERVED" | "BOND" | "CUSTOM";
   delta: number;
   reason: string;
   refId?: string;
+  /** CUSTOM のときの通貨 */
+  currencyId?: string;
 }
 
 export interface GameCtx {
@@ -31,8 +38,18 @@ export interface GameCtx {
   subs: Subscription[];
   events: CityEvent[];
   ledger: LedgerRow[];
-  balances: { gold: number; silver: number; reserved: number };
+  /** bond はマイナスになり得る */
+  balances: { gold: number; silver: number; reserved: number; bond: number };
+  /** その月に不足分として債券から払った額の増減 */
   overspends: { monthKey: string; amount: number }[];
+  /** ユーザ定義通貨の定義（削除済みを除く、並び順） */
+  currencyRows: CurrencyDef[];
+  defs: CurrencyDefLite[];
+  /** このシーズンのロット（残りがあるもの＋この操作で触ったもの） */
+  lots: Lot[];
+  accruals: Map<string, Accrual>;
+  /** 読み込み時の通貨ごとの残高（台帳の balanceAfter 用） */
+  customStart: Map<string, number>;
   /** シーズン行の追加更新 */
   seasonPatch: Prisma.SeasonUpdateInput;
 }
@@ -58,7 +75,7 @@ export function isSubActive(s: Subscription, tz: string, at: number): boolean {
 export function mineFromSeason(s: Season): MineState {
   return {
     uncollected: s.mineUncollected,
-    debt: s.mineDebt,
+    bondFraction: s.mineBondFraction,
     lastAccrualAt: s.mineLastAccrualAt.getTime(),
     monthKey: s.mineMonthKey,
     minedThisMonth: s.mineMinedMonth,
@@ -70,7 +87,7 @@ export function mineFromSeason(s: Season): MineState {
 function mineToSeason(m: MineState): Prisma.SeasonUpdateInput {
   return {
     mineUncollected: m.uncollected,
-    mineDebt: m.debt,
+    mineBondFraction: m.bondFraction,
     mineLastAccrualAt: new Date(m.lastAccrualAt),
     mineMonthKey: m.monthKey,
     mineMinedMonth: m.minedThisMonth,
@@ -83,11 +100,68 @@ export async function currentSeason(tx: Tx, userId: string): Promise<Season | nu
   return tx.season.findFirst({ where: { userId, status: { in: ["ACTIVE", "GOAL_REACHED"] } }, orderBy: { number: "desc" } });
 }
 
-export function addCurrency(ctx: GameCtx, currency: LedgerRow["currency"], delta: number, reason: string, refId?: string) {
+export function defLite(d: CurrencyDef): CurrencyDefLite {
+  return {
+    id: d.id,
+    name: d.name,
+    icon: d.icon,
+    categoryIds: d.categoryIds,
+    rules: d.rules as unknown as Rule[],
+    remainder: d.remainder,
+    remainderDays: d.remainderDays,
+    startDate: d.startDate,
+    endDate: d.endDate,
+    sortOrder: d.sortOrder,
+    createdAt: d.createdAt.getTime(),
+  };
+}
+
+/** 採掘から差し引く額（サブスク・ユーザ通貨）の計画。予算・サブスク・通貨を変えたら作り直す */
+export function budgetPlan(ctx: Pick<GameCtx, "user" | "subs" | "defs">, override: { budget?: number; subs?: Subscription[]; defs?: CurrencyDefLite[] } = {}) {
+  const tz = ctx.user.timezone;
+  return new BudgetPlan(override.budget ?? ctx.user.monthlyBudget, subWindows(override.subs ?? ctx.subs, tz), override.defs ?? ctx.defs, tz);
+}
+
+export async function loadCurrencyDefs(tx: Tx, userId: string): Promise<CurrencyDef[]> {
+  return tx.currencyDef.findMany({ where: { userId, deletedAt: null }, orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] });
+}
+
+/**
+ * 金貨・銀貨・債券・金鉱を Purse として操作し、結果（残高・台帳・予算超過）を ctx に戻す。
+ * Purse の操作は残高がマイナスにならないことを自分で保証する（債券を除く）。
+ */
+export function withPurse<T>(ctx: GameCtx, fn: (p: Purse) => T): T {
+  requireSeason(ctx);
+  const p: Purse = {
+    mine: ctx.mine,
+    gold: ctx.balances.gold,
+    silver: ctx.balances.silver,
+    bond: ctx.balances.bond,
+    bondCap: bondCap(ctx.user.monthlyBudget),
+    moves: [],
+    overspend: 0,
+  };
+  const result = fn(p);
+  ctx.mine = p.mine;
+  ctx.balances.gold = p.gold;
+  ctx.balances.silver = p.silver;
+  ctx.balances.bond = p.bond;
+  for (const m of p.moves) ctx.ledger.push({ currency: m.currency, delta: m.delta, reason: m.reason, currencyId: m.currencyId });
+  if (p.overspend !== 0) ctx.overspends.push({ monthKey: ctx.mine.monthKey, amount: p.overspend });
+  return result;
+}
+
+/** 台帳の refId を Purse の操作で付いた行に付ける */
+export function tagLedger(ctx: GameCtx, from: number, refId: string) {
+  for (let i = from; i < ctx.ledger.length; i++) ctx.ledger[i].refId ??= refId;
+}
+
+export function addCurrency(ctx: GameCtx, currency: "GOLD" | "SILVER" | "RESERVED" | "BOND", delta: number, reason: string, refId?: string) {
   if (delta === 0) return;
-  const key = currency === "GOLD" ? "gold" : currency === "SILVER" ? "silver" : "reserved";
+  const key = currency === "GOLD" ? "gold" : currency === "SILVER" ? "silver" : currency === "BOND" ? "bond" : "reserved";
   const after = ctx.balances[key] + delta;
-  if (after < 0) {
+  // 債券だけはマイナスになってよい（購入の精算で足りない分を肩代わりする）
+  if (after < 0 && currency !== "BOND") {
     const label = currency === "GOLD" ? "金貨" : currency === "SILVER" ? "銀貨" : "積立金貨";
     fail("insufficient", `${label}が足りません`);
   }
@@ -131,6 +205,7 @@ async function load(tx: Tx, userId: string, now: number): Promise<GameCtx> {
   const user = await tx.user.findUniqueOrThrow({ where: { id: userId } });
   const season = await currentSeason(tx, userId);
   const subs = await tx.subscription.findMany({ where: { userId }, orderBy: { createdAt: "asc" } });
+  const currencyRows = await loadCurrencyDefs(tx, userId);
   const ctx: GameCtx = {
     tx,
     now,
@@ -142,8 +217,13 @@ async function load(tx: Tx, userId: string, now: number): Promise<GameCtx> {
     subs,
     events: [],
     ledger: [],
-    balances: { gold: season?.gold ?? 0, silver: season?.silver ?? 0, reserved: season?.reservedGold ?? 0 },
+    balances: { gold: season?.gold ?? 0, silver: season?.silver ?? 0, reserved: season?.reservedGold ?? 0, bond: season?.bond ?? 0 },
     overspends: [],
+    currencyRows,
+    defs: currencyRows.map(defLite),
+    lots: [],
+    accruals: new Map(),
+    customStart: new Map(),
     seasonPatch: {},
   };
   if (!season) return ctx;
@@ -151,27 +231,43 @@ async function load(tx: Tx, userId: string, now: number): Promise<GameCtx> {
   const row = await tx.cityState.findUniqueOrThrow({ where: { seasonId: season.id } });
   ctx.city = row.state as unknown as CityState;
   ctx.cityVersion = row.version;
+  ctx.mine = mineFromSeason(season);
 
-  // 金鉱の採掘
-  const r = accrue(mineFromSeason(season), { budget: user.monthlyBudget, subs: subWindows(subs, user.timezone), tz: user.timezone, until: now });
-  ctx.mine = r.mine;
-  ctx.overspends.push(...r.overspends);
+  const lots = await tx.currencyLot.findMany({ where: { seasonId: season.id, remaining: { gt: 0 } } });
+  ctx.lots = lots.map(lotFromRow);
+  for (const l of ctx.lots) ctx.customStart.set(l.currencyId, (ctx.customStart.get(l.currencyId) ?? 0) + l.remaining);
+  const accruals = await tx.currencyAccrual.findMany({ where: { seasonId: season.id } });
+  for (const a of accruals) ctx.accruals.set(a.currencyId, { currencyId: a.currencyId, lastAccrualAt: a.lastAccrualAt.getTime(), fraction: a.fraction });
+  for (const d of ctx.defs) {
+    if (!ctx.accruals.has(d.id)) {
+      // 発生は通貨を作った時点（またはシーズン開始）から。過ぎた日の分はさかのぼって発生させない
+      const startAt = floorMinute(Math.max(season.startedAt.getTime(), d.createdAt));
+      ctx.accruals.set(d.id, { currencyId: d.id, lastAccrualAt: startAt, fraction: 0n, isNew: true });
+    }
+  }
 
-  // 街の放置計算
-  simulate(ctx.city, now, ctx.events);
+  // 放置計算：10分ティックごとに 金鉱 → ユーザ通貨 → 街
+  const goldLevel = goldMineLevel(ctx.mine.totalCollected);
+  withPurse(ctx, (purse) => {
+    advance(
+      { purse, city: ctx.city!, lots: ctx.lots, accruals: ctx.accruals },
+      { plan: budgetPlan(ctx), bondRate: user.bondMiningRate, until: now, newId: () => `l${randomUUID().replace(/-/g, "")}` },
+      ctx.events,
+    );
+  });
+  // 債券化した採掘も金鉱Lvの経験値に含める
+  emitFacilityLevels(ctx, { gold: goldLevel });
   await syncSpecials(ctx);
   return ctx;
+}
+
+export function lotFromRow(l: { id: string; currencyId: string; issuedAt: Date; expiresAt: Date | null; amount: number; remaining: number }): Lot {
+  return { id: l.id, currencyId: l.currencyId, issuedAt: l.issuedAt.getTime(), expiresAt: l.expiresAt?.getTime() ?? null, amount: l.amount, remaining: l.remaining };
 }
 
 async function save(ctx: GameCtx) {
   const { tx, season } = ctx;
   if (!season || !ctx.city || !ctx.mine) return;
-  // 所持金貨がマイナス（採掘負債あり）の間に手持ちへ入った金貨は、まず負債の返済に充てる
-  const repay = repayDebtFromHeld(ctx.mine, ctx.balances.gold);
-  if (repay.used > 0) {
-    ctx.mine = repay.mine;
-    addCurrency(ctx, "GOLD", -repay.used, "debt_repay");
-  }
   await tx.season.update({
     where: { id: season.id },
     data: {
@@ -179,9 +275,11 @@ async function save(ctx: GameCtx) {
       gold: ctx.balances.gold,
       silver: ctx.balances.silver,
       reservedGold: ctx.balances.reserved,
+      bond: ctx.balances.bond,
       ...ctx.seasonPatch,
     },
   });
+  await saveCurrencies(ctx, season.id);
   const updated = await tx.cityState.updateMany({
     where: { seasonId: season.id, version: ctx.cityVersion },
     data: { state: ctx.city as unknown as Prisma.InputJsonValue, version: ctx.cityVersion + 1 },
@@ -201,20 +299,72 @@ async function save(ctx: GameCtx) {
     });
   }
   if (ctx.ledger.length) {
-    const running = { GOLD: season.gold, SILVER: season.silver, RESERVED: season.reservedGold };
+    const running = new Map<string, number>([
+      ["GOLD", season.gold],
+      ["SILVER", season.silver],
+      ["RESERVED", season.reservedGold],
+      ["BOND", season.bond],
+      ...[...ctx.customStart].map(([id, v]) => [`CUSTOM:${id}`, v] as [string, number]),
+    ]);
     await tx.currencyLedger.createMany({
       data: ctx.ledger.map((l) => {
-        running[l.currency] += l.delta;
-        return { seasonId: season.id, currency: l.currency, delta: l.delta, balanceAfter: running[l.currency], reason: l.reason, refId: l.refId };
+        const key = l.currency === "CUSTOM" ? `CUSTOM:${l.currencyId}` : l.currency;
+        const after = (running.get(key) ?? 0) + l.delta;
+        running.set(key, after);
+        return { seasonId: season.id, currency: l.currency, currencyId: l.currencyId, delta: l.delta, balanceAfter: after, reason: l.reason, refId: l.refId };
       }),
     });
   }
-  for (const o of ctx.overspends) {
+  const overspend = new Map<string, number>();
+  for (const o of ctx.overspends) overspend.set(o.monthKey, (overspend.get(o.monthKey) ?? 0) + o.amount);
+  for (const [monthKey, amount] of overspend) {
+    if (amount === 0) continue;
     await tx.monthlyOverspend.upsert({
-      where: { seasonId_monthKey: { seasonId: season.id, monthKey: o.monthKey } },
-      create: { seasonId: season.id, monthKey: o.monthKey, amount: o.amount },
-      update: { amount: { increment: o.amount } },
+      where: { seasonId_monthKey: { seasonId: season.id, monthKey } },
+      create: { seasonId: season.id, monthKey, amount: Math.max(0, amount) },
+      update: { amount: { increment: amount } },
     });
+  }
+}
+
+/** ロットと発生の進み具合を保存する */
+async function saveCurrencies(ctx: GameCtx, seasonId: string) {
+  const { tx } = ctx;
+  const created = ctx.lots.filter((l) => l.isNew && l.amount > 0);
+  if (created.length) {
+    await tx.currencyLot.createMany({
+      data: created.map((l) => ({
+        id: l.id,
+        seasonId,
+        currencyId: l.currencyId,
+        issuedAt: new Date(l.issuedAt),
+        expiresAt: l.expiresAt === null ? null : new Date(l.expiresAt),
+        amount: l.amount,
+        remaining: l.remaining,
+      })),
+    });
+  }
+  for (const l of ctx.lots) {
+    if (l.isNew || !l.dirty) continue;
+    await tx.currencyLot.update({ where: { id: l.id }, data: { amount: l.amount, remaining: l.remaining } });
+  }
+  for (const l of created) l.isNew = false;
+  for (const l of ctx.lots) l.dirty = false;
+
+  const fresh = [...ctx.accruals.values()].filter((a) => a.isNew);
+  if (fresh.length) {
+    await tx.currencyAccrual.createMany({
+      data: fresh.map((a) => ({ seasonId, currencyId: a.currencyId, lastAccrualAt: new Date(a.lastAccrualAt), fraction: a.fraction })),
+    });
+    for (const a of fresh) a.isNew = false;
+  }
+  const rest = [...ctx.accruals.values()].filter((a) => !fresh.includes(a));
+  if (rest.length) {
+    const rows = rest.map((a) => Prisma.sql`(${a.currencyId}, ${new Date(a.lastAccrualAt)}::timestamp(3), ${a.fraction}::bigint)`);
+    await tx.$executeRaw`
+      UPDATE "CurrencyAccrual" AS a SET "lastAccrualAt" = v.t, "fraction" = v.f
+      FROM (VALUES ${Prisma.join(rows)}) AS v(id, t, f)
+      WHERE a."seasonId" = ${seasonId} AND a."currencyId" = v.id`;
   }
 }
 

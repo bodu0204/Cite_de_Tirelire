@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useGame, useSeasonView } from "@/components/GameProvider";
-import { Button, Card, Coin, Field, Tabs } from "@/components/ui";
+import { BondIcon, Button, Card, Coin, Field, Tabs } from "@/components/ui";
 import { FEE_EXCHANGE } from "@/game/config";
 import { quoteResourceExchange, type Currency } from "@/game/exchange";
 import type { StockKey } from "@/game/types";
@@ -17,10 +17,12 @@ const RES: { key: StockKey; label: string }[] = [
 export default function ExchangePage() {
   const { act, toast, busy } = useGame();
   const v = useSeasonView();
-  const [mode, setMode] = useState<"g2s" | "res">("res");
+  const [mode, setMode] = useState<"g2s" | "g2b" | "res">("res");
   const [currency, setCurrency] = useState<Currency>("gold");
   const [resource, setResource] = useState<StockKey>("wood");
   const [amount, setAmount] = useState("");
+  /** 債券に替える元："gold" / ユーザ通貨の id */
+  const [bondFrom, setBondFrom] = useState("gold");
   if (!v) return <p className="text-muted">進行中のシーズンがありません。</p>;
 
   const n = Number(amount || 0);
@@ -29,7 +31,15 @@ export default function ExchangePage() {
   const q = quoteResourceExchange(currency, resource, n, lv);
   const resLabel = RES.find((r) => r.key === resource)!.label;
 
-  const g2sOk = n > 0 && n <= cur.gold;
+  const customFrom = cur.custom.find((c) => c.id === bondFrom);
+  const source =
+    mode === "g2b"
+      ? customFrom
+        ? { label: `${customFrom.icon}${customFrom.name}`, unit: "", balance: customFrom.balance }
+        : { label: "金貨", unit: "G", balance: cur.gold }
+      : { label: "金貨", unit: "G", balance: cur.gold };
+  const g2sOk = n > 0 && n <= source.balance;
+  const toLabel = mode === "g2b" ? "債券" : "銀貨";
   const resOk = n > 0 && q.gain > 0 && cur.gold >= q.goldCost && cur.silver >= q.silverCost;
 
   return (
@@ -37,8 +47,9 @@ export default function ExchangePage() {
       <div>
         <h1 className="font-pixel text-2xl">資源交換</h1>
         <p className="mt-1 text-sm text-muted">
-          金貨は資源への交換効率が高く、銀貨は手動操作の手数料に使えます。金貨→銀貨は 1:1 で無料、逆はできません。
+          金貨は資源への交換効率が高く、銀貨は手動操作の手数料に使えます。金貨→銀貨は 1:1 で無料、逆はできません。金貨・ユーザ通貨は債券に 1:1 で無料で替えられます（債券からは戻せません。銀貨は記録の報酬なので替えられません）。
           金貨で資源を得た額（1G＝1円）は、現実で使わずに済んだお金として貯金目標に「見込み」で表示されます。
+          債券は急な出費に備えるお金で、貯金目標の表示にそのまま含まれます（見込みには加えません）。
         </p>
       </div>
       <Tabs
@@ -47,6 +58,7 @@ export default function ExchangePage() {
         items={[
           { value: "res", label: "資源に交換" },
           { value: "g2s", label: "金貨→銀貨" },
+          { value: "g2b", label: "債券に交換" },
         ]}
       />
       <Card>
@@ -55,15 +67,19 @@ export default function ExchangePage() {
           onSubmit={async (e) => {
             e.preventDefault();
             const r =
-              mode === "g2s"
-                ? await act("/api/exchange", { kind: "gold_to_silver", amount: n })
-                : await act<{ gain: number }>("/api/exchange", { kind: "to_resource", currency, resource, amount: n });
+              mode === "res"
+                ? await act<{ gain: number }>("/api/exchange", { kind: "to_resource", currency, resource, amount: n })
+                : mode === "g2s"
+                  ? await act("/api/exchange", { kind: "gold_to_silver", amount: n })
+                  : await act("/api/exchange", { kind: "to_bond", currency: customFrom ? "custom" : bondFrom, currencyId: customFrom?.id, amount: n });
             if (r) {
               const rr = r as { gain: number; estimatedAdded?: number };
               toast(
                 mode === "g2s"
                   ? `銀貨 ${fmt(n)}S を手に入れました`
-                  : `${resLabel} ${fmt(rr.gain)} を手に入れました${rr.estimatedAdded ? `（見込み貯金 +${fmt(rr.estimatedAdded)}円）` : ""}`,
+                  : mode === "g2b"
+                    ? `${source.label} ${fmt(n)} を債券に替えました`
+                    : `${resLabel} ${fmt(rr.gain)} を手に入れました${rr.estimatedAdded ? `（見込み貯金 +${fmt(rr.estimatedAdded)}円）` : ""}`,
                 "reward",
               );
               setAmount("");
@@ -89,21 +105,51 @@ export default function ExchangePage() {
               </fieldset>
             </>
           )}
-          <Field label={mode === "g2s" ? "金貨（G）" : currency === "gold" ? "金貨（G）" : "銀貨（S）"}>
+          {mode === "g2b" && (
+            <fieldset>
+              <legend className="mb-1 text-sm font-medium">債券に替える通貨</legend>
+              <div role="group" aria-label="債券に替える通貨" className="flex flex-wrap gap-1">
+                {[
+                  { id: "gold", label: "金貨", icon: <Coin kind="gold" />, balance: `${fmt(cur.gold)}G` },
+                  ...cur.custom.map((c) => ({ id: c.id, label: c.name, icon: <span aria-hidden>{c.icon}</span>, balance: fmt(c.balance) })),
+                ].map((o) => (
+                  <button
+                    key={o.id}
+                    type="button"
+                    aria-pressed={bondFrom === o.id}
+                    onClick={() => setBondFrom(o.id)}
+                    className={`flex min-h-9 items-center gap-1.5 rounded-md border px-2.5 text-sm ${bondFrom === o.id ? "border-accent bg-surface font-semibold" : "border-line bg-surface-2 text-muted"}`}
+                  >
+                    {o.icon}
+                    {o.label}
+                    <span className="num text-xs text-muted">{o.balance}</span>
+                  </button>
+                ))}
+              </div>
+            </fieldset>
+          )}
+          <Field label={mode === "res" ? (currency === "gold" ? "金貨（G）" : "銀貨（S）") : `${source.label}${source.unit ? `（${source.unit}）` : ""}`}>
             <input inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value.replace(/\D/g, ""))} placeholder="100" />
           </Field>
 
           <div className="rounded-lg bg-surface-2 p-3 text-sm">
-            {mode === "g2s" ? (
+            {mode !== "res" ? (
               <dl className="grid grid-cols-2 gap-y-1">
-                <dt className="text-muted">金貨</dt>
+                <dt className="text-muted">{source.label}</dt>
                 <dd className="num text-right">
-                  {fmt(cur.gold)} → {fmt(cur.gold - n)}G
+                  {fmt(source.balance)} → {fmt(source.balance - n)}
+                  {source.unit}
                 </dd>
-                <dt className="text-muted">銀貨</dt>
+                <dt className="text-muted">{toLabel}</dt>
                 <dd className="num text-right">
-                  {fmt(cur.silver)} → {fmt(cur.silver + n)}S
+                  {mode === "g2s" ? `${fmt(cur.silver)} → ${fmt(cur.silver + n)}S` : `${fmt(cur.bond)} → ${fmt(cur.bond + n)}`}
                 </dd>
+                {mode === "g2b" && (
+                  <dd className="col-span-2 text-xs text-muted">
+                    債券は元の通貨に戻せません。急な出費（金貨が足りない購入）の支払いに使われ、持っているほど街の発展が速くなります。
+                    {customFrom && " ユーザ通貨は期限の近い分から替えます。"}
+                  </dd>
+                )}
               </dl>
             ) : (
               <dl className="grid grid-cols-2 gap-y-1">
@@ -132,10 +178,14 @@ export default function ExchangePage() {
               </dl>
             )}
           </div>
-          <Button type="submit" className="w-full" disabled={busy || !(mode === "g2s" ? g2sOk : resOk)}>
+          <Button type="submit" className="w-full" disabled={busy || !(mode === "res" ? resOk : g2sOk)}>
             {mode === "g2s" ? (
               <>
                 <Coin kind="gold" /> 金貨を銀貨に交換
+              </>
+            ) : mode === "g2b" ? (
+              <>
+                <BondIcon /> {source.label}を債券に交換
               </>
             ) : (
               "交換を確定"

@@ -52,6 +52,22 @@ export default function BankPage() {
           <WishSavingsGauge v={v} />
         </div>
       </Card>
+      <Card title="達成率の内訳">
+        <dl className="num grid grid-cols-[1fr_auto] gap-y-1 text-sm">
+          <dt className="text-muted">記録した純増額</dt>
+          <dd className="text-right">{yen(s.net)}</dd>
+          <dt className="text-muted">見込み貯金（金貨で資源を得た額）</dt>
+          <dd className="text-right">+{yen(s.estimated)}</dd>
+          <dt className="text-muted">債券</dt>
+          <dd className={`text-right ${s.bond < 0 ? "text-danger" : ""}`}>
+            {s.bond < 0 ? "−" : "+"}
+            {yen(Math.abs(s.bond))}
+          </dd>
+          <dt className="border-t border-line pt-1 font-medium">表示の達成率</dt>
+          <dd className="border-t border-line pt-1 text-right font-semibold">{fmt(s.projectedRate, 1)}%</dd>
+        </dl>
+        <p className="mt-2 text-xs text-muted">銀行Lv・技術Lv・目標達成の判定は、記録した純増額だけで決まります（達成率 {fmt(s.rate, 1)}%）。</p>
+      </Card>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <Stat label="貯金目標" value={yen(s.goal)} sub={`シーズン${s.number}`} />
         <Stat label="今回の純増額" value={yen(s.net)} sub={s.estimated > 0 ? `見込み +${yen(s.estimated)}` : `最高 ${yen(s.max)}`} />

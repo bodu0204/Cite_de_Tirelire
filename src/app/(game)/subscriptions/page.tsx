@@ -27,7 +27,7 @@ function nextSize(m: number): string {
 }
 
 function SubForm({ initial, onDone, tz }: { initial?: Sub; onDone: () => void; tz: string }) {
-  const { act, busy } = useGame();
+  const { act, busy, toast } = useGame();
   const [f, setF] = useState({
     name: initial?.name ?? "",
     amount: initial ? String(initial.amount) : "",
@@ -42,8 +42,12 @@ function SubForm({ initial, onDone, tz }: { initial?: Sub; onDone: () => void; t
       onSubmit={async (e) => {
         e.preventDefault();
         const body = { ...f, amount: Number(f.amount), endDate: f.endDate || null };
-        const r = initial ? await act(`/api/subscriptions/${initial.id}`, body, "PATCH") : await act("/api/subscriptions", body);
+        const r = initial
+          ? await act<{ warning: string | null }>(`/api/subscriptions/${initial.id}`, body, "PATCH")
+          : await act<{ warning: string | null }>("/api/subscriptions", body);
         if (r) {
+          // 現実の契約の記録なので保存はする。自由予算を超える月があれば知らせる
+          if (r.warning) toast(r.warning, "error");
           if (!initial) setF({ ...f, name: "", amount: "", memo: "" });
           onDone();
         }
@@ -104,7 +108,7 @@ export default function SubscriptionsPage() {
         </div>
         {budget > 0 && (
           <p className="mt-1 text-xs text-muted">
-            金鉱の採掘は月 {yen(Math.max(0, budget - total))}（自由予算 {yen(budget)} − サブスク）。サブスクがなければ月 {yen(total)} 分多く金貨を採掘できます。
+            金鉱の採掘は月 {yen(v?.mine.breakdown.net ?? Math.max(0, budget - total))}（自由予算 {yen(budget)} − サブスク{v && v.mine.breakdown.custom > 0 && ` − ユーザ通貨 ${yen(v.mine.breakdown.custom)}`}）。サブスクがなければ月 {yen(total)} 分多く金貨を採掘できます。
           </p>
         )}
       </Card>

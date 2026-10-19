@@ -24,6 +24,22 @@ export const INITIAL_STOCK = { wood: 60, stone: 0, food: 40 };
 export const INITIAL_TREASURY = 150;
 export const INITIAL_POPULATION = 4;
 
+// ---- 債券（docs/bond-and-custom-currency.md §4） ----
+/** 債券化が止まる額 ＝ 月間自由予算 × この値 */
+export const BOND_CAP_MONTHS = 3;
+/** 債券倍率 ＝ min(BOND_MULTIPLIER_MAX, 1 + 債券 / (月間自由予算 × BOND_MULTIPLIER_MONTHS)) */
+export const BOND_MULTIPLIER_MONTHS = 6;
+export const BOND_MULTIPLIER_MAX = 1.5;
+/** 債券がマイナスの間に採掘から強制的に債券へ回す割合（%） */
+export const BOND_FORCED_RATE = 20;
+/** 債券を使ったときの銀貨の手数料：使った債券の10%、上限 50S */
+export const BOND_FEE_RATE = 0.1;
+export const BOND_FEE_CAP = 50;
+
+// ---- ユーザ定義通貨 ----
+/** 自由予算を超えないか確かめる範囲（今月から何か月先まで） */
+export const BUDGET_CHECK_MONTHS = 12;
+
 // ---- 施設レベル ----
 /** 銀行：達成率(%) の閾値。index+1 がレベル、6 が「完成」 */
 export const BANK_LEVEL_THRESHOLDS = [0, 20, 40, 60, 80, 100];

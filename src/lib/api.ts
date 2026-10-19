@@ -5,6 +5,7 @@ export class ApiError extends Error {
     public status: number,
     public code: string,
     message: string,
+    public details?: unknown,
   ) {
     super(message);
   }
@@ -24,7 +25,7 @@ export async function api<T = unknown>(path: string, opts: { method?: string; bo
   const data = await res.json().catch(() => null);
   if (!res.ok) {
     const err = data?.error ?? {};
-    throw new ApiError(res.status, err.code ?? "error", err.message ?? "エラーが発生しました");
+    throw new ApiError(res.status, err.code ?? "error", err.message ?? "エラーが発生しました", err.details);
   }
   return data as T;
 }

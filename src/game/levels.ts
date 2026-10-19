@@ -24,13 +24,38 @@ export function achievementRate(netSavings: number, goal: number): number {
   return (Math.max(0, netSavings) / goal) * 100;
 }
 
+export interface SavingsParts {
+  /** 記録した貯金の純増額 */
+  net: number;
+  /** 見込み貯金（金貨で資源を得た額） */
+  estimated: number;
+  /** 債券（マイナス可） */
+  bond: number;
+}
+
 /**
- * 表示用の達成率(%)：記録した純増額に見込み貯金を上乗せしたもの。
+ * 貯金目標に数える額。何を含めるかを include で選ぶ（判定と表示の切り替えを1か所で済ませる）。
+ * 債券はマイナスなら減らすが、全体は0未満にしない。
+ */
+export function savingsAmount(p: SavingsParts, include: { estimated: boolean; bond: boolean }): number {
+  let v = Math.max(0, p.net);
+  if (include.estimated) v += Math.max(0, p.estimated);
+  if (include.bond) v += p.bond;
+  return Math.max(0, v);
+}
+
+/** 判定（技術Lv・銀行Lv・GOAL_REACHED）に含めるもの。今は記録した実額だけ */
+export const JUDGED: { estimated: boolean; bond: boolean } = { estimated: false, bond: false };
+/** 表示の達成率に含めるもの */
+export const DISPLAYED: { estimated: boolean; bond: boolean } = { estimated: true, bond: true };
+
+/**
+ * 表示用の達成率(%)：記録した純増額に見込み貯金と債券を足したもの。
  * 見込み貯金は金貨で資源を得た額（現実で使わずに済んだお金）で、貯金を記録すると実額に置き換わる。
  * 技術Lv・銀行Lv・目標達成の判定には使わない（記録した実額だけで決める）。
  */
-export function projectedRate(netSavings: number, estimated: number, goal: number): number {
-  return achievementRate(Math.max(0, netSavings) + Math.max(0, estimated), goal);
+export function projectedRate(netSavings: number, estimated: number, goal: number, bond = 0): number {
+  return achievementRate(savingsAmount({ net: netSavings, estimated, bond }, DISPLAYED), goal);
 }
 
 /** 銀行Lv：1〜5、6 は「完成」 */
