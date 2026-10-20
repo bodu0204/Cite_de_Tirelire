@@ -4,6 +4,8 @@ import {
   evolveCost,
   highestUnlockedTier,
   isTierUnlocked,
+  LINE_IDS,
+  LINES,
   tierDef,
   unlocksAtTech,
   upgradeCost,
@@ -20,6 +22,7 @@ import {
   DEV_LEVEL_UP,
   DEV_PER_HOUR,
   DEV_POP_STEP,
+  GOLD_RESOURCE_VALUE,
   HAPPINESS_EASE_HOUR,
   HOUR,
   HOUSING_VACANCY_TARGET,
@@ -27,7 +30,7 @@ import {
   TICK_MS,
 } from "../config";
 import { devLevel } from "../levels";
-import { snapBuilding, type Building, type CityEvent, type CityState, type Job, type NeedKey } from "../types";
+import { snapBuilding, type Building, type CityEvent, type CityState, type Job, type NeedKey, type Stock } from "../types";
 import { computeMetrics, type Metrics } from "./economy";
 import { DISTRICT_NAMES, findSite } from "./layout";
 
@@ -333,6 +336,78 @@ function plansFor(need: NeedKey, s: CityState, m: Metrics, dev: number): Plan[] 
     }
   }
   return plans.filter((p): p is Plan => !!p);
+}
+
+// ---- 計画列と必要資源（docs/needs-based-exchange.md §4） ----
+
+/** 計画列の具体的な計画：方針の優先順に全項目の候補を並べ、同じ建物の重複を除く */
+function concretePlans(s: CityState, m: Metrics): Plan[] {
+  const seen = new Set<string>();
+  const out: Plan[] = [];
+  for (const need of s.policy.priorities) {
+    for (const plan of plansFor(need, s, m, m.devLevel)) {
+      const key = plan.kind === "build" ? `build:${plan.line}` : `${plan.kind}:${plan.building!.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(plan);
+    }
+  }
+  return out;
+}
+
+const goldValue = (c: Pick<Cost, "wood" | "stone">) => c.wood / GOLD_RESOURCE_VALUE.wood + c.stone / GOLD_RESOURCE_VALUE.stone;
+
+/** 拡張計画1件：解放済みの新築のうち、木材＋石材の金貨換算が最も高いもの */
+export function expansionPlan(s: CityState, dev: number): { line: LineId; tier: number; cost: Cost } {
+  let best = { line: "housing" as LineId, tier: 0, cost: tierDef("housing", 0).cost };
+  for (const line of LINE_IDS) {
+    LINES[line].tiers.forEach((t, tier) => {
+      if (isTierUnlocked(line, tier, s.techLevel, dev) && goldValue(t.cost) > goldValue(best.cost)) best = { line, tier, cost: t.cost };
+    });
+  }
+  return best;
+}
+
+export interface CityNeeds {
+  /** 必要資源（木材・石材は計画列の不足分、食料は24時間分の不足分） */
+  needs: Stock;
+  /** 在庫が最初に足りなくなる計画。expansion なら拡張計画 */
+  next: { kind: Job["kind"]; line: LineId; tier: number; level: number; name: string; expansion: boolean };
+}
+
+/**
+ * 計画列（具体的な計画のあとに拡張計画が無限に続く）に在庫を先頭から割り当て、
+ * 最初に足りなくなった計画の不足分を木材・石材の必要量とする。街の状態は変えない。
+ */
+export function cityNeeds(s: CityState, m: Metrics = computeMetrics(s)): CityNeeds {
+  let wood = s.stock.wood;
+  let stone = s.stock.stone;
+  const food = Math.max(0, m.foodUse * 24 - (s.stock.food + m.production.food * 24));
+  const name = (line: LineId, tier: number) => tierDef(line, tier).name;
+  for (const p of concretePlans(s, m)) {
+    if (wood >= p.cost.wood && stone >= p.cost.stone) {
+      wood -= p.cost.wood;
+      stone -= p.cost.stone;
+      continue;
+    }
+    return {
+      needs: { wood: Math.max(0, p.cost.wood - wood), stone: Math.max(0, p.cost.stone - stone), food },
+      next: { kind: p.kind, line: p.line, tier: p.tier, level: p.level, name: name(p.line, p.tier), expansion: false },
+    };
+  }
+  // 拡張計画は同じコストが無限に並ぶので、払える件数を割り算で求める
+  const x = expansionPlan(s, m.devLevel);
+  const fits = [
+    [wood, x.cost.wood],
+    [stone, x.cost.stone],
+  ]
+    .filter(([, c]) => c > 0)
+    .map(([r, c]) => Math.floor(r / c));
+  const k = Math.min(...fits);
+  return {
+    needs: { wood: Math.max(0, x.cost.wood - (wood - k * x.cost.wood)), stone: Math.max(0, x.cost.stone - (stone - k * x.cost.stone)), food },
+    next: { kind: "build", line: x.line, tier: x.tier, level: 1, name: name(x.line, x.tier), expansion: true },
+  };
 }
 
 /** 1ティックに1件まで、自動開発のジョブを開始する */

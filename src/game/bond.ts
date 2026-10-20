@@ -28,3 +28,12 @@ export function bondMiningStatus(bond: number, rate: number, cap: number): "forc
   if (rate <= 0) return "off";
   return bond >= cap ? "capped" : "active";
 }
+
+/**
+ * 債券に amount 入るとき、資源をつける分（docs/needs-based-exchange.md §6.2）。
+ * 債券が動く区間 [bond, bond + amount] のうち [0, cap] に入る部分だけ。マイナスを0に戻す分と上限を超える分は対象外。
+ */
+export function bondResourceEligible(bond: number, amount: number, cap: number): number {
+  if (amount <= 0) return 0;
+  return Math.max(0, Math.min(bond + amount, cap) - Math.max(bond, 0));
+}

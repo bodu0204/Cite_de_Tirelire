@@ -1,10 +1,13 @@
 // 放置計算（docs/bond-and-custom-currency.md §7）。
 // 債券倍率が街の発展に効くため、10分ティックごとに「金鉱（債券化含む）→ ユーザ通貨の発生・期限 → 街の1ティック」を繰り返す。
-// 街はティック開始時の債券残高で倍率を決める。ティック境界は絶対時刻に揃えるので、同じ経過時間なら同じ結果になる。
-import { bondCap, bondMultiplier } from "./bond";
-import { alignTick, tick } from "./city/sim";
+// 街はティック開始時の債券残高で倍率を決める。債券化でつく資源（docs/needs-based-exchange.md §7）もティックの前に入れる。
+// ティック境界は絶対時刻に揃えるので、同じ経過時間なら同じ結果になる。
+import { bondCap, bondMultiplier, bondResourceEligible } from "./bond";
+import { alignTick, cityNeeds, tick } from "./city/sim";
 import { MICRO_PER_GOLD, TICK_MS } from "./config";
 import { dayEvents, dayGrid, minuteRule, shiftDays, validWindow, type BudgetPlan, type CurrencyDefLite } from "./currency";
+import { quoteNeedsExchange } from "./exchange";
+import { goldMineLevel } from "./levels";
 import { accrue, floorMinute } from "./mine";
 import { depositToBond, type Lot, type Purse } from "./settle";
 import type { CityEvent, CityState } from "./types";
@@ -117,6 +120,7 @@ export function advance(w: World, opts: AdvanceOpts, events: CityEvent[]): void 
       bond: { balance: w.purse.bond, rate: opts.bondRate, cap: w.purse.bondCap },
     });
     w.purse.mine = r.mine;
+    w.purse.bondResource = (w.purse.bondResource ?? 0) + bondResourceEligible(w.purse.bond, r.toBond, w.purse.bondCap);
     w.purse.bond = r.bond;
     toBond += r.toBond;
 
@@ -152,9 +156,35 @@ export function advance(w: World, opts: AdvanceOpts, events: CityEvent[]): void 
     const end = w.city.simTime + TICK_MS;
     const k = bondMultiplier(w.purse.bond, plan.budget);
     advanceMoney(end);
+    holdBondResource(w);
+    grantBondResources(w.city, goldMineLevel(w.purse.mine.totalCollected));
     tick(w.city, end, events, k);
   }
-  // 最後の端数は金鉱・ユーザ通貨だけ進め、街は次のティックまで待つ
+  // 最後の端数は金鉱・ユーザ通貨だけ進め、街は次のティックまで待つ（債券化の資源も次のティックの前に入れる）
   advanceMoney(until);
+  holdBondResource(w);
   flush();
+}
+
+/** 債券化で資源をつける額を街に預ける。資源にするのはティックの前（分け方によらず同じ結果にするため） */
+function holdBondResource(w: World) {
+  if (!w.purse.bondResource) return;
+  w.city.bondResourcePending = (w.city.bondResourcePending ?? 0) + w.purse.bondResource;
+  w.purse.bondResource = 0;
+}
+
+/**
+ * 預けた額を、同じ量の金貨でおまかせ交換したのと同じ資源にして在庫に加える（手数料なし、小数のまま）。
+ * 割合はティック開始時の街の必要資源で決める（docs/needs-based-exchange.md §7）。
+ */
+export function grantBondResources(city: CityState, goldMine: number) {
+  const amount = city.bondResourcePending ?? 0;
+  if (amount <= 0) return;
+  const q = quoteNeedsExchange("gold", amount, cityNeeds(city).needs, { bank: city.bankLevel, goldMine, silverMine: 1 }, { fee: false, floor: false });
+  const total = (city.bondResourceTotal ??= { wood: 0, stone: 0, food: 0 });
+  for (const k of ["wood", "stone", "food"] as const) {
+    city.stock[k] += q.gains[k];
+    total[k] += q.gains[k];
+  }
+  city.bondResourcePending = 0;
 }

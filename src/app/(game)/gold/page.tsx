@@ -103,13 +103,13 @@ export default function GoldMinePage() {
         >
           {bond.status === "forced" && (
             <>
-              債券がマイナスのため、採掘の <span className="num font-semibold">{bond.share}%</span> を強制的に債券に回しています（最低 {BOND_FORCED_RATE}%）。0に戻ると設定の {bond.rate}% に戻ります。発展速度は下がりません。
+              債券がマイナスのため、採掘の <span className="num font-semibold">{bond.share}%</span> を強制的に債券に回しています（最低 {BOND_FORCED_RATE}%）。0に戻ると設定の {bond.rate}% に戻ります。発展速度は下がりません。0に戻るまでの分には資源がつきません。
             </>
           )}
           {bond.status === "capped" && <>債券が上限に達したため、債券化を止めています。採掘はすべて金貨になります。</>}
           {bond.status === "active" && (
             <>
-              採掘の <span className="num font-semibold">{bond.share}%</span> を債券に回しています。
+              採掘の <span className="num font-semibold">{bond.share}%</span> を債券に回しています。同じ量の金貨でおまかせ交換したのと同じ資源も、街に入ります。
             </>
           )}
           {bond.status === "off" && <>債券化していません。採掘はすべて金貨になります。</>}

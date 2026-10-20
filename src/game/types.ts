@@ -87,6 +87,10 @@ export interface CityState {
   bankLevel: number;
   nextId: number;
   flags: { foodShort: boolean; powerShort: boolean };
+  /** 債券化（採掘・ユーザ通貨の余り）で資源をつける額のうち、まだ資源にしていない分（金貨換算）。次のティックの前に資源にする */
+  bondResourcePending?: number;
+  /** 債券化で得た資源の累計（放置中の変化の表示用） */
+  bondResourceTotal?: Stock;
 }
 
 export type CityEventType =
