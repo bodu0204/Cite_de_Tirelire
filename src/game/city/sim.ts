@@ -30,7 +30,8 @@ import {
   TICK_MS,
 } from "../config";
 import { devLevel } from "../levels";
-import { snapBuilding, type Building, type CityEvent, type CityState, type Job, type NeedKey, type Stock } from "../types";
+import { coverPlans, firstShort, type PlanQueue, type QueuePlan } from "../planQueue";
+import { snapBuilding, type Building, type CityEvent, type CityState, type Gains, type Job, type NeedKey } from "../types";
 import { computeMetrics, type Metrics } from "./economy";
 import { DISTRICT_NAMES, findSite } from "./layout";
 
@@ -368,45 +369,41 @@ export function expansionPlan(s: CityState, dev: number): { line: LineId; tier: 
   return best;
 }
 
+/** 計画列：具体的な計画と、そのあとに無限に続く拡張計画1件分。街の状態は変えない */
+export function planQueue(s: CityState, m: Metrics = computeMetrics(s)): PlanQueue {
+  const q = (p: { kind: Job["kind"]; line: LineId; tier: number; level: number; cost: Cost }): QueuePlan => ({
+    kind: p.kind,
+    line: p.line,
+    tier: p.tier,
+    level: p.level,
+    name: tierDef(p.line, p.tier).name,
+    cost: p.cost,
+  });
+  const x = expansionPlan(s, m.devLevel);
+  return { plans: concretePlans(s, m).map(q), expansion: q({ kind: "build", line: x.line, tier: x.tier, level: 1, cost: x.cost }) };
+}
+
 export interface CityNeeds {
-  /** 必要資源（木材・石材は計画列の不足分、食料は24時間分の不足分） */
-  needs: Stock;
+  /** 必要資源（木材・石材・都市資金は計画列の不足分、食料は24時間分の不足分） */
+  needs: Gains;
   /** 在庫が最初に足りなくなる計画。expansion なら拡張計画 */
   next: { kind: Job["kind"]; line: LineId; tier: number; level: number; name: string; expansion: boolean };
+  queue: PlanQueue;
 }
 
 /**
  * 計画列（具体的な計画のあとに拡張計画が無限に続く）に在庫を先頭から割り当て、
- * 最初に足りなくなった計画の不足分を木材・石材の必要量とする。街の状態は変えない。
+ * 最初に足りなくなった計画の不足分を木材・石材・都市資金の必要量とする。街の状態は変えない。
  */
 export function cityNeeds(s: CityState, m: Metrics = computeMetrics(s)): CityNeeds {
-  let wood = s.stock.wood;
-  let stone = s.stock.stone;
   const food = Math.max(0, m.foodUse * 24 - (s.stock.food + m.production.food * 24));
-  const name = (line: LineId, tier: number) => tierDef(line, tier).name;
-  for (const p of concretePlans(s, m)) {
-    if (wood >= p.cost.wood && stone >= p.cost.stone) {
-      wood -= p.cost.wood;
-      stone -= p.cost.stone;
-      continue;
-    }
-    return {
-      needs: { wood: Math.max(0, p.cost.wood - wood), stone: Math.max(0, p.cost.stone - stone), food },
-      next: { kind: p.kind, line: p.line, tier: p.tier, level: p.level, name: name(p.line, p.tier), expansion: false },
-    };
-  }
-  // 拡張計画は同じコストが無限に並ぶので、払える件数を割り算で求める
-  const x = expansionPlan(s, m.devLevel);
-  const fits = [
-    [wood, x.cost.wood],
-    [stone, x.cost.stone],
-  ]
-    .filter(([, c]) => c > 0)
-    .map(([r, c]) => Math.floor(r / c));
-  const k = Math.min(...fits);
+  const queue = planQueue(s, m);
+  const { coverage, expansion } = firstShort(coverPlans(queue, { wood: s.stock.wood, stone: s.stock.stone, treasury: s.treasury }));
+  const p = coverage.plan;
   return {
-    needs: { wood: Math.max(0, x.cost.wood - (wood - k * x.cost.wood)), stone: Math.max(0, x.cost.stone - (stone - k * x.cost.stone)), food },
-    next: { kind: "build", line: x.line, tier: x.tier, level: 1, name: name(x.line, x.tier), expansion: true },
+    needs: { wood: coverage.short.wood, stone: coverage.short.stone, food, treasury: coverage.short.treasury },
+    next: { kind: p.kind, line: p.line, tier: p.tier, level: p.level, name: p.name, expansion },
+    queue,
   };
 }
 

@@ -6,7 +6,7 @@ import { bondCap, bondMultiplier, bondResourceEligible } from "./bond";
 import { alignTick, cityNeeds, tick } from "./city/sim";
 import { MICRO_PER_GOLD, TICK_MS } from "./config";
 import { dayEvents, dayGrid, minuteRule, shiftDays, validWindow, type BudgetPlan, type CurrencyDefLite } from "./currency";
-import { quoteNeedsExchange } from "./exchange";
+import { GAIN_KEYS, quoteNeedsExchange, ZERO_GAINS } from "./exchange";
 import { goldMineLevel } from "./levels";
 import { accrue, floorMinute } from "./mine";
 import { depositToBond, type Lot, type Purse } from "./settle";
@@ -181,10 +181,11 @@ export function grantBondResources(city: CityState, goldMine: number) {
   const amount = city.bondResourcePending ?? 0;
   if (amount <= 0) return;
   const q = quoteNeedsExchange("gold", amount, cityNeeds(city).needs, { bank: city.bankLevel, goldMine, silverMine: 1 }, { fee: false, floor: false });
-  const total = (city.bondResourceTotal ??= { wood: 0, stone: 0, food: 0 });
-  for (const k of ["wood", "stone", "food"] as const) {
-    city.stock[k] += q.gains[k];
-    total[k] += q.gains[k];
-  }
+  // 都市資金を足す前の記録には treasury が無い
+  const total = (city.bondResourceTotal ??= { ...ZERO_GAINS });
+  total.treasury ??= 0;
+  for (const k of ["wood", "stone", "food"] as const) city.stock[k] += q.gains[k];
+  city.treasury += q.gains.treasury;
+  for (const k of GAIN_KEYS) total[k] += q.gains[k];
   city.bondResourcePending = 0;
 }

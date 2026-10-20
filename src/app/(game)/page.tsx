@@ -182,9 +182,10 @@ export default function HomePage() {
               {away.evolved > 0 && <li>建物 {away.evolved}棟が進化</li>}
               <li>発展ポイント +{fmt(away.devPoints)}</li>
               <li>都市資金 {away.treasury >= 0 ? "+" : ""}{fmt(away.treasury)}</li>
-              {away.bondResources.wood + away.bondResources.stone + away.bondResources.food > 0 && (
+              {away.bondResources.wood + away.bondResources.stone + away.bondResources.food + away.bondResources.treasury > 0 && (
                 <li>
-                  債券化で得た資源 木材 +{fmt(away.bondResources.wood)}・石材 +{fmt(away.bondResources.stone)}・食料 +{fmt(away.bondResources.food)}
+                  債券化で得た資源 木材 +{fmt(away.bondResources.wood)}・石材 +{fmt(away.bondResources.stone)}・食料 +{fmt(away.bondResources.food)}・都市資金 +
+                  {fmt(away.bondResources.treasury)}
                 </li>
               )}
             </ul>

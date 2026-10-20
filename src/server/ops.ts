@@ -18,13 +18,13 @@ import { createCity, POLICY_PRESETS } from "@/game/city/init";
 import { cityNeeds } from "@/game/city/sim";
 import { INITIAL_GOLD, INITIAL_SILVER, REWARD_DAILY_CAP, REWARD_PURCHASE, REWARD_SAVINGS } from "@/game/config";
 import { fail } from "@/game/errors";
-import { quoteNeedsExchange, quoteResourceExchange, type Currency } from "@/game/exchange";
+import { canExchange, quoteNeedsExchange, quoteResourceExchange, totalGains, ZERO_GAINS, type Currency } from "@/game/exchange";
 import { budgetOverruns, describeOverruns, type Overrun } from "@/game/currency";
 import { goldMineLevel, silverMineLevel } from "@/game/levels";
 import { collect, newMine } from "@/game/mine";
 import { lotOrder, pay, refund, summarize, type Lot, type LotRef, type Payment } from "@/game/settle";
 import { dayKey, isValidTimeZone, monthKey, parseDateInTz } from "@/game/time";
-import { DEFAULT_PRIORITIES, type CityPolicy, type NeedKey, type Stock, type StockKey } from "@/game/types";
+import { DEFAULT_PRIORITIES, type CityPolicy, type Gains, type NeedKey, type StockKey } from "@/game/types";
 import {
   addCurrency,
   budgetPlan,
@@ -404,9 +404,10 @@ export function facilityLevels(ctx: GameCtx) {
 
 const RESOURCES: StockKey[] = ["wood", "stone", "food"];
 
-/** 交換で街に入れる資源（ゲーム内のおまかせ交換と同じ量。docs/needs-based-exchange.md §5・§6） */
-function addStock(ctx: GameCtx, gains: Stock) {
+/** 交換で街に入れる資源と都市資金（ゲーム内のおまかせ交換と同じ量。docs/needs-based-exchange.md §5・§6・§13） */
+function addStock(ctx: GameCtx, gains: Gains) {
   for (const k of RESOURCES) ctx.city!.stock[k] += gains[k];
+  ctx.city!.treasury += gains.treasury;
 }
 
 /**
@@ -462,7 +463,8 @@ export function exchange(ctx: GameCtx, body: Body) {
     return exchangeToBond(ctx, kind === "gold_to_bond" ? "gold" : oneOf(body.currency, ["gold", "custom"] as const, "通貨"), amount, body);
   }
   const currency = oneOf(body.currency, ["gold", "silver"] as const, "通貨") as Currency;
-  const resource = oneOf(body.resource, [...RESOURCES, "auto"] as const, "資源");
+  const resource = oneOf(body.resource, [...RESOURCES, "treasury", "auto"] as const, "資源");
+  if (resource !== "auto" && !canExchange(currency, resource)) fail("invalid", "都市資金は金貨でだけ交換できます");
   const lv = facilityLevels(ctx);
   // おまかせ：都市の必要資源の割合で振り分ける（手数料は1回分）
   const q =
@@ -470,11 +472,11 @@ export function exchange(ctx: GameCtx, body: Body) {
       ? quoteNeedsExchange(currency, amount, cityNeeds(ctx.city!).needs, lv)
       : (() => {
           const one = quoteResourceExchange(currency, resource, amount, lv);
-          const gains: Stock = { wood: 0, stone: 0, food: 0 };
+          const gains: Gains = { ...ZERO_GAINS };
           gains[resource] = one.gain;
           return { ...one, gains };
         })();
-  const gain = q.gains.wood + q.gains.stone + q.gains.food;
+  const gain = totalGains(q.gains);
   if (gain <= 0) fail("too_small", "交換量が少なすぎます");
   addCurrency(ctx, "SILVER", -q.silverCost, "exchange_resource");
   addCurrency(ctx, "GOLD", -q.goldCost, "exchange_resource");

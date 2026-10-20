@@ -1,21 +1,24 @@
 "use client";
 
 import { useState } from "react";
+import { PlanList } from "@/components/exchange/PlanList";
 import { useGame, useSeasonView } from "@/components/GameProvider";
 import { BondIcon, Button, Card, Coin, Field, Tabs } from "@/components/ui";
 import { FEE_EXCHANGE } from "@/game/config";
 import { bondResourceEligible } from "@/game/bond";
-import { quoteNeedsExchange, quoteResourceExchange, type Currency } from "@/game/exchange";
-import type { Stock, StockKey } from "@/game/types";
+import { canExchange, quoteNeedsExchange, quoteResourceExchange, totalGains, ZERO_GAINS, type Currency } from "@/game/exchange";
+import type { GainKey, Gains } from "@/game/types";
 import { fmt } from "@/lib/api";
 
-const RES: { key: StockKey; label: string }[] = [
+/** 交換で得られるもの（都市資金は金貨だけ） */
+const RES: { key: GainKey; label: string }[] = [
   { key: "wood", label: "木材" },
   { key: "stone", label: "石材" },
   { key: "food", label: "食料" },
+  { key: "treasury", label: "都市資金" },
 ];
 
-const gainsText = (g: Stock) =>
+const gainsText = (g: Gains) =>
   RES.filter((r) => g[r.key] > 0)
     .map((r) => `${r.label} +${fmt(g[r.key])}`)
     .join("・") || "なし";
@@ -26,7 +29,7 @@ export default function ExchangePage() {
   const [mode, setMode] = useState<"g2s" | "g2b" | "res">("res");
   const [currency, setCurrency] = useState<Currency>("gold");
   /** "auto" は都市の必要資源の割合で振り分ける（おまかせ） */
-  const [resource, setResource] = useState<StockKey | "auto">("auto");
+  const [resource, setResource] = useState<GainKey | "auto">("auto");
   const [amount, setAmount] = useState("");
   /** 債券に替える元："gold" / ユーザ通貨の id */
   const [bondFrom, setBondFrom] = useState("gold");
@@ -38,8 +41,8 @@ export default function ExchangePage() {
   const needs = v.exchange.needs;
   const auto = resource === "auto";
   const one = auto ? null : quoteResourceExchange(currency, resource, n, lv);
-  const q = auto ? quoteNeedsExchange(currency, n, needs, lv) : { ...one!, gains: { wood: 0, stone: 0, food: 0, [resource]: one!.gain } as Stock };
-  const totalGain = q.gains.wood + q.gains.stone + q.gains.food;
+  const q = auto ? quoteNeedsExchange(currency, n, needs, lv) : { ...one!, gains: { ...ZERO_GAINS, [resource]: one!.gain } };
+  const totalGain = totalGains(q.gains);
   const resLabel = auto ? "おまかせ" : RES.find((r) => r.key === resource)!.label;
   const next = v.exchange.nextPlan;
   const nextLabel = next.expansion ? `拡張計画（${next.name}相当）` : `${next.name}${next.kind === "upgrade" ? ` Lv${next.level}` : ""}`;
@@ -60,7 +63,11 @@ export default function ExchangePage() {
   const g2sOk = n > 0 && n <= source.balance;
   const toLabel = mode === "g2b" ? "債券" : "銀貨";
   const resOk = n > 0 && totalGain > 0 && cur.gold >= q.goldCost && cur.silver >= q.silverCost;
-  const shareText = RES.map((r) => `${r.label} ${fmt(v.exchange.needShares[r.key] * 100)}%`).join("・");
+  // 銀貨は都市資金に替えられないので、銀貨の割合は都市資金を除いて表示する
+  const shares = currency === "gold" ? v.exchange.needShares : quoteNeedsExchange("silver", 0, needs, lv).shares;
+  const shareText = RES.filter((r) => canExchange(currency, r.key))
+    .map((r) => `${r.label} ${fmt(shares[r.key] * 100)}%`)
+    .join("・");
 
   return (
     <div className="mx-auto max-w-xl space-y-4">
@@ -70,7 +77,7 @@ export default function ExchangePage() {
           金貨は資源への交換効率が高く、銀貨は手動操作の手数料に使えます。金貨→銀貨は 1:1 で無料、逆はできません。金貨・ユーザ通貨は債券に 1:1 で無料で替えられます（債券からは戻せません。銀貨は記録の報酬なので替えられません）。
           金貨で資源を得た額（1G＝1円）は、現実で使わずに済んだお金として貯金目標に「見込み」で表示されます。
           債券は急な出費に備えるお金で、貯金目標の表示にそのまま含まれます（見込みには加えません）。
-          「おまかせ」は街がいま必要としている資源の割合で振り分けます。債券に入った分（0〜上限の範囲）には、同じ量の金貨でおまかせ交換した資源もつきます。
+          金貨は自動開発の予算になる都市資金にも替えられます（銀貨は不可）。「おまかせ」は街がいま必要としている資源・都市資金の割合で振り分けます。債券に入った分（0〜上限の範囲）には、同じ量の金貨でおまかせ交換した資源もつきます。
         </p>
       </div>
       <Tabs
@@ -94,7 +101,7 @@ export default function ExchangePage() {
                   ? await act("/api/exchange", { kind: "gold_to_silver", amount: n })
                   : await act("/api/exchange", { kind: "to_bond", currency: customFrom ? "custom" : bondFrom, currencyId: customFrom?.id, amount: n });
             if (r) {
-              const rr = r as { gains?: Stock; estimatedAdded?: number };
+              const rr = r as { gains?: Gains; estimatedAdded?: number };
               const got = rr.gains ? gainsText(rr.gains) : "";
               toast(
                 mode === "g2s"
@@ -114,7 +121,11 @@ export default function ExchangePage() {
                 <legend className="mb-1 text-sm font-medium">支払う通貨</legend>
                 <Tabs
                   value={currency}
-                  onChange={setCurrency}
+                  onChange={(c) => {
+                    setCurrency(c);
+                    // 銀貨では都市資金を選べない
+                    if (resource !== "auto" && !canExchange(c, resource)) setResource("auto");
+                  }}
                   items={[
                     { value: "gold", label: "金貨" },
                     { value: "silver", label: "銀貨" },
@@ -126,7 +137,10 @@ export default function ExchangePage() {
                 <Tabs
                   value={resource}
                   onChange={setResource}
-                  items={[{ value: "auto" as const, label: "おまかせ" }, ...RES.map((r) => ({ value: r.key, label: r.label }))]}
+                  items={[
+                    { value: "auto" as const, label: "おまかせ" },
+                    ...RES.filter((r) => canExchange(currency, r.key)).map((r) => ({ value: r.key, label: r.label })),
+                  ]}
                 />
               </fieldset>
             </>
@@ -240,6 +254,14 @@ export default function ExchangePage() {
           </Button>
         </form>
       </Card>
+      {mode !== "g2s" && (
+        <PlanList
+          queue={v.exchange.planQueue}
+          stock={{ wood: v.city.stock.wood, stone: v.city.stock.stone, treasury: v.city.treasury }}
+          foodNeed={needs.food}
+          gains={mode === "res" ? q.gains : bondGains}
+        />
+      )}
       <Card title="現在の交換効率">
         <table className="num w-full text-sm">
           <thead>
@@ -258,7 +280,7 @@ export default function ExchangePage() {
                 <td className="py-1">{c === "gold" ? "金貨" : "銀貨"}</td>
                 {RES.map((r) => (
                   <td key={r.key} className="text-right">
-                    {fmt(v.exchange.rates[c][r.key], 2)}
+                    {canExchange(c, r.key) ? fmt(v.exchange.rates[c][r.key], 2) : "—"}
                   </td>
                 ))}
               </tr>
@@ -266,7 +288,7 @@ export default function ExchangePage() {
           </tbody>
         </table>
         <p className="mt-2 text-xs text-muted">
-          銀行 Lv{lv.bank}・金鉱 Lv{lv.goldMine}・銀鉱 Lv{lv.silverMine} のボーナス込み。手元の資材：木材 {fmt(Math.floor(v.city.stock.wood))}・石材 {fmt(Math.floor(v.city.stock.stone))}・食料 {fmt(Math.floor(v.city.stock.food))}
+          銀行 Lv{lv.bank}・金鉱 Lv{lv.goldMine}・銀鉱 Lv{lv.silverMine} のボーナス込み。手元の資材：木材 {fmt(Math.floor(v.city.stock.wood))}・石材 {fmt(Math.floor(v.city.stock.stone))}・食料 {fmt(Math.floor(v.city.stock.food))}・都市資金 {fmt(Math.floor(v.city.treasury))}。都市資金は金貨でだけ交換できます。
         </p>
       </Card>
     </div>

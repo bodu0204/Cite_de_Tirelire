@@ -1,7 +1,8 @@
 // 通貨と資源の交換（種類を選ぶ交換と、都市の必要資源の割合で振り分ける「おまかせ」交換）。金貨→銀貨→資源 の経路が 金貨→資源 より有利にならないことをテストで保証する。
+// 都市資金も金貨でだけ交換できる（銀貨は不可）。
 import { FEE_EXCHANGE, GOLD_RESOURCE_VALUE, SILVER_VALUE_RATIO } from "./config";
 import { bankBonus, goldMineBonus, silverMineBonus } from "./levels";
-import type { Stock, StockKey } from "./types";
+import type { GainKey, Gains } from "./types";
 
 export type Currency = "gold" | "silver";
 
@@ -11,8 +12,12 @@ export interface FacilityLevels {
   silverMine: number;
 }
 
-/** 通貨1枚あたりの資源獲得量 */
-export function exchangeRate(currency: Currency, resource: StockKey, lv: FacilityLevels): number {
+/** その通貨で交換できるか（都市資金は金貨だけ） */
+export const canExchange = (currency: Currency, key: GainKey) => currency === "gold" || key !== "treasury";
+
+/** 通貨1枚あたりの資源獲得量（交換できない組み合わせは 0） */
+export function exchangeRate(currency: Currency, resource: GainKey, lv: FacilityLevels): number {
+  if (!canExchange(currency, resource)) return 0;
   const base = GOLD_RESOURCE_VALUE[resource];
   if (currency === "gold") return base * (1 + bankBonus(lv.bank) + goldMineBonus(lv.goldMine));
   return base * SILVER_VALUE_RATIO * (1 + bankBonus(lv.bank) + silverMineBonus(lv.silverMine));
@@ -20,7 +25,7 @@ export function exchangeRate(currency: Currency, resource: StockKey, lv: Facilit
 
 export interface ExchangeQuote {
   currency: Currency;
-  resource: StockKey;
+  resource: GainKey;
   amount: number;
   gain: number;
   rate: number;
@@ -31,7 +36,7 @@ export interface ExchangeQuote {
 
 export function quoteResourceExchange(
   currency: Currency,
-  resource: StockKey,
+  resource: GainKey,
   amount: number,
   lv: FacilityLevels,
 ): ExchangeQuote {
@@ -47,39 +52,46 @@ export function quoteResourceExchange(
   };
 }
 
-// ---- おまかせ交換（docs/needs-based-exchange.md §5・§6） ----
+// ---- おまかせ交換（docs/needs-based-exchange.md §5・§6・§13） ----
 
-const KEYS: StockKey[] = ["wood", "stone", "food"];
+export const GAIN_KEYS: GainKey[] = ["wood", "stone", "food", "treasury"];
 
-/** 必要割合：必要資源を金貨に換算した額の比。合計は1（すべて0なら均等。計画列が無限に続くので通常は起きない） */
-export function needShares(needs: Stock): Stock {
-  const value = KEYS.map((k) => Math.max(0, needs[k]) / GOLD_RESOURCE_VALUE[k]);
+export const ZERO_GAINS: Gains = { wood: 0, stone: 0, food: 0, treasury: 0 };
+
+/**
+ * 必要割合：必要資源を金貨に換算した額の比。合計は1（すべて0なら均等。計画列が無限に続くので通常は起きない）。
+ * 銀貨は都市資金に替えられないので、銀貨の割合は都市資金を除いて求める。
+ */
+export function needShares(needs: Gains, currency: Currency = "gold"): Gains {
+  const keys = GAIN_KEYS.filter((k) => canExchange(currency, k));
+  const value = keys.map((k) => Math.max(0, needs[k]) / GOLD_RESOURCE_VALUE[k]);
   const total = value.reduce((a, b) => a + b, 0);
-  const [wood, stone, food] = total > 0 ? value.map((v) => v / total) : [1 / 3, 1 / 3, 1 / 3];
-  return { wood, stone, food };
+  const shares = { ...ZERO_GAINS };
+  keys.forEach((k, i) => (shares[k] = total > 0 ? value[i] / total : 1 / keys.length));
+  return shares;
 }
 
-/** amount を割合で整数に振り分ける（最大剰余法。同じ剰余なら木材・石材・食料の順） */
-export function splitAmount(amount: number, shares: Stock): Stock {
-  const raw = KEYS.map((k) => amount * shares[k]);
+/** amount を割合で整数に振り分ける（最大剰余法。同じ剰余なら木材・石材・食料・都市資金の順） */
+export function splitAmount(amount: number, shares: Gains): Gains {
+  const raw = GAIN_KEYS.map((k) => amount * shares[k]);
   const base = raw.map((r) => Math.floor(r + 1e-9));
   let rest = amount - base.reduce((a, b) => a + b, 0);
-  const order = KEYS.map((_, i) => i).sort((a, b) => raw[b] - base[b] - (raw[a] - base[a]) || a - b);
+  const order = GAIN_KEYS.map((_, i) => i).sort((a, b) => raw[b] - base[b] - (raw[a] - base[a]) || a - b);
   for (const i of order) {
     if (rest <= 0) break;
     base[i]++;
     rest--;
   }
-  return { wood: base[0], stone: base[1], food: base[2] };
+  return { wood: base[0], stone: base[1], food: base[2], treasury: base[3] };
 }
 
 export interface NeedsQuote {
   currency: Currency;
   amount: number;
-  shares: Stock;
+  shares: Gains;
   /** 資源ごとに振り分けた通貨 */
-  split: Stock;
-  gains: Stock;
+  split: Gains;
+  gains: Gains;
   silverCost: number;
   goldCost: number;
 }
@@ -92,14 +104,16 @@ export interface NeedsQuote {
 export function quoteNeedsExchange(
   currency: Currency,
   amount: number,
-  needs: Stock,
+  needs: Gains,
   lv: FacilityLevels,
   opts: { fee?: boolean; floor?: boolean } = {},
 ): NeedsQuote {
   const { fee = true, floor = true } = opts;
-  const shares = needShares(needs);
-  const split = floor ? splitAmount(amount, shares) : { wood: amount * shares.wood, stone: amount * shares.stone, food: amount * shares.food };
-  const gain = (k: StockKey) => {
+  const shares = needShares(needs, currency);
+  const split = floor
+    ? splitAmount(amount, shares)
+    : { wood: amount * shares.wood, stone: amount * shares.stone, food: amount * shares.food, treasury: amount * shares.treasury };
+  const gain = (k: GainKey) => {
     const g = split[k] * exchangeRate(currency, k, lv);
     return floor ? Math.floor(g + 1e-9) : g;
   };
@@ -108,8 +122,11 @@ export function quoteNeedsExchange(
     amount,
     shares,
     split,
-    gains: { wood: gain("wood"), stone: gain("stone"), food: gain("food") },
+    gains: { wood: gain("wood"), stone: gain("stone"), food: gain("food"), treasury: gain("treasury") },
     silverCost: (fee ? FEE_EXCHANGE : 0) + (currency === "silver" ? amount : 0),
     goldCost: currency === "gold" ? amount : 0,
   };
 }
+
+/** 獲得量の合計（資源の単位のまま） */
+export const totalGains = (g: Gains) => GAIN_KEYS.reduce((a, k) => a + g[k], 0);
