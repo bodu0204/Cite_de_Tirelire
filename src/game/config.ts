@@ -54,8 +54,8 @@ export const SILVER_MINE_LEVEL_THRESHOLDS = [0, 5, 15, 30, 50, 80];
 export const SILVER_MINE_EXCHANGE_BONUS = [0, 0.04, 0.08, 0.12, 0.16, 0.2];
 
 // ---- 資源交換 ----
-/** 1G あたりの基準獲得量。銀貨はその 1/10 */
-export const GOLD_RESOURCE_VALUE = { wood: 10, stone: 5, food: 10 } as const;
+/** 1G あたりの基準獲得量。銀貨はその 1/10。都市資金は金貨でだけ得られる（銀貨は不可） */
+export const GOLD_RESOURCE_VALUE = { wood: 10, stone: 5, food: 10, treasury: 10 } as const;
 export const SILVER_VALUE_RATIO = 0.1;
 
 // ---- 手動操作の銀貨手数料 ----

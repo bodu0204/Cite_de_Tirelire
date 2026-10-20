@@ -146,6 +146,8 @@ export function withPurse<T>(ctx: GameCtx, fn: (p: Purse) => T): T {
   ctx.balances.gold = p.gold;
   ctx.balances.silver = p.silver;
   ctx.balances.bond = p.bond;
+  // 払い戻しで余りが債券に戻った分などは、次のティックの前に資源にする
+  if (p.bondResource) ctx.city!.bondResourcePending = (ctx.city!.bondResourcePending ?? 0) + p.bondResource;
   for (const m of p.moves) ctx.ledger.push({ currency: m.currency, delta: m.delta, reason: m.reason, currencyId: m.currencyId });
   if (p.overspend !== 0) ctx.overspends.push({ monthKey: ctx.mine.monthKey, amount: p.overspend });
   return result;

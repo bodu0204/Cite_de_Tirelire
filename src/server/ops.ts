@@ -1,5 +1,6 @@
 // ゲーム操作。すべて withGame の中（同期済み・ロック済み）で呼ばれる。
 import { Prisma } from "@prisma/client";
+import { bondCap, bondResourceEligible } from "@/game/bond";
 import { LINE_IDS, type LineId, type Zone } from "@/game/catalog";
 import {
   demolish,
@@ -14,15 +15,16 @@ import {
   setZone,
 } from "@/game/city/actions";
 import { createCity, POLICY_PRESETS } from "@/game/city/init";
+import { cityNeeds } from "@/game/city/sim";
 import { INITIAL_GOLD, INITIAL_SILVER, REWARD_DAILY_CAP, REWARD_PURCHASE, REWARD_SAVINGS } from "@/game/config";
 import { fail } from "@/game/errors";
-import { quoteResourceExchange, type Currency } from "@/game/exchange";
+import { canExchange, quoteNeedsExchange, quoteResourceExchange, totalGains, ZERO_GAINS, type Currency } from "@/game/exchange";
 import { budgetOverruns, describeOverruns, type Overrun } from "@/game/currency";
 import { goldMineLevel, silverMineLevel } from "@/game/levels";
 import { collect, newMine } from "@/game/mine";
 import { lotOrder, pay, refund, summarize, type Lot, type LotRef, type Payment } from "@/game/settle";
 import { dayKey, isValidTimeZone, monthKey, parseDateInTz } from "@/game/time";
-import { DEFAULT_PRIORITIES, type CityPolicy, type NeedKey, type StockKey } from "@/game/types";
+import { DEFAULT_PRIORITIES, type CityPolicy, type Gains, type NeedKey, type StockKey } from "@/game/types";
 import {
   addCurrency,
   budgetPlan,
@@ -400,17 +402,33 @@ export function facilityLevels(ctx: GameCtx) {
   };
 }
 
+const RESOURCES: StockKey[] = ["wood", "stone", "food"];
+
+/** 交換で街に入れる資源と都市資金（ゲーム内のおまかせ交換と同じ量。docs/needs-based-exchange.md §5・§6・§13） */
+function addStock(ctx: GameCtx, gains: Gains) {
+  for (const k of RESOURCES) ctx.city!.stock[k] += gains[k];
+  ctx.city!.treasury += gains.treasury;
+}
+
 /**
  * 金貨・ユーザ通貨を債券へ 1:1 で無料で替える（上限 3M を超えてもよい）。債券からは戻せない（急な出費用に取っておく）。
  * 債券は表示の達成率に直接含まれるので、見込み貯金には加えない（二重に数えない）。
  * 同じ理由で、記録の報酬（現実のお金ではない）である銀貨は替えられない。
  * ユーザ通貨は期限の近いロットから使う。
+ * 債券が 0〜3M の範囲に入る分は、同じ量の金貨でおまかせ交換したのと同じ資源もつける（手数料なし。元の通貨はそれ以上減らない）。
  */
 function exchangeToBond(ctx: GameCtx, from: "gold" | "custom", amount: number, body: Body) {
+  const before = ctx.balances.bond;
+  const grant = () => {
+    const eligible = bondResourceEligible(before, amount, bondCap(ctx.user.monthlyBudget));
+    const q = quoteNeedsExchange("gold", eligible, cityNeeds(ctx.city!).needs, facilityLevels(ctx), { fee: false });
+    addStock(ctx, q.gains);
+    return { resourceEligible: eligible, gains: q.gains, split: q.split };
+  };
   if (from === "gold") {
     addCurrency(ctx, "GOLD", -amount, "exchange_g2b");
     addCurrency(ctx, "BOND", amount, "exchange_g2b");
-    return { gold: -amount, bond: amount };
+    return { gold: -amount, bond: amount, ...grant() };
   }
   const currencyId = str(body.currencyId, "ユーザ通貨");
   const def = ctx.defs.find((d) => d.id === currencyId);
@@ -428,7 +446,7 @@ function exchangeToBond(ctx: GameCtx, from: "gold" | "custom", amount: number, b
   }
   ctx.ledger.push({ currency: "CUSTOM", currencyId, delta: -amount, reason: "exchange_c2b" });
   addCurrency(ctx, "BOND", amount, "exchange_c2b", currencyId);
-  return { custom: -amount, currencyId, bond: amount };
+  return { custom: -amount, currencyId, bond: amount, ...grant() };
 }
 
 export function exchange(ctx: GameCtx, body: Body) {
@@ -445,15 +463,27 @@ export function exchange(ctx: GameCtx, body: Body) {
     return exchangeToBond(ctx, kind === "gold_to_bond" ? "gold" : oneOf(body.currency, ["gold", "custom"] as const, "通貨"), amount, body);
   }
   const currency = oneOf(body.currency, ["gold", "silver"] as const, "通貨") as Currency;
-  const resource = oneOf(body.resource, ["wood", "stone", "food"] as const, "資源") as StockKey;
-  const q = quoteResourceExchange(currency, resource, amount, facilityLevels(ctx));
-  if (q.gain <= 0) fail("too_small", "交換量が少なすぎます");
+  const resource = oneOf(body.resource, [...RESOURCES, "treasury", "auto"] as const, "資源");
+  if (resource !== "auto" && !canExchange(currency, resource)) fail("invalid", "都市資金は金貨でだけ交換できます");
+  const lv = facilityLevels(ctx);
+  // おまかせ：都市の必要資源の割合で振り分ける（手数料は1回分）
+  const q =
+    resource === "auto"
+      ? quoteNeedsExchange(currency, amount, cityNeeds(ctx.city!).needs, lv)
+      : (() => {
+          const one = quoteResourceExchange(currency, resource, amount, lv);
+          const gains: Gains = { ...ZERO_GAINS };
+          gains[resource] = one.gain;
+          return { ...one, gains };
+        })();
+  const gain = totalGains(q.gains);
+  if (gain <= 0) fail("too_small", "交換量が少なすぎます");
   addCurrency(ctx, "SILVER", -q.silverCost, "exchange_resource");
   addCurrency(ctx, "GOLD", -q.goldCost, "exchange_resource");
-  ctx.city!.stock[resource] += q.gain;
+  addStock(ctx, q.gains);
   // 金貨（1G＝1円相当）をゲーム内で使った分は、現実で使わずに済んだお金＝見込み貯金
   if (q.goldCost > 0) ctx.seasonPatch.estimatedSavings = { increment: q.goldCost };
-  return { ...q, estimatedAdded: q.goldCost };
+  return { ...q, gain, estimatedAdded: q.goldCost };
 }
 
 // ---- 街の操作 ----

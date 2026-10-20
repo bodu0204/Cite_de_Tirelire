@@ -3,7 +3,7 @@ import { bondCap, bondMiningStatus, bondMultiplier, bondShare } from "@/game/bon
 import { highestUnlockedTier, LINE_IDS, LINES, unlocksAtTech } from "@/game/catalog";
 import { computeMetrics } from "@/game/city/economy";
 import { DISTRICT_NAMES, unlockedTileCount } from "@/game/city/layout";
-import { levelCap } from "@/game/city/sim";
+import { cityNeeds, levelCap } from "@/game/city/sim";
 import {
   AWAY_SUMMARY_MIN_MS,
   BANK_EXCHANGE_BONUS,
@@ -15,11 +15,11 @@ import {
   SILVER_MINE_LEVEL_THRESHOLDS,
   TECH_THRESHOLDS,
 } from "@/game/config";
-import { exchangeRate } from "@/game/exchange";
+import { exchangeRate, GAIN_KEYS, needShares, ZERO_GAINS } from "@/game/exchange";
 import { achievementRate, devLevel, goldMineLevel, nextThreshold, projectedRate, savingsProgress, silverMineLevel } from "@/game/levels";
 import { microToGold, ratePerMinute } from "@/game/mine";
 import { dayKey } from "@/game/time";
-import type { CityState } from "@/game/types";
+import type { CityState, Gains } from "@/game/types";
 import { currencySummaries } from "./currencies";
 import { budgetPlan, monthlyEquivalent, type GameCtx } from "./game";
 import { facilityLevels } from "./ops";
@@ -28,10 +28,13 @@ export interface AwayStats {
   population: number;
   devPoints: number;
   treasury: number;
+  /** 債券化で得た資源の累計（追加前の記録には無い） */
+  bondResources?: Gains;
 }
 
+
 function statsOf(city: CityState): AwayStats {
-  return { population: city.population, devPoints: city.devPoints, treasury: city.treasury };
+  return { population: city.population, devPoints: city.devPoints, treasury: city.treasury, bondResources: { ...ZERO_GAINS, ...city.bondResourceTotal } };
 }
 
 /** 前回から1時間以上空いていれば、その間の変化をまとめる */
@@ -63,8 +66,14 @@ async function awaySummary(ctx: GameCtx) {
     evolved: count("EVOLVE"),
     devPoints: Math.floor(city.devPoints - lastStats.devPoints),
     treasury: Math.floor(city.treasury - lastStats.treasury),
+    /** 債券化で得た資源 */
+    bondResources: lastStats.bondResources ? diffGains({ ...ZERO_GAINS, ...city.bondResourceTotal }, { ...ZERO_GAINS, ...lastStats.bondResources }) : { ...ZERO_GAINS },
     tiles: [...tiles].map((t) => t.split(",").map(Number) as [number, number]),
   };
+}
+
+function diffGains(a: Gains, b: Gains): Gains {
+  return Object.fromEntries(GAIN_KEYS.map((k) => [k, Math.floor(a[k] - b[k])])) as unknown as Gains;
 }
 
 export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {}) {
@@ -112,6 +121,7 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
   const cap = bondCap(user.monthlyBudget);
   const plan = budgetPlan(ctx);
   const custom = currencySummaries(ctx);
+  const needs = cityNeeds(city, metrics);
 
   // 次の技術Lvで建てられるようになる建物（発展Lvも満たすもの）
   const nextTechBuildable = nextTech !== null ? LINE_IDS.filter((l) => highestUnlockedTier(l, city.techLevel + 1, dev) > highestUnlockedTier(l, city.techLevel, dev)).map((l) => LINES[l].tiers[highestUnlockedTier(l, city.techLevel + 1, dev)].name) : [];
@@ -192,9 +202,17 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
     exchange: {
       levels,
       rates: {
-        gold: { wood: exchangeRate("gold", "wood", levels), stone: exchangeRate("gold", "stone", levels), food: exchangeRate("gold", "food", levels) },
-        silver: { wood: exchangeRate("silver", "wood", levels), stone: exchangeRate("silver", "stone", levels), food: exchangeRate("silver", "food", levels) },
+        // 銀貨→都市資金はできない（0）
+        gold: Object.fromEntries(GAIN_KEYS.map((k) => [k, exchangeRate("gold", k, levels)])) as unknown as Gains,
+        silver: Object.fromEntries(GAIN_KEYS.map((k) => [k, exchangeRate("silver", k, levels)])) as unknown as Gains,
       },
+      /** 都市の必要資源・必要割合と、在庫が最初に足りなくなる計画（おまかせ交換・債券化の資源の割合） */
+      needs: needs.needs,
+      needShares: needShares(needs.needs),
+      nextPlan: needs.next,
+      /** 計画列（交換後の在庫で実施できる計画のプレビューに使う） */
+      planQueue: needs.queue,
+      bondCap: cap,
     },
     tech: {
       level: city.techLevel,
