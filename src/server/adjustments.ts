@@ -116,7 +116,7 @@ export async function recordAdjustment(ctx: GameCtx, body: Body) {
   return { id: row.id, estimated, actual, diff, resolution };
 }
 
-// ---- 支出のベース：未記録のサブスクの支払いと未購入のほしい物 ----
+// ---- 支出のベース：未記録のサブスクの支払いと、全額貯まった未購入のほしい物 ----
 
 export async function purchaseBase(ctx: GameCtx) {
   const tz = ctx.user.timezone;
@@ -125,12 +125,15 @@ export async function purchaseBase(ctx: GameCtx) {
     include: ctx.season ? { contributions: { where: { seasonId: ctx.season.id }, select: { amount: true } } } : undefined,
     orderBy: [{ priority: "asc" }, { createdAt: "asc" }],
   });
-  const wishRows = wishes.map((w) => ({
-    id: w.id,
-    name: w.name,
-    price: w.price,
-    reserved: ((w as { contributions?: { amount: number }[] }).contributions ?? []).reduce((a, c) => a + c.amount, 0),
-  }));
+  // ほしい物は積立が価格に達したもの（全額貯まったもの）だけを並べる
+  const wishRows = wishes
+    .map((w) => ({
+      id: w.id,
+      name: w.name,
+      price: w.price,
+      reserved: ((w as { contributions?: { amount: number }[] }).contributions ?? []).reduce((a, c) => a + c.amount, 0),
+    }))
+    .filter((w) => w.reserved >= w.price);
   if (!ctx.season) return { subscriptions: [], wishes: wishRows };
 
   const periods = seasonPeriods(ctx);

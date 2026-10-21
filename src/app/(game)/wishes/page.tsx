@@ -184,7 +184,7 @@ export default function WishesPage() {
             ))}
           </ul>
         )}
-        <p className="mt-3 text-xs text-muted">購入したら、銀鉱の「支出」に並ぶこのほしい物を保存してください。積立済みの金貨が価格の精算に充てられ、価格より安く買えた分は債券 → おまかせ交換に回ります。</p>
+        <p className="mt-3 text-xs text-muted">積立が価格に達すると、銀鉱の「支出」にこのほしい物が並びます。購入したらそこで保存してください。積立済みの金貨が価格の精算に充てられ、価格より安く買えた分は債券 → おまかせ交換に回ります。</p>
       </Card>
       {done.length > 0 && (
         <Card title="完成した像">

@@ -257,7 +257,7 @@ function BaseRows({ onDone, tz }: { onDone: () => void; tz: string }) {
     onDone();
   };
   const all = [...base.subscriptions.map(subBody), ...base.wishes.map(wishBody)];
-  if (!all.length) return <Empty>未記録のサブスクの支払い・未購入のほしい物はありません</Empty>;
+  if (!all.length) return <Empty>未記録のサブスクの支払い・全額貯まったほしい物はありません</Empty>;
   const row = (key: string, label: ReactNode, sub: ReactNode, baseAmount: number, body: () => Record<string, unknown>) => {
     const amount = Number(amounts[key] || 0);
     return (
@@ -305,7 +305,7 @@ function BaseRows({ onDone, tz }: { onDone: () => void; tz: string }) {
         </Button>
       )}
       <p className="text-xs text-muted">
-        サブスクの登録額はすでに採掘から差し引かれているので精算しません。登録額・価格より安ければ＋差分（債券 → おまかせ交換）、高ければ−差分（債券から）として解消します。ほしい物は積立金貨から価格を精算します。
+        サブスクの登録額はすでに採掘から差し引かれているので精算しません。登録額・価格より安ければ＋差分（債券 → おまかせ交換）、高ければ−差分（債券から）として解消します。ほしい物は積立が全額貯まったものだけが並び、積立金貨から価格を精算します。
       </p>
     </div>
   );
