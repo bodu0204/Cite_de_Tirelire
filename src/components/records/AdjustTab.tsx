@@ -6,11 +6,11 @@ import { Button, Card, Empty, Field } from "@/components/ui";
 import { api, fmt, yen } from "@/lib/api";
 import { ResolutionPreview, type Resolution } from "./shared";
 
-type Key = "E1" | "E2" | "E3a" | "E3b" | "E4a" | "E4b" | "E5";
+type Key = "E1" | "E2" | "E3a" | "E3b" | "E6a" | "E6b" | "E4a" | "E4b" | "E5";
 type Checks = Record<Key, boolean>;
 type Items = Record<Key, number>;
 
-const KEYS: Key[] = ["E1", "E2", "E3a", "E3b", "E4a", "E4b", "E5"];
+const KEYS: Key[] = ["E1", "E2", "E3a", "E3b", "E6a", "E6b", "E4a", "E4b", "E5"];
 
 /** 項目の表示名。親（E3・E4）は子をまとめてチェックする */
 const LABELS: Record<Key, string> = {
@@ -18,6 +18,8 @@ const LABELS: Record<Key, string> = {
   E2: "未配当分の臨時収入",
   E3a: "その月の配当分",
   E3b: "その月の配当分以外",
+  E6a: "ほしい物貯金（像の積立金貨）",
+  E6b: "サブスク（まだ記録していない支払い）",
   E4a: "債券",
   E4b: "債券以外（都市に使った金貨）",
   E5: "貯金管理で生まれた（＋−）",
@@ -26,6 +28,7 @@ const GROUPS: { label: string; keys: Key[] }[] = [
   { label: LABELS.E1, keys: ["E1"] },
   { label: LABELS.E2, keys: ["E2"] },
   { label: "債券・銀貨を除く所持通貨", keys: ["E3a", "E3b"] },
+  { label: "支出として記録していないほしい物貯金・サブスク", keys: ["E6a", "E6b"] },
   { label: "貯金額", keys: ["E4a", "E4b"] },
   { label: "貯金額に対する貯金管理で生まれた（＋−）", keys: ["E5"] },
 ];
@@ -40,11 +43,16 @@ interface Estimate {
 
 /** 項目の色（カテゴリの固定順。docs/record-input-redesign.md §8.3。明るい面では文字ラベルと表を必ず添える） */
 const VIZ_STYLE = `
-.est-viz { --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4; --s6:#008300; --s7:#6250d6; }
-@media (prefers-color-scheme: dark) { :root:where(:not([data-theme="light"])) .est-viz { --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#008300; --s7:#9085e9; } }
-:root[data-theme="dark"] .est-viz { --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#008300; --s7:#9085e9; }
+.est-viz { --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4; --s6:#008300; --s7:#6250d6; --s8:#e34948; }
+@media (prefers-color-scheme: dark) { :root:where(:not([data-theme="light"])) .est-viz { --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767; } }
+:root[data-theme="dark"] .est-viz { --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767; }
 `;
-const COLOR = (k: Key) => `var(--s${KEYS.indexOf(k) + 1})`;
+/** 色は項目に固定（増やした項目で既存の色を塗り替えない）。8色を超える分は同じ色に斜線を重ねて見分ける */
+const SLOT: Record<Key, number> = { E1: 1, E2: 2, E3a: 3, E3b: 4, E6a: 8, E6b: 8, E4a: 5, E4b: 6, E5: 7 };
+const HATCHED: Key[] = ["E6b"];
+const COLOR = (k: Key) => `var(--s${SLOT[k]})`;
+/** 凡例の色見本・棒の塗り（斜線つきは背景に斜線） */
+const swatch = (k: Key) => (HATCHED.includes(k) ? `repeating-linear-gradient(135deg, ${COLOR(k)} 0 2px, transparent 2px 4px)` : COLOR(k));
 
 /**
  * 推測の積み上げ（ウォーターフォール）。項目ごとに1行、前の行の終わりから自分の額だけ伸びる（マイナスは左へ戻る）。
@@ -84,6 +92,12 @@ function Waterfall({ items, checks, actual }: { items: Items; checks: Checks; ac
   return (
     <figure>
       <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full" role="img" aria-label={`手元のお金の推測 ${yen(total)} の積み上げ`}>
+        <defs>
+          <pattern id="est-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <rect width="6" height="6" fill="var(--surface)" />
+            <rect width="3" height="6" fill={COLOR("E6b")} />
+          </pattern>
+        </defs>
         {/* 0 の基準線 */}
         <line x1={x(0)} x2={x(0)} y1={0} y2={H - 20} stroke="var(--line)" />
         {rows.map((r, i) => {
@@ -94,7 +108,17 @@ function Waterfall({ items, checks, actual }: { items: Items; checks: Checks; ac
               {/* 当たり判定は行全体 */}
               <rect x={0} y={y} width={W} height={ROW} fill="transparent" />
               {r.from === r.to ? null : r.on ? (
-                <rect x={b.x} y={y + 3} width={b.w} height={ROW - 6} rx={4} fill={COLOR(r.key)} opacity={hover && hover !== r.key ? 0.45 : 1} />
+                <rect
+                  x={b.x}
+                  y={y + 3}
+                  width={b.w}
+                  height={ROW - 6}
+                  rx={4}
+                  fill={HATCHED.includes(r.key) ? "url(#est-hatch)" : COLOR(r.key)}
+                  stroke={HATCHED.includes(r.key) ? COLOR(r.key) : undefined}
+                  strokeWidth={HATCHED.includes(r.key) ? 1.5 : undefined}
+                  opacity={hover && hover !== r.key ? 0.45 : 1}
+                />
               ) : (
                 <rect x={b.x} y={y + 4} width={b.w} height={ROW - 8} rx={4} fill="none" stroke={COLOR(r.key)} strokeWidth={2} strokeDasharray="4 3" opacity={0.7} />
               )}
@@ -208,7 +232,7 @@ export function AdjustTab({ onDone }: { onDone: () => void }) {
                     }}
                     onChange={(e) => setKeys(g.keys, e.target.checked)}
                   />
-                  {g.keys.length === 1 && <span aria-hidden className="inline-block h-3 w-3 shrink-0 rounded-sm" style={{ background: COLOR(g.keys[0]) }} />}
+                  {g.keys.length === 1 && <span aria-hidden className="inline-block h-3 w-3 shrink-0 rounded-sm" style={{ background: swatch(g.keys[0]) }} />}
                   <span className="flex-1">
                     {g.label}
                     {some && !all && <span className="ml-1 text-xs text-muted">（一部）</span>}
@@ -224,7 +248,7 @@ export function AdjustTab({ onDone }: { onDone: () => void }) {
                       <li key={k}>
                         <label className="flex items-center gap-2 rounded-md px-2 py-0.5 text-xs hover:bg-surface-2">
                           <input type="checkbox" className="w-auto" checked={checks[k]} onChange={(e) => setKeys([k], e.target.checked)} />
-                          <span aria-hidden className="inline-block h-3 w-3 shrink-0 rounded-sm" style={{ background: COLOR(k) }} />
+                          <span aria-hidden className="inline-block h-3 w-3 shrink-0 rounded-sm" style={{ background: swatch(k) }} />
                           <span className="flex-1">└ {LABELS[k]}</span>
                           <span className="num">
                             {items[k] < 0 ? "−" : ""}

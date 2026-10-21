@@ -695,7 +695,7 @@ export async function updateSettings(ctx: GameCtx, body: Body) {
   return { ok: true };
 }
 
-const CHECK_KEYS = ["E1", "E2", "E3a", "E3b", "E4a", "E4b", "E5"] as const;
+const CHECK_KEYS = ["E1", "E2", "E3a", "E3b", "E6a", "E6b", "E4a", "E4b", "E5"] as const;
 
 /** 手元のお金の推測のチェックの状態を保存する（前回の設定を引き継ぐ） */
 export async function saveEstimateChecks(ctx: GameCtx, body: Body) {

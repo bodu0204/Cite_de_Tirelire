@@ -12,12 +12,12 @@ import { int } from "./validate";
 
 type Body = Record<string, unknown>;
 
-export const ESTIMATE_KEYS = ["E1", "E2", "E3a", "E3b", "E4a", "E4b", "E5"] as const;
+export const ESTIMATE_KEYS = ["E1", "E2", "E3a", "E3b", "E6a", "E6b", "E4a", "E4b", "E5"] as const;
 export type EstimateKey = (typeof ESTIMATE_KEYS)[number];
 export type EstimateChecks = Record<EstimateKey, boolean>;
 
 /** 初回のチェック：貯金管理の増減（E5）だけ外す（Q9） */
-export const DEFAULT_CHECKS: EstimateChecks = { E1: true, E2: true, E3a: true, E3b: true, E4a: true, E4b: true, E5: false };
+export const DEFAULT_CHECKS: EstimateChecks = { E1: true, E2: true, E3a: true, E3b: true, E6a: true, E6b: true, E4a: true, E4b: true, E5: false };
 
 export function checksOf(v: unknown): EstimateChecks {
   const raw = (v ?? {}) as Record<string, unknown>;
@@ -56,15 +56,19 @@ export async function estimateItems(ctx: GameCtx): Promise<Record<EstimateKey, n
   // E2：臨時の収入の予約・採掘への上乗せで、まだ入っていない分
   const E2 = pendingExtra + toGold(rest.otherWindows);
 
-  // E3：債券・銀貨を除く所持通貨。当期の配当で入った分（先入れ先出しで最後まで残る分）とそれ以外
+  // E3：債券・銀貨を除く所持通貨（像の積立金貨は E6a で数える）。当期の配当で入った分（先入れ先出しで最後まで残る分）とそれ以外
   const customBalance = ctx.lots.filter((l) => l.remaining > 0 && (l.expiresAt === null || l.expiresAt > ctx.now)).reduce((a, l) => a + l.remaining, 0);
-  const E3 = toGold(mine.uncollected) + ctx.balances.gold + ctx.balances.reserved + customBalance;
+  const E3 = toGold(mine.uncollected) + ctx.balances.gold + customBalance;
   const E3a = Math.min(E3, toGold(mine.dividend ?? 0n));
 
   // E5：貯金管理の 引出 − 追加（別口座へ移した分を手元から引く）
   const savings = await ctx.tx.savingsTransaction.findMany({ where: { seasonId: season.id, deletedAt: null }, select: { kind: true, amount: true } });
   const E5 = -savingsProgress(savings).net;
-  return { E1, E2, E3a, E3b: E3 - E3a, E4a: ctx.balances.bond, E4b: ctx.citySpent, E5 };
+
+  // E6：支出として記録していないお金。ほしい物貯金（未購入のほしい物への積立金貨）と、まだ記録していないサブスクの支払い
+  const E6a = ctx.balances.reserved;
+  const E6b = (await purchaseBase(ctx)).subscriptions.reduce((a, s) => a + s.amount, 0);
+  return { E1, E2, E3a, E3b: E3 - E3a, E6a, E6b, E4a: ctx.balances.bond, E4b: ctx.citySpent, E5 };
 }
 
 export const estimateOf = (items: Record<EstimateKey, number>, checks: EstimateChecks) => ESTIMATE_KEYS.reduce((a, k) => a + (checks[k] ? items[k] : 0), 0);
