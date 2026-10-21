@@ -56,7 +56,7 @@ export async function estimateItems(ctx: GameCtx): Promise<Record<EstimateKey, n
   // E2：臨時の収入の予約・採掘への上乗せで、まだ入っていない分
   const E2 = pendingExtra + toGold(rest.otherWindows);
 
-  // E3：債券・銀貨を除く所持通貨。当期の配当で入った分（先入れ先出しで最後まで残る分）とそれ以外
+  // E3：債券・銀貨を除く手元の通貨合計（未回収金貨 ＋ 所持金貨 ＋ 像の積立金貨 ＋ ユーザ通貨）。当期の配当で入った分（先入れ先出しで最後まで残る分）とそれ以外
   const customBalance = ctx.lots.filter((l) => l.remaining > 0 && (l.expiresAt === null || l.expiresAt > ctx.now)).reduce((a, l) => a + l.remaining, 0);
   const E3 = toGold(mine.uncollected) + ctx.balances.gold + ctx.balances.reserved + customBalance;
   const E3a = Math.min(E3, toGold(mine.dividend ?? 0n));
