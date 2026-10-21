@@ -22,7 +22,7 @@ const LABELS: Record<Key, string> = {
   E6b: "サブスク（まだ記録していない支払い）",
   E4a: "債券",
   E4b: "債券以外（都市に使った金貨）",
-  E5: "貯金管理で生まれた（＋−）",
+  E5: "貯金管理で生まれた（±）",
 };
 const GROUPS: { label: string; keys: Key[] }[] = [
   { label: LABELS.E1, keys: ["E1"] },
