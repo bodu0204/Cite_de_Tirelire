@@ -13,13 +13,16 @@ export async function GET(req: NextRequest) {
         timezone: true,
         createdAt: true,
         bondMiningRate: true,
+        incomeDay: true,
+        incomes: true,
+        adjustments: true,
         purchases: { include: { payments: true } },
         savings: true,
         subscriptions: true,
         categories: true,
         currencyDefs: true,
         wishItems: { include: { contributions: true } },
-        seasons: { include: { events: true, ledger: true, overspends: true, currencyLots: true, accruals: true } },
+        seasons: { include: { events: true, ledger: true, overspends: true, currencyLots: true, accruals: true, grants: true, resolutions: true } },
       },
     });
     const body = JSON.stringify({ exportedAt: new Date().toISOString(), ...user }, (_k, v) => (typeof v === "bigint" ? v.toString() : v), 2);

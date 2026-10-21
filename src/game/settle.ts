@@ -195,3 +195,31 @@ export function summarize(payments: Payment[]) {
     feeBond: total(payments, "BOND", "fee"),
   };
 }
+
+// ---- 差分の解消（docs/record-input-redesign.md §4） ----
+
+/**
+ * ＋差分：まず債券に入れる（上限まで。マイナスなら返済にも充たる）。入りきらない残り rest は呼び出し側でおまかせ交換する。
+ * eligible は債券に入った分のうち資源をつける分（0〜上限の範囲。needs-based-exchange.md §6.2）。資源は呼び出し側でつける。
+ */
+export function absorbSurplus(p: Purse, d: number, reason: string): { toBond: number; eligible: number; rest: number } {
+  if (d <= 0) return { toBond: 0, eligible: 0, rest: 0 };
+  const toBond = Math.min(d, Math.max(0, p.bondCap - p.bond));
+  const eligible = bondResourceEligible(p.bond, toBond, p.bondCap);
+  p.bond += toBond;
+  move(p, { currency: "BOND", delta: toBond, reason });
+  return { toBond, eligible, rest: d - toBond };
+}
+
+/**
+ * −差分：全額を債券から減らす（マイナス可）。金貨・ユーザ通貨は使わない。
+ * 使った債券に購入と同じ手数料をかける（銀貨、足りない分は債券から）。payments はこの解消1回分の内訳。
+ */
+export function absorbShortfall(p: Purse, d: number, payments: Payment[], reason: string) {
+  if (d <= 0) return;
+  p.bond -= d;
+  p.overspend += d;
+  move(p, { currency: "BOND", delta: -d, reason });
+  addPayment(payments, { currency: "BOND", kind: "pay", amount: d });
+  settleFee(p, payments);
+}

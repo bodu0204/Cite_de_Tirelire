@@ -103,16 +103,19 @@ body {
   outline-offset: 2px;
 }
 
-input,
-select,
-textarea {
-  background: var(--surface);
-  color: var(--ink);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 0.5rem 0.65rem;
-  width: 100%;
-  font-size: 1rem;
+/* 基本の見た目は base 層に置き、w-auto などのユーティリティで上書きできるようにする */
+@layer base {
+  input,
+  select,
+  textarea {
+    background: var(--surface);
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 0.5rem 0.65rem;
+    width: 100%;
+    font-size: 1rem;
+  }
 }
 
 @keyframes rise {

@@ -1,16 +1,18 @@
 import type { NextRequest } from "next/server";
-import { prisma } from "@/server/db";
-import { route } from "@/server/http";
-import { recordSavings } from "@/server/ops";
+import { SAVINGS_DAILY_LIMIT } from "@/game/config";
+import { recordSavings, savingsCountToday } from "@/server/ops";
 import { gameRoute } from "@/server/routes";
 
 export async function GET(req: NextRequest) {
-  return route(req, async ({ userId }) => ({
-    items: await prisma.savingsTransaction.findMany({
-      where: { userId, deletedAt: null },
+  return gameRoute(req, async (ctx) => ({
+    items: await ctx.tx.savingsTransaction.findMany({
+      where: { userId: ctx.user.id, deletedAt: null },
       orderBy: [{ date: "desc" }, { createdAt: "desc" }],
       take: 500,
     }),
+    /** 貯金管理の今日の登録回数と上限 */
+    today: await savingsCountToday(ctx),
+    limit: SAVINGS_DAILY_LIMIT,
   }));
 }
 

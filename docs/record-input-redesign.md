@@ -1,6 +1,7 @@
 # 記録入力の再設計（収入・支出・誤差調整） As-Is / To-Be
 
 作成日：2026-10-20（同日改訂：前提（§2.1）と Q6〜Q10 の回答を反映。貯金管理（§7）、手元のお金の推測のチェックとグラフ（§8）を追加）
+改訂：2026-10-21（実装に合わせて §14 を追加）
 改訂：2026-10-21（−差分の解消を債券だけに変更。Q2〜Q5・Q11〜Q13 の回答を反映（Q5 はプリセットの切り替え、Q12 は原則 D-1・3.6 の修正）。収入日の設定（§5.1）、収支は金額だけ編集できること（§9.3）を追加。Q14〜Q17 を決定事項（§12.3）へ）
 関係：[requirements.md](requirements.md) 2.1・2.2・3.2〜3.6・SCR-02・SCR-04・SCR-05・SCR-06・SCR-10、[bond-and-custom-currency.md](bond-and-custom-currency.md) §4〜§6、[needs-based-exchange.md](needs-based-exchange.md) §5・§6、[ops.ts](../src/server/ops.ts) `recordPurchase` / `editPurchase` / `recordSavings` / `exchange` / `exchangeToBond`、[settle.ts](../src/game/settle.ts) `pay` / `depositToBond`、[mine.ts](../src/game/mine.ts) `accrue`、[currency.ts](../src/game/currency.ts) `budgetPlan`、[time.ts](../src/game/time.ts) `monthKey` / `monthRange`、[levels.ts](../src/game/levels.ts) `savingsProgress` / `projectedRate`、[records/page.tsx](../src/app/(game)/records/page.tsx)
 
@@ -474,3 +475,17 @@
 ## 13. 確認したいこと
 
 現時点でなし。
+
+## 14. 実装で決めた細部（2026-10-21）
+
+| 論点 | 実装 |
+|---|---|
+| 収入日の変更が効く日（IN-06） | 「今の期間の月より後の月にある、最初の新しい収入日」から。期間の名前（monthKey）が重ならないようにするため。例：10/3 に 1日 → 25日 にすると、今の期間は 10/1〜11/24（11/25 から25日区切り）。10/27 に 25日 → 1日 にすると 10/25〜10/31。効く前にもう一度変えたら、前の変更を置き換える（[time.ts](../src/game/time.ts) `changePayday`） |
+| 金額の編集の履歴（`AmountEdit`） | 別のテーブルにせず、`Resolution` に `before`・`after` を持たせた |
+| E3a（その月の配当分） | 期間ごとの残高（`goldByPeriod`）は持たず、当期の配当で所持通貨に入った額（`Season.mineDividend`）と E3 の小さいほうにした。使うときは古い期間の分から使う（先入れ先出し）と、当期の配当分が最後まで残るので同じ値になる。臨時の収入の分は配当分に数えない |
+| 予約した振り分けを入れる順 | ティックの中で、金鉱の採掘のあと・ユーザ通貨の発生の前（その期間の配当分に数えるか決めるため） |
+| −差分で当期の未配当分から減らす | 採掘から減らす額（`Season.mineCut`）とユーザ通貨の未発生分から減らす額（`Season.customCuts`）として持ち、期間が替わると残りは持ち越さない（記録の時点で残りの未配当分を上限にしている） |
+| 債券への即時の振り分け（即時貯蓄以外） | 資源は次のティックの前につく（ユーザ通貨の余りの債券化と同じ）。即時貯蓄（＋差分の解消）はその場でつく |
+| 普通の支出のフォーム | ほしい物の選択と「サブスクの支払い」のチェックはなくし、支出タブの上段（サブスク・ほしい物の行）に一本化した |
+| 既存のシーズン | 見込み貯金はそのまま「都市に使った金貨」に引き継ぎ、最高到達額は移行時の貯金額から始める。技術Lvは下げない |
+| 金額の編集の対象 | 今のシーズンの記録だけ差分を解消する。前のシーズン・シーズン外の記録は家計履歴の金額だけ直す |

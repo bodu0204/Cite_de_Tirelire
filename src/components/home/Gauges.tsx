@@ -8,21 +8,21 @@ import { Gauge } from "../ui";
 
 export function SavingsGauge({ v }: { v: ActiveView }) {
   const s = v.season;
-  const recorded = Math.max(0, s.net);
-  // 表示は 純増額 ＋ 見込み貯金 ＋ 債券（マイナスなら減らす。0未満にしない）
-  const total = Math.max(0, recorded + s.estimated + s.bond);
-  // バーは次の銀行Lvまでの達成率。区間は記録した実額で決まる現在の銀行Lvを基準にする
+  // 貯金額 ＝ 債券 ＋ 都市に使った金貨。バーは都市に使った金貨を塗り、債券を斜線で重ねる（債券がマイナスなら減らす）
+  const total = Math.max(0, s.savings);
+  const city = Math.max(0, Math.min(s.citySpent, total));
+  // バーは次の銀行Lvまでの達成率
   const band = bankLevelBand(s.goal, s.bankLevel);
   const done = band.next === null;
   const need = done ? 1 : band.next! - band.from;
-  const solid = done ? 1 : Math.max(0, Math.min(recorded, total) - band.from);
+  const solid = done ? 1 : Math.max(0, city - band.from);
   const extra = done ? 0 : Math.max(0, total - band.from) - solid;
   return (
     <div>
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-sm font-medium">貯金目標</span>
         <span className="num text-right">
-          <span className="font-pixel text-xl">{fmt(Math.min(999, s.projectedRate), 1)}%</span>
+          <span className="font-pixel text-xl">{fmt(Math.min(999, s.rate), 1)}%</span>
           <span className="ml-1 text-sm text-muted">
             （{yen(total)}/{yen(s.goal)}）
           </span>

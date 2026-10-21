@@ -52,40 +52,44 @@ export default function BankPage() {
           <WishSavingsGauge v={v} />
         </div>
       </Card>
-      <Card title="達成率の内訳">
+      <Card title="貯金額の内訳">
         <dl className="num grid grid-cols-[1fr_auto] gap-y-1 text-sm">
-          <dt className="text-muted">記録した純増額</dt>
-          <dd className="text-right">{yen(s.net)}</dd>
-          <dt className="text-muted">見込み貯金（金貨で資源を得た額）</dt>
-          <dd className="text-right">+{yen(s.estimated)}</dd>
+          <dt className="text-muted">債券以外（都市に使った金貨）</dt>
+          <dd className="text-right">{yen(s.citySpent)}</dd>
           <dt className="text-muted">債券</dt>
           <dd className={`text-right ${s.bond < 0 ? "text-danger" : ""}`}>
             {s.bond < 0 ? "−" : "+"}
             {yen(Math.abs(s.bond))}
           </dd>
-          <dt className="border-t border-line pt-1 font-medium">表示の達成率</dt>
-          <dd className="border-t border-line pt-1 text-right font-semibold">{fmt(s.projectedRate, 1)}%</dd>
+          <dt className="border-t border-line pt-1 font-medium">貯金額</dt>
+          <dd className="border-t border-line pt-1 text-right font-semibold">
+            {yen(s.savings)}（{fmt(s.rate, 1)}%）
+          </dd>
         </dl>
-        <p className="mt-2 text-xs text-muted">銀行Lv・技術Lv・目標達成の判定は、記録した純増額だけで決まります（達成率 {fmt(s.rate, 1)}%）。</p>
+        <p className="mt-2 text-xs text-muted">
+          貯金額は、都市に使った現実のお金（金貨は使っても現実のお金は出ていきません）と債券の合計です。債券を現実の支払いに使うと貯金額は減ります。銀行Lv・技術Lv・目標達成はこの額で決まります。
+        </p>
       </Card>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <Stat label="貯金目標" value={yen(s.goal)} sub={`シーズン${s.number}`} />
-        <Stat label="今回の純増額" value={yen(s.net)} sub={s.estimated > 0 ? `見込み +${yen(s.estimated)}` : `最高 ${yen(s.max)}`} />
+        <Stat label="貯金額" value={yen(s.savings)} sub={`最高 ${yen(s.max)}`} />
         <Stat label="銀行" value={s.bankLevel >= 6 ? "完成" : `Lv${s.bankLevel}`} sub={nextBank !== null ? `次は達成率${nextBank}%` : undefined} />
         <Stat label="交換ボーナス" value={`+${Math.round(s.bankBonus * 100)}%`} sub="金貨・銀貨とも" />
       </div>
-      <Card title="貯金の推移">
+      <Card title="貯金管理（別口座への出し入れ）の推移">
         <SavingsChart points={points} goal={s.goal} />
-        <p className="mt-2 text-xs text-muted">開始日 {formatDate(s.startedAt, v.user.timezone)}</p>
+        <p className="mt-2 text-xs text-muted">
+          開始日 {formatDate(s.startedAt, v.user.timezone)} ・ 純増額 {yen(s.managed)}。貯金管理の記録は判定に使わず、手元のお金の推測に使います。
+        </p>
       </Card>
       <Card>
         <TechGauge v={v} />
         <p className="mt-3 text-xs text-muted">
-          技術Lvはこのシーズンの貯金純増額の最高到達額（{yen(s.max)}）で決まります。引出しても解放済みの技術は失われません。現在の達成率は {fmt(s.rate, 1)}% です。
+          技術Lvはこのシーズンの貯金額の最高到達額（{yen(s.max)}）で決まります。債券を使って貯金額が下がっても、解放済みの技術は失われません。現在の達成率は {fmt(s.rate, 1)}% です。
         </p>
       </Card>
       <LinkButton href="/records" variant="primary" className="w-full">
-        貯金を記録する
+        収支を記録する
       </LinkButton>
     </div>
   );

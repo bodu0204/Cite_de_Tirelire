@@ -1,4 +1,4 @@
-// デモ用データ：12日前に始まったシーズンを作り、途中の貯金記録を反映しながら街を現在まで育てる。
+// デモ用データ：12日前に始まったシーズンを作り、途中で都市に使った金貨（貯金額）を反映しながら街を現在まで育てる。
 // 実行: npx tsx scripts/seed-demo.ts   （ログイン: demo@example.com / password123）
 import { PrismaClient, type Prisma } from "@prisma/client";
 import { syncParks, syncStatues } from "../src/game/city/actions";
@@ -33,7 +33,7 @@ async function main() {
   syncStatues(city, [{ id: wish.id, name: wish.name, price: wish.price, progress: 0, purchased: false }], start, events);
   const snapshot = structuredClone(city);
 
-  // 1日目 5,000円、4日目 +10,000円、8日目 +20,000円、11日目 -3,000円
+  // 貯金額（都市に使った金貨）の推移：1日目 5,000円、4日目 +10,000円、8日目 +20,000円、11日目 -3,000円（貯金管理の記録としても残す）
   const plan: [number, "DEPOSIT" | "WITHDRAW", number][] = [
     [1, "DEPOSIT", 5000],
     [4, "DEPOSIT", 10000],
@@ -66,6 +66,8 @@ async function main() {
       gold: 1200,
       rewardedRecords: 4,
       milestones: [25],
+      citySpentGold: savingsProgress(records).net,
+      maxSavingsAmount: savingsProgress(records).max,
       mineLastAccrualAt: new Date(mine.lastAccrualAt),
       mineMonthKey: mine.monthKey,
       lastSeenAt: new Date(now - 14 * HOUR),
