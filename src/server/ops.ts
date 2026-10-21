@@ -234,6 +234,11 @@ async function subscriptionFor(ctx: GameCtx, body: Body) {
 export async function recordPurchase(ctx: GameCtx, body: Body) {
   const subPay = await subscriptionFor(ctx, body);
   const wish = await wishFor(ctx, body);
+  // ほしい物の購入は、積立が価格に達したもの（全額貯まったもの）だけ記録できる（支出の一覧と同じ条件）
+  if (wish) {
+    const reserved = await reservedFor(ctx, wish.id);
+    if (reserved < wish.price) fail("not_saved", `${wish.name}はまだ全額貯まっていません（積立 ${reserved.toLocaleString("ja-JP")}G / ${wish.price.toLocaleString("ja-JP")}円）`);
+  }
   const input = purchaseInput(subPay ? { ...body, name: body.name ?? subPay.sub.name, isSubscription: true } : wish ? { ...body, name: body.name ?? wish.name } : body);
   const cat = await resolveCategory(ctx, body);
   const baseAmount = subPay ? subPay.sub.amount : wish ? wish.price : null;

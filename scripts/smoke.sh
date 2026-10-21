@@ -56,6 +56,7 @@ echo "== custom->bond needs balance"; req POST /api/exchange "{\"kind\":\"to_bon
 echo "== silver shortage: resource exchange fails, bond untouched"; req POST /api/exchange '{"kind":"to_resource","currency":"silver","resource":"wood","amount":100000}'
 echo "== wish contribution counts as wish savings"; req POST /api/wishes/$W/contribute '{"amount":500}'
 req GET /api/state | j '[o.wishSavings, o.season.savings]'
+echo "== wish purchase before fully saved is rejected"; req POST /api/purchases "{\"wishItemId\":\"$W\",\"date\":\"$TODAY\",\"amount\":8000}" | j 'o.error && o.error.code'
 
 echo "== income base: unrecorded periods with base B"; req GET /api/incomes/base | j '[o.budget, o.current, o.periods.map(p=>[p.key,p.base,p.current])]'
 MK=$(req GET /api/incomes/base | j 'o.current')
