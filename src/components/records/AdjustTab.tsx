@@ -29,7 +29,7 @@ const GROUPS: { label: string; keys: Key[] }[] = [
   { label: LABELS.E2, keys: ["E2"] },
   { label: CURRENCY_TOTAL, keys: ["E3a", "E3b"] },
   { label: "貯金額", keys: ["E4a", "E4b"] },
-  { label: "貯金額に対する貯金管理で生まれた（＋−）", keys: ["E5"] },
+  { label: "貯金額に対する貯金管理で生まれた（±）", keys: ["E5"] },
 ];
 
 interface Estimate {
