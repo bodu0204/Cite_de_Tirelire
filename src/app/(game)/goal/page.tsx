@@ -18,7 +18,7 @@ export default function GoalPage() {
     return (
       <div className="mx-auto max-w-xl space-y-3">
         <h1 className="font-pixel text-2xl">目標達成まで</h1>
-        <p className="text-sm text-muted">達成率 {fmt(s.rate, 1)}%。あと {yen(Math.max(0, s.goal - s.net))} で街が完成します。</p>
+        <p className="text-sm text-muted">達成率 {fmt(s.rate, 1)}%。あと {yen(Math.max(0, s.goal - s.savings))} で街が完成します。</p>
         <LinkButton href="/">街へ戻る</LinkButton>
       </div>
     );
@@ -39,7 +39,7 @@ export default function GoalPage() {
         bankLevel={v.city.bankLevel}
       />
       <div className="grid grid-cols-2 gap-2">
-        <Stat label="達成した貯金額" value={yen(s.net)} sub={`目標 ${yen(s.goal)}`} />
+        <Stat label="達成した貯金額" value={yen(s.savings)} sub={`目標 ${yen(s.goal)}`} />
         <Stat label="目標達成日" value={s.reachedAt ? formatDate(s.reachedAt, tz) : "—"} />
         <Stat label="プレイ期間" value={`${days}日`} sub={`${formatDate(s.startedAt, tz)}〜`} />
         <Stat label="街の最終状態" value={`${v.dev.name}`} sub={`人口 ${fmt(Math.floor(v.metrics.population))}人 ・ 技術Lv${v.tech.level}`} />

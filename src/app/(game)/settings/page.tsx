@@ -19,6 +19,7 @@ export default function SettingsPage() {
   const v = useSeasonView();
   const [budget, setBudget] = useState("");
   const [tz, setTz] = useState("");
+  const [incomeDay, setIncomeDay] = useState("1");
   const [del, setDel] = useState(false);
   const [password, setPassword] = useState("");
   const [overruns, setOverruns] = useState<Overrun[]>([]);
@@ -27,6 +28,7 @@ export default function SettingsPage() {
     if (view) {
       setBudget(String(view.user.monthlyBudget));
       setTz(view.user.timezone);
+      setIncomeDay(String(view.user.incomeDay));
     }
   }, [view]);
 
@@ -51,7 +53,11 @@ export default function SettingsPage() {
             e.preventDefault();
             // 予算を下げてユーザ通貨が自由予算を超える月が出る場合は保存できない。超える月を表示する
             try {
-              await api("/api/settings", { method: "PATCH", body: { monthlyBudget: Number(budget || 0), timezone: tz } });
+              const day = Number(incomeDay);
+              await api("/api/settings", {
+                method: "PATCH",
+                body: { monthlyBudget: Number(budget || 0), timezone: tz, ...(view && day !== view.user.incomeDay ? { incomeDay: day } : {}) },
+              });
               setOverruns([]);
               await refresh();
               toast("保存しました");
@@ -64,6 +70,18 @@ export default function SettingsPage() {
         >
           <Field label="月間自由予算（円）" hint="変更は今この時点からの採掘量に反映されます。過去の採掘分は変わりません。">
             <input inputMode="numeric" value={budget} onChange={(e) => setBudget(e.target.value.replace(/\D/g, ""))} />
+          </Field>
+          <Field
+            label="毎月の収入が入る日"
+            hint="この日を基準に月の収入の配当（金貨の採掘・ユーザ通貨）が発生し、この日から翌月のこの日の前日までを1か月として数えます。その月にない日（31日など）は月末になります。変更は次の収入日から反映され、今の期間はそこまで延びるか縮みます。"
+          >
+            <select value={incomeDay} onChange={(e) => setIncomeDay(e.target.value)}>
+              {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+                <option key={d} value={d}>
+                  毎月{d}日
+                </option>
+              ))}
+            </select>
           </Field>
           <Field label="タイムゾーン" hint="月の区切りと記録日の判定に使います。">
             <input value={tz} onChange={(e) => setTz(e.target.value)} placeholder="Asia/Tokyo" />
@@ -147,7 +165,9 @@ export default function SettingsPage() {
           </div>
           <div>
             <dt className="font-semibold">技術Lvの上げ方</dt>
-            <dd className="text-muted">現実の貯金を記録したときだけ上がります。このシーズンの貯金純増額の最高到達額で決まり、引出しても下がりません。</dd>
+            <dd className="text-muted">
+              貯金額（債券 ＋ 都市に使った金貨）だけで上がります。金貨はゲーム内で使っても現実のお金は出ていかないので、都市に使った分はそのまま貯金になります。このシーズンの貯金額の最高到達額で決まり、債券を使っても下がりません。
+            </dd>
           </div>
           <div>
             <dt className="font-semibold">金貨と銀貨</dt>

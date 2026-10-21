@@ -3,7 +3,7 @@
 import { Prisma } from "@prisma/client";
 import { budgetOverruns, describeOverruns, nextOccurrences, type CurrencyDefLite, type Rule } from "@/game/currency";
 import { fail } from "@/game/errors";
-import { dayKey, monthRange } from "@/game/time";
+import { dayKey, periodRange } from "@/game/time";
 import { budgetPlan, defLite, loadCurrencyDefs, type GameCtx } from "./game";
 import { date, int, oneOf, optDate, str } from "./validate";
 
@@ -169,7 +169,7 @@ export async function previewCurrency(ctx: GameCtx, body: Body) {
   const plan = budgetPlan(ctx, { defs });
   const alone = budgetPlan(ctx, { defs: [def], budget: Number.MAX_SAFE_INTEGER, subs: [] });
   const tz = ctx.user.timezone;
-  const thisMonth = monthRange(ctx.now, tz);
+  const thisMonth = periodRange(ctx.now, ctx.cal);
   const months = [thisMonth.start, thisMonth.end].map((t) => {
     const m = plan.monthSummary(t);
     return { monthKey: dayKey(t, tz).slice(0, 7), budget: plan.budget, subs: m.subs, custom: m.custom, thisCurrency: alone.monthSummary(t).custom, mining: m.net };

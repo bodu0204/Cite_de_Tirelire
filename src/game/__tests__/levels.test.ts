@@ -1,12 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { STATUE_GOLD_FROM } from "../config";
 import { exchangeRate, quoteResourceExchange } from "../exchange";
-import { achievementRate, bankLevel, bankLevelBand, DISPLAYED, JUDGED, projectedRate, savingsAmount, savingsProgress, statueRank, techLevel } from "../levels";
+import { achievementRate, bankLevel, bankLevelBand, savingsProgress, savingsRate, savingsTotal, statueRank, techLevel } from "../levels";
 
-describe("AT-003 貯金記録と銀行", () => {
-  it("目標100,000円に20,000円で達成率20%・銀行Lv2", () => {
-    const { net } = savingsProgress([{ kind: "DEPOSIT", amount: 20000 }]);
-    const rate = achievementRate(net, 100000);
+describe("AT-003 貯金額と銀行", () => {
+  it("目標100,000円に貯金額20,000円で達成率20%・銀行Lv2", () => {
+    const rate = savingsRate({ bond: 12000, citySpent: 8000 }, 100000);
     expect(rate).toBe(20);
     expect(bankLevel(rate)).toBe(2);
   });
@@ -22,50 +21,34 @@ describe("AT-003 貯金記録と銀行", () => {
   });
 });
 
-describe("見込み貯金", () => {
-  it("表示の達成率は記録した純増額に見込みを上乗せする", () => {
-    expect(projectedRate(20000, 5000, 100000)).toBe(25);
+describe("AT-053 貯金額 ＝ 債券 ＋ 都市に使った金貨", () => {
+  it("債券と都市に使った金貨を足す", () => {
+    expect(savingsTotal({ bond: 10000, citySpent: 5000 })).toBe(15000);
   });
 
-  it("純増額が負でも見込みだけは表示に乗る", () => {
-    expect(projectedRate(-3000, 5000, 100000)).toBe(5);
+  it("債券がマイナスなら減らし、達成率は0未満にしない", () => {
+    expect(savingsTotal({ bond: -5000, citySpent: 20000 })).toBe(15000);
+    expect(savingsRate({ bond: -5000, citySpent: 1000 }, 100000)).toBe(0);
   });
 
-  it("見込みを含めると銀行Lvが変わってしまうため、判定には実額の達成率を使う", () => {
-    expect(bankLevel(achievementRate(15000, 100000))).toBe(1);
-    expect(bankLevel(projectedRate(15000, 10000, 100000))).toBe(2);
-  });
-});
-
-describe("BND-08 債券は表示の達成率にだけ含める", () => {
-  it("純増額 ＋ 見込み ＋ 債券", () => {
-    expect(projectedRate(20000, 5000, 100000, 10000)).toBe(35);
-  });
-
-  it("債券がマイナスなら減らすが、全体は0未満にしない", () => {
-    expect(projectedRate(20000, 0, 100000, -5000)).toBe(15);
-    expect(projectedRate(1000, 0, 100000, -5000)).toBe(0);
-  });
-
-  it("判定に使う額には含めない（切り替えは include で1か所）", () => {
-    const parts = { net: 20000, estimated: 5000, bond: 10000 };
-    expect(savingsAmount(parts, JUDGED)).toBe(20000);
-    expect(savingsAmount(parts, DISPLAYED)).toBe(35000);
+  it("技術Lvは最高到達額で決まり、債券を使って貯金額が下がっても下がらない", () => {
+    const max = Math.max(savingsTotal({ bond: 30000, citySpent: 0 }), savingsTotal({ bond: 10000, citySpent: 0 }));
+    expect(techLevel(max)).toBe(4);
   });
 });
 
 describe("技術Lv", () => {
   it("AT-010 15,000円で技術Lv3", () => {
-    expect(techLevel(savingsProgress([{ kind: "DEPOSIT", amount: 15000 }]).max)).toBe(3);
+    expect(techLevel(15000)).toBe(3);
   });
 
-  it("引出しても最高到達額で判定するので下がらない", () => {
+  it("貯金管理の純増額と最高到達額（推測 E5 用）", () => {
     const p = savingsProgress([
       { kind: "DEPOSIT", amount: 30000 },
       { kind: "WITHDRAW", amount: 20000 },
     ]);
     expect(p.net).toBe(10000);
-    expect(techLevel(p.max)).toBe(4);
+    expect(p.max).toBe(30000);
   });
 
   it("純増額が負なら達成率は0", () => {

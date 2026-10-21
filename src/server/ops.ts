@@ -16,21 +16,22 @@ import {
 } from "@/game/city/actions";
 import { createCity, POLICY_PRESETS } from "@/game/city/init";
 import { cityNeeds } from "@/game/city/sim";
-import { INITIAL_GOLD, INITIAL_SILVER, REWARD_DAILY_CAP, REWARD_PURCHASE, REWARD_SAVINGS } from "@/game/config";
+import { INITIAL_GOLD, INITIAL_SILVER, REWARD_DAILY_CAP, REWARD_PURCHASE, REWARD_SAVINGS, SAVINGS_DAILY_LIMIT } from "@/game/config";
 import { fail } from "@/game/errors";
 import { canExchange, quoteNeedsExchange, quoteResourceExchange, totalGains, ZERO_GAINS, type Currency } from "@/game/exchange";
-import { budgetOverruns, describeOverruns, type Overrun } from "@/game/currency";
+import { budgetOverruns, describeOverruns, startOfDay, type Overrun } from "@/game/currency";
 import { goldMineLevel, silverMineLevel } from "@/game/levels";
 import { collect, newMine } from "@/game/mine";
-import { lotOrder, pay, refund, summarize, type Lot, type LotRef, type Payment } from "@/game/settle";
-import { dayKey, isValidTimeZone, monthKey, parseDateInTz } from "@/game/time";
+import { lotOrder, pay, summarize, type Lot, type Payment } from "@/game/settle";
+import { changePayday, dayKey, isValidTimeZone, parseDateInTz, periodKey } from "@/game/time";
 import { DEFAULT_PRIORITIES, type CityPolicy, type Gains, type NeedKey, type StockKey } from "@/game/types";
 import {
   addCurrency,
   budgetPlan,
+  calOf,
+  erasJson,
   emitFacilityLevels,
-  lotFromRow,
-  refreshSavings,
+  facilityLevels,
   requireSeason,
   syncSpecials,
   tagLedger,
@@ -38,7 +39,10 @@ import {
   type GameCtx,
 } from "./game";
 import { resolveCategory } from "./categories";
+import { resolveDiff } from "./resolve";
 import { bool, date, int, oneOf, optDate, optStr, str } from "./validate";
+
+export { facilityLevels };
 
 type Body = Record<string, unknown>;
 
@@ -60,7 +64,7 @@ export async function startSeason(ctx: GameCtx, body: Body) {
   }
   const tz = ctx.user.timezone;
   const number = (await ctx.tx.season.count({ where: { userId: ctx.user.id } })) + 1;
-  const mine = newMine(ctx.now, tz);
+  const mine = newMine(ctx.now, ctx.cal);
   const city = createCity(ctx.now, preset);
   const season = await ctx.tx.season.create({
     data: {
@@ -84,6 +88,9 @@ export async function startSeason(ctx: GameCtx, body: Body) {
   ctx.lots = [];
   ctx.accruals = new Map();
   ctx.customStart = new Map();
+  ctx.citySpent = 0;
+  ctx.grants = [];
+  ctx.cuts = [];
   addCurrency(ctx, "GOLD", INITIAL_GOLD, "season_start");
   addCurrency(ctx, "SILVER", INITIAL_SILVER, "season_start");
   ctx.events.push({ at: ctx.now, type: "SEASON_STARTED", auto: false, important: true, payload: { goal, number } });
@@ -121,7 +128,7 @@ export function collectGold(ctx: GameCtx) {
 
 // ---- 銀鉱：記録と報酬 ----
 
-async function grantReward(ctx: GameCtx, recordKey: string, base: number): Promise<number> {
+export async function grantReward(ctx: GameCtx, recordKey: string, base: number): Promise<number> {
   if (!ctx.season) return 0;
   const day = dayKey(ctx.now, ctx.user.timezone);
   const exists = await ctx.tx.rewardClaim.findUnique({ where: { recordKey } });
@@ -148,11 +155,11 @@ function purchaseInput(body: Body) {
   };
 }
 
-/** 金鉱で精算する対象か：進行中シーズン・サブスク以外・当月の購入 */
+/** 金鉱で精算する対象か：進行中シーズン・サブスク以外・当期（収入期間）の購入 */
 function settleable(ctx: GameCtx, p: { date: string; isSubscription: boolean }) {
   if (!ctx.mine || p.isSubscription) return false;
   const at = parseDateInTz(p.date, ctx.user.timezone);
-  return at !== null && monthKey(at, ctx.user.timezone) === ctx.mine.monthKey;
+  return at !== null && periodKey(at, ctx.cal) === ctx.mine.monthKey;
 }
 
 /** そのジャンルの購入に使えるロットを支払い順に（期限の近い順、同じなら通貨の並び順） */
@@ -174,44 +181,11 @@ function settle(ctx: GameCtx, amount: number, categoryId: string | null, payment
   tagLedger(ctx, from, refId);
 }
 
-/** 支払いに使ったロットを読み込んでおく（払い戻しで元のロットへ戻すため） */
-async function loadPaidLots(ctx: GameCtx, payments: Payment[]) {
-  const ids = payments.filter((x) => x.lotId && !ctx.lots.some((l) => l.id === x.lotId)).map((x) => x.lotId!);
-  if (!ids.length) return;
-  const rows = await ctx.tx.currencyLot.findMany({ where: { id: { in: ids } } });
-  ctx.lots.push(...rows.map(lotFromRow));
-}
-
-function refundAmount(ctx: GameCtx, amount: number, payments: Payment[], refId: string) {
-  if (amount <= 0) return;
-  const from = ctx.ledger.length;
-  const live = new Set(ctx.defs.map((d) => d.id));
-  const resolve = (lotId: string): LotRef => {
-    const lot = ctx.lots.find((l) => l.id === lotId);
-    if (!lot || !live.has(lot.currencyId)) return {};
-    // 期限切れなら、戻した分にその場で余りの扱い（債券へ）を適用する
-    return { lot, expiredToBond: lot.expiresAt !== null && lot.expiresAt <= ctx.now };
-  };
-  withPurse(ctx, (p) => refund(p, amount, payments, resolve));
-  ctx.mine!.settledThisMonth = Math.max(0, ctx.mine!.settledThisMonth - amount);
-  tagLedger(ctx, from, refId);
-}
-
-/** 購入の支払い内訳。内訳のない精算済みの購入（移行前）は全額を所持金貨で払ったとみなす */
-async function paymentsOf(ctx: GameCtx, p: { id: string; settledAmount: number; reservedApplied: number }): Promise<Payment[]> {
-  const rows = await ctx.tx.purchasePayment.findMany({ where: { purchaseId: p.id }, orderBy: { id: "asc" } });
-  if (rows.length) return rows.map((r) => ({ currency: r.currency, kind: r.kind as Payment["kind"], currencyId: r.currencyId, lotId: r.lotId, amount: r.amount }));
-  const list: Payment[] = [];
-  if (p.reservedApplied > 0) list.push({ currency: "RESERVED", kind: "pay", amount: p.reservedApplied });
-  if (p.settledAmount > 0) list.push({ currency: "GOLD", kind: "pay", amount: p.settledAmount });
-  return list;
-}
-
 async function savePayments(ctx: GameCtx, purchaseId: string, payments: Payment[]) {
   await ctx.tx.purchasePayment.deleteMany({ where: { purchaseId } });
   const rows = payments.filter((x) => x.amount !== 0);
   if (!rows.length) return;
-  // id の並びが支払いの順（払い戻しは逆順）
+  // id の並びが支払いの順
   await ctx.tx.purchasePayment.createMany({
     data: rows.map((x, i) => ({
       id: `${purchaseId}_${String(i).padStart(3, "0")}`,
@@ -239,28 +213,64 @@ async function wishFor(ctx: GameCtx, body: Body) {
   return wish;
 }
 
+/** サブスクの支払い（どのサブスクの何期間分か）。同じサブスク・同じ期間は1件だけ */
+async function subscriptionFor(ctx: GameCtx, body: Body) {
+  if (!body.subscriptionId) return null;
+  const sub = await ctx.tx.subscription.findFirst({ where: { id: str(body.subscriptionId, "サブスク"), userId: ctx.user.id } });
+  if (!sub) fail("not_found", "サブスクが見つかりません", 404);
+  const key = str(body.periodKey, "対象の期間", { max: 7 });
+  if (!/^\d{4}-\d{2}$/.test(key)) fail("invalid", "対象の期間が不正です");
+  const dup = await ctx.tx.purchase.findFirst({ where: { subscriptionId: sub!.id, periodKey: key, deletedAt: null } });
+  if (dup) fail("already", "この期間の支払いは記録済みです", 409);
+  return { sub: sub!, periodKey: key };
+}
+
+/**
+ * 支出の記録（docs/record-input-redesign.md §6）。
+ * - 普通の支出：精算順（ユーザ通貨 → 未回収 → 所持金貨 → 債券＋手数料）で払う
+ * - サブスクの支払い：登録額（ベース）は採掘から差し引き済みなので精算しない。登録額との差を差分として解消する
+ * - ほしい物：価格（ベース）を 像の積立金貨 → 精算順 で払い、価格との差を差分として解消する（余った積立も債券 → おまかせ交換へ）
+ */
 export async function recordPurchase(ctx: GameCtx, body: Body) {
-  const input = purchaseInput(body);
-  const cat = await resolveCategory(ctx, body);
+  const subPay = await subscriptionFor(ctx, body);
   const wish = await wishFor(ctx, body);
+  // ほしい物の購入は、積立が価格に達したもの（全額貯まったもの）だけ記録できる（支出の一覧と同じ条件）
+  if (wish) {
+    const reserved = await reservedFor(ctx, wish.id);
+    if (reserved < wish.price) fail("not_saved", `${wish.name}はまだ全額貯まっていません（積立 ${reserved.toLocaleString("ja-JP")}G / ${wish.price.toLocaleString("ja-JP")}円）`);
+  }
+  const input = purchaseInput(subPay ? { ...body, name: body.name ?? subPay.sub.name, isSubscription: true } : wish ? { ...body, name: body.name ?? wish.name } : body);
+  const cat = await resolveCategory(ctx, body);
+  const baseAmount = subPay ? subPay.sub.amount : wish ? wish.price : null;
 
   const purchase = await ctx.tx.purchase.create({
-    data: { ...input, ...cat, userId: ctx.user.id, seasonId: ctx.season?.id ?? null, wishItemId: wish?.id ?? null },
+    data: {
+      ...input,
+      ...cat,
+      userId: ctx.user.id,
+      seasonId: ctx.season?.id ?? null,
+      wishItemId: wish?.id ?? null,
+      subscriptionId: subPay?.sub.id ?? null,
+      periodKey: subPay?.periodKey ?? null,
+      baseAmount,
+    },
   });
   let reservedApplied = 0;
   let settledAmount = 0;
   const payments: Payment[] = [];
+  // 精算するのはベース（ほしい物は価格、普通の支出は金額）
+  const settleBase = wish ? wish.price : input.amount;
   if (ctx.season && settleable(ctx, input)) {
-    // 像の積立金貨を先に購入額へ充当する（二重計上しない）
+    // 像の積立金貨を先に充当する（二重計上しない）
     if (wish) {
-      reservedApplied = Math.min(await reservedFor(ctx, wish.id), input.amount);
+      reservedApplied = Math.min(await reservedFor(ctx, wish.id), settleBase);
       if (reservedApplied > 0) {
         await ctx.tx.wishContribution.create({ data: { seasonId: ctx.season.id, wishItemId: wish.id, amount: -reservedApplied } });
         addCurrency(ctx, "RESERVED", -reservedApplied, "wish_purchase", purchase.id);
         payments.push({ currency: "RESERVED", kind: "pay", amount: reservedApplied });
       }
     }
-    settledAmount = input.amount - reservedApplied;
+    settledAmount = settleBase - reservedApplied;
     settle(ctx, settledAmount, cat.categoryId, payments, purchase.id);
     await savePayments(ctx, purchase.id, payments);
     await ctx.tx.purchase.update({
@@ -268,12 +278,23 @@ export async function recordPurchase(ctx: GameCtx, body: Body) {
       data: { settledAmount, settledMonth: ctx.mine!.monthKey, reservedApplied },
     });
   }
+  // ベースとの差：安ければ＋差分、高ければ−差分
+  const resolution = baseAmount !== null ? await resolveDiff(ctx, baseAmount - input.amount, { type: "purchase", id: purchase.id }) : null;
   if (wish) {
     await ctx.tx.wishItem.update({ where: { id: wish.id }, data: { purchasedAt: new Date(ctx.now), purchaseId: purchase.id } });
     await syncSpecials(ctx);
   }
   const reward = await grantReward(ctx, `purchase:${purchase.id}`, REWARD_PURCHASE);
-  return { id: purchase.id, reward, settled: settledAmount, reservedApplied, payment: summarize(payments) };
+  return { id: purchase.id, reward, settled: settledAmount, reservedApplied, payment: summarize(payments), resolution };
+}
+
+/** 支出の記録（items で一括保存） */
+export async function recordPurchases(ctx: GameCtx, body: Body) {
+  if (!Array.isArray(body.items)) return recordPurchase(ctx, body);
+  if (body.items.length > 50) fail("invalid", "一括保存は50件までです");
+  const items = [];
+  for (const item of body.items as Body[]) items.push(await recordPurchase(ctx, item));
+  return { items };
 }
 
 /** 記録前の支払い内訳のプレビュー。状態は変えない */
@@ -303,52 +324,21 @@ async function ownPurchase(ctx: GameCtx, id: string) {
 }
 
 /**
- * 精算済みの額を新しい目標額に合わせる。増額は追加で精算し、減額は逆順に払い戻す。
- * ジャンルが変わったら、使えるユーザ通貨が変わるので全額を戻してから精算し直す。
- * 締めた月・別シーズンの記録は精算し直さない。
+ * 支出の金額だけを変える（docs/record-input-redesign.md §9.3）。最初の精算はそのまま残し、変化分を差分として解消する：
+ * 減額は＋差分（債券 → おまかせ交換）、増額は−差分（債券＋手数料）。金額 0 は取り消し（記録は残る）。
+ * 日付・名称・ジャンルなどは変えられない。
  */
-async function resettle(ctx: GameCtx, p: Awaited<ReturnType<typeof ownPurchase>>, target: number, categoryId: string | null) {
-  if (!ctx.season || p.seasonId !== ctx.season.id || !ctx.mine) return null;
-  if (p.settledMonth && p.settledMonth !== ctx.mine.monthKey) return null;
-  const payments = await paymentsOf(ctx, p);
-  await loadPaidLots(ctx, payments);
-  if (categoryId !== p.categoryId && p.settledAmount > 0 && target > 0) {
-    refundAmount(ctx, p.settledAmount, payments, p.id);
-    settle(ctx, target, categoryId, payments, p.id);
-  } else {
-    const delta = target - p.settledAmount;
-    if (delta > 0) settle(ctx, delta, categoryId, payments, p.id);
-    if (delta < 0) refundAmount(ctx, -delta, payments, p.id);
-  }
-  return { payments, patch: { settledAmount: target, settledMonth: target > 0 ? ctx.mine.monthKey : null } };
-}
-
 export async function editPurchase(ctx: GameCtx, id: string, body: Body) {
   const p = await ownPurchase(ctx, id);
-  const input = purchaseInput({ ...p, ...body });
-  const cat = body.categoryId !== undefined || body.category !== undefined ? await resolveCategory(ctx, body) : { categoryId: p.categoryId, category: p.category };
-  const target = settleable(ctx, input) ? Math.max(0, input.amount - p.reservedApplied) : 0;
-  const s = await resettle(ctx, p, target, cat.categoryId);
-  if (s) await savePayments(ctx, id, s.payments);
-  await ctx.tx.purchase.update({ where: { id }, data: { ...input, ...cat, ...(s?.patch ?? {}) } });
+  const extra = Object.keys(body).filter((k) => k !== "amount");
+  if (extra.length) fail("invalid", "登録した支出は金額だけ変更できます");
+  const amount = int(body.amount, "金額", { min: 0, max: 100_000_000 });
+  if (amount === p.amount) return { id, resolution: null };
+  // 別のシーズンの記録は家計履歴だけ直す
+  const resolution = p.seasonId && p.seasonId === ctx.season?.id ? await resolveDiff(ctx, p.amount - amount, { type: "purchase", id }, { before: p.amount, after: amount }) : null;
+  await ctx.tx.purchase.update({ where: { id }, data: { amount } });
   // 編集では報酬を再付与しない
-  return { id, payment: s ? summarize(s.payments) : null };
-}
-
-export async function deletePurchase(ctx: GameCtx, id: string) {
-  const p = await ownPurchase(ctx, id);
-  const s = await resettle(ctx, p, 0, p.categoryId);
-  if (s && p.reservedApplied > 0 && p.wishItemId && ctx.season) {
-    await ctx.tx.wishContribution.create({ data: { seasonId: ctx.season.id, wishItemId: p.wishItemId, amount: p.reservedApplied } });
-    addCurrency(ctx, "RESERVED", p.reservedApplied, "wish_purchase_undo", p.id);
-  }
-  if (s) await savePayments(ctx, id, s.payments.filter((x) => x.currency !== "RESERVED"));
-  await ctx.tx.purchase.update({ where: { id }, data: { deletedAt: new Date(ctx.now), ...(s?.patch ?? {}), reservedApplied: s ? 0 : p.reservedApplied } });
-  if (p.wishItemId) {
-    await ctx.tx.wishItem.updateMany({ where: { id: p.wishItemId, purchaseId: p.id }, data: { purchasedAt: null, purchaseId: null } });
-    await syncSpecials(ctx);
-  }
-  return { id };
+  return { id, resolution };
 }
 
 function savingsInput(body: Body) {
@@ -360,15 +350,22 @@ function savingsInput(body: Body) {
   };
 }
 
+/** 貯金管理の1日の登録回数（ユーザーのタイムゾーンの暦日。削除しても戻らない） */
+export async function savingsCountToday(ctx: GameCtx) {
+  const start = startOfDay(ctx.now, ctx.user.timezone);
+  return ctx.tx.savingsTransaction.count({ where: { userId: ctx.user.id, createdAt: { gte: new Date(start) } } });
+}
+
+/**
+ * 貯金管理：手元の財布と別口座の間の出し入れ（docs/record-input-redesign.md §7.2）。
+ * 判定（技術Lv・銀行Lv・目標）には使わず、通貨も動かさない。手元のお金の推測（E5）と履歴に使う。1日3回まで。
+ */
 export async function recordSavings(ctx: GameCtx, body: Body) {
   const input = savingsInput(body);
+  if ((await savingsCountToday(ctx)) >= SAVINGS_DAILY_LIMIT) fail("daily_limit", `貯金管理の登録は1日${SAVINGS_DAILY_LIMIT}回までです`, 429);
   const tx = await ctx.tx.savingsTransaction.create({ data: { ...input, userId: ctx.user.id, seasonId: ctx.season?.id ?? null } });
-  const progress = ctx.season ? await refreshSavings(ctx) : null;
-  // 記録した実額が正。それまでの見込み貯金は置き換える（誤差修正）
-  const replacedEstimate = ctx.season?.estimatedSavings ?? 0;
-  if (ctx.season) ctx.seasonPatch.estimatedSavings = 0;
   const reward = await grantReward(ctx, `savings:${tx.id}`, REWARD_SAVINGS);
-  return { id: tx.id, reward, progress, replacedEstimate };
+  return { id: tx.id, reward };
 }
 
 async function ownSavings(ctx: GameCtx, id: string) {
@@ -380,27 +377,16 @@ export async function editSavings(ctx: GameCtx, id: string, body: Body) {
   const s = await ownSavings(ctx, id);
   const input = savingsInput({ ...s, ...body });
   await ctx.tx.savingsTransaction.update({ where: { id }, data: input });
-  if (ctx.season && s.seasonId === ctx.season.id) await refreshSavings(ctx);
   return { id };
 }
 
 export async function deleteSavings(ctx: GameCtx, id: string) {
-  const s = await ownSavings(ctx, id);
+  await ownSavings(ctx, id);
   await ctx.tx.savingsTransaction.update({ where: { id }, data: { deletedAt: new Date(ctx.now) } });
-  if (ctx.season && s.seasonId === ctx.season.id) await refreshSavings(ctx);
   return { id };
 }
 
 // ---- 資源交換 ----
-
-export function facilityLevels(ctx: GameCtx) {
-  requireSeason(ctx);
-  return {
-    bank: ctx.city.bankLevel,
-    goldMine: goldMineLevel(ctx.mine.totalCollected),
-    silverMine: silverMineLevel((ctx.seasonPatch.rewardedRecords as number | undefined) ?? ctx.season.rewardedRecords),
-  };
-}
 
 const RESOURCES: StockKey[] = ["wood", "stone", "food"];
 
@@ -482,8 +468,8 @@ export function exchange(ctx: GameCtx, body: Body) {
   addCurrency(ctx, "GOLD", -q.goldCost, "exchange_resource");
   addStock(ctx, q.gains);
   // 金貨（1G＝1円相当）をゲーム内で使った分は、現実で使わずに済んだお金＝見込み貯金
-  if (q.goldCost > 0) ctx.seasonPatch.estimatedSavings = { increment: q.goldCost };
-  return { ...q, gain, estimatedAdded: q.goldCost };
+  if (q.goldCost > 0) ctx.citySpent += q.goldCost;
+  return { ...q, gain, citySpentAdded: q.goldCost };
 }
 
 // ---- 街の操作 ----
@@ -683,7 +669,13 @@ export async function contributeWish(ctx: GameCtx, id: string, body: Body) {
 // ---- 設定 ----
 
 export async function updateSettings(ctx: GameCtx, body: Body) {
-  const data: { monthlyBudget?: number; timezone?: string; bondMiningRate?: number } = {};
+  const data: { monthlyBudget?: number; timezone?: string; bondMiningRate?: number; incomeDay?: number; incomeEras?: Prisma.InputJsonValue } = {};
+  if (body.incomeDay !== undefined) {
+    // 収入日は次の収入日から効く。今の期間はそこまで延ばす・縮める（docs/record-input-redesign.md §5.1 IN-06）
+    data.incomeDay = int(body.incomeDay, "収入日", { min: 1, max: 31 });
+    ctx.cal = changePayday(ctx.cal, data.incomeDay, ctx.now);
+    data.incomeEras = erasJson(ctx.cal) as unknown as Prisma.InputJsonValue;
+  }
   if (body.monthlyBudget !== undefined) {
     data.monthlyBudget = int(body.monthlyBudget, "月間自由予算", { max: 10_000_000 });
     // 予算を下げてユーザ通貨（自由予算の内訳）が予算を超える月が出るなら保存しない
@@ -704,6 +696,17 @@ export async function updateSettings(ctx: GameCtx, body: Body) {
   }
   // 採掘は変更前の予算・債券化率で現在まで計算済み。ここから新しい設定で採掘する
   ctx.user = await ctx.tx.user.update({ where: { id: ctx.user.id }, data });
+  ctx.cal = calOf(ctx.user);
   return { ok: true };
+}
+
+const CHECK_KEYS = ["E1", "E2", "E3a", "E3b", "E6a", "E6b", "E4a", "E4b", "E5"] as const;
+
+/** 手元のお金の推測のチェックの状態を保存する（前回の設定を引き継ぐ） */
+export async function saveEstimateChecks(ctx: GameCtx, body: Body) {
+  const raw = (body.checks ?? {}) as Record<string, unknown>;
+  const checks = Object.fromEntries(CHECK_KEYS.map((k) => [k, raw[k] === true]));
+  ctx.user = await ctx.tx.user.update({ where: { id: ctx.user.id }, data: { estimateChecks: checks } });
+  return { checks };
 }
 

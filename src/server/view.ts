@@ -16,12 +16,12 @@ import {
   TECH_THRESHOLDS,
 } from "@/game/config";
 import { exchangeRate, GAIN_KEYS, needShares, ZERO_GAINS } from "@/game/exchange";
-import { achievementRate, devLevel, goldMineLevel, nextThreshold, projectedRate, savingsProgress, silverMineLevel } from "@/game/levels";
+import { devLevel, goldMineLevel, nextThreshold, savingsProgress, silverMineLevel } from "@/game/levels";
 import { microToGold, ratePerMinute } from "@/game/mine";
-import { dayKey } from "@/game/time";
+import { dayKey, periodRange } from "@/game/time";
 import type { CityState, Gains } from "@/game/types";
 import { currencySummaries } from "./currencies";
-import { budgetPlan, monthlyEquivalent, type GameCtx } from "./game";
+import { budgetPlan, monthlyEquivalent, savingsOf, type GameCtx } from "./game";
 import { facilityLevels } from "./ops";
 
 export interface AwayStats {
@@ -80,7 +80,7 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
   const { user, season, city, mine, tx } = ctx;
   const base = {
     serverNow: ctx.now,
-    user: { email: user.email, monthlyBudget: user.monthlyBudget, timezone: user.timezone, bondMiningRate: user.bondMiningRate },
+    user: { email: user.email, monthlyBudget: user.monthlyBudget, timezone: user.timezone, bondMiningRate: user.bondMiningRate, incomeDay: user.incomeDay },
     hasArchive: (await tx.season.count({ where: { userId: user.id, status: "COMPLETED" } })) > 0,
   };
   if (!season || !city || !mine) return { ...base, season: null };
@@ -90,10 +90,10 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     select: { kind: true, amount: true, date: true, createdAt: true },
   });
-  const { net, max } = savingsProgress(savings);
-  const rate = achievementRate(net, season.goalAmount);
-  const patchedEstimate = ctx.seasonPatch.estimatedSavings;
-  const estimated = typeof patchedEstimate === "number" ? patchedEstimate : season.estimatedSavings;
+  // 貯金管理（別口座への出し入れ）の純増額。判定には使わない
+  const managed = savingsProgress(savings).net;
+  const saved = savingsOf(ctx);
+  const period = periodRange(ctx.now, ctx.cal);
   // 欲しいもの貯金：未購入のほしい物への積立（像の積立金貨）
   const wishes = await tx.wishItem.findMany({
     where: { userId: user.id },
@@ -135,17 +135,21 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
       goal: season.goalAmount,
       startedAt: season.startedAt.getTime(),
       reachedAt: season.reachedAt?.getTime() ?? null,
-      net,
-      max,
-      rate,
-      estimated,
-      /** 債券（表示の達成率にだけ含める。マイナスなら減らす） */
+      /** 貯金額 ＝ 債券 ＋ 都市に使った金貨（技術Lv・銀行Lv・達成率の根拠） */
+      savings: saved.amount,
+      citySpent: saved.citySpent,
       bond,
-      projectedRate: projectedRate(net, estimated, season.goalAmount, bond),
+      /** 貯金額の最高到達額（技術Lv） */
+      max: saved.max,
+      rate: saved.rate,
+      /** 貯金管理の純増額（追加 − 引出） */
+      managed,
       bankLevel: city.bankLevel,
       bankBonus: BANK_EXCHANGE_BONUS[city.bankLevel - 1],
       savingsTimeline: savings.map((s) => ({ at: s.createdAt.getTime(), date: s.date, delta: s.kind === "DEPOSIT" ? s.amount : -s.amount })),
     },
+    /** 当期の収入期間 */
+    income: { day: user.incomeDay, periodKey: mine.monthKey, start: period.start, end: period.end },
     // 金貨・銀貨・ユーザ通貨は0以上。マイナスになり得るのは債券だけ
     currencies: {
       ...ctx.balances,
@@ -173,7 +177,7 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
     },
     mine: {
       uncollected: microToGold(mine.uncollected),
-      ratePerMinute: ratePerMinute(plan, ctx.now, tz),
+      ratePerMinute: ratePerMinute(plan, ctx.now, ctx.cal),
       /** 採掘速度の内訳（月あたり）：max(0, B − S − C) */
       breakdown: { budget: user.monthlyBudget, subs: plan.subsAt(ctx.now), custom: plan.customAt(ctx.now), net: plan.netAt(ctx.now) },
       bond: {
@@ -216,9 +220,9 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
     },
     tech: {
       level: city.techLevel,
-      max,
+      max: saved.max,
       next: nextTech,
-      remaining: nextTech !== null ? Math.max(0, nextTech - max) : 0,
+      remaining: nextTech !== null ? Math.max(0, nextTech - saved.max) : 0,
       nextUnlocks: nextTech !== null ? unlocksAtTech(city.techLevel + 1) : [],
       nextBuildable: nextTechBuildable,
     },

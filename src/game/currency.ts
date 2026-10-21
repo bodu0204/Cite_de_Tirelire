@@ -2,7 +2,7 @@
 // 日付はユーザーのタイムゾーンの暦日。日の発生は「その日の 0:00」に起きる。
 import { BUDGET_CHECK_MONTHS, DAY, MINUTE } from "./config";
 import type { SubWindow } from "./mine";
-import { monthKey, monthRange, parseDateInTz, zonedParts, zonedTimeToUtc } from "./time";
+import { parseDateInTz, periodKey, periodRange, toCal, zonedParts, zonedTimeToUtc, type PeriodCal } from "./time";
 
 /** 曜日：0＝日〜6＝土 */
 export type Weekday = number;
@@ -72,14 +72,16 @@ export function shiftDays(t: number, n: number, tz: string): number {
   return startOfDayNum(dayNumAt(t, tz) + n, tz);
 }
 
-/** from を含む日から to を含む日の翌日までの各日の 0:00 と、その月の [開始, 終了) */
-export function dayGrid(from: number, to: number, tz: string): { at: number; monthStart: number; monthEnd: number }[] {
+/** from を含む日から to を含む日の翌日までの各日の 0:00 と、その収入期間の [開始, 終了) */
+export function dayGrid(from: number, to: number, calOrTz: string | PeriodCal): { at: number; monthStart: number; monthEnd: number }[] {
+  const cal = toCal(calOrTz);
+  const tz = cal.tz;
   const out: { at: number; monthStart: number; monthEnd: number }[] = [];
-  let month = monthRange(from, tz);
+  let month = periodRange(from, cal);
   const last = dayNumAt(to, tz) + 1;
   for (let dn = dayNumAt(from, tz); dn <= last; dn++) {
     const at = startOfDayNum(dn, tz);
-    if (at >= month.end) month = monthRange(at, tz);
+    if (at >= month.end) month = periodRange(at, cal);
     out.push({ at, monthStart: month.start, monthEnd: month.end });
   }
   return out;
@@ -153,8 +155,8 @@ export function validWindow(def: Pick<CurrencyDefLite, "startDate" | "endDate">,
 
 const activeAt = (w: { startAt: number; endAt: number | null }, t: number) => w.startAt <= t && (w.endAt === null || t < w.endAt);
 
-/** 月 [start, end) に日の発生として出る額の合計 */
-function monthDayTotal(def: CurrencyDefLite, start: number, end: number, tz: string): number {
+/** 期間 [start, end) に日の発生として出る額の合計 */
+export function monthDayTotal(def: CurrencyDefLite, start: number, end: number, tz: string): number {
   let sum = 0;
   const last = dayNumAt(end - 1, tz);
   for (let dn = dayNumAt(start, tz); dn <= last; dn++) sum += dayAmount(def, dn);
@@ -169,14 +171,19 @@ function monthDayTotal(def: CurrencyDefLite, start: number, end: number, tz: str
 export class BudgetPlan {
   private dayTotals = new Map<string, number>();
   private windows: { def: CurrencyDefLite; w: { startAt: number; endAt: number | null } }[];
+  /** 「月」の区切り（収入期間） */
+  readonly cal: PeriodCal;
+  readonly tz: string;
 
   constructor(
     readonly budget: number,
     readonly subs: SubWindow[],
     readonly defs: CurrencyDefLite[],
-    readonly tz: string,
+    tzOrCal: string | PeriodCal,
   ) {
-    this.windows = defs.map((def) => ({ def, w: validWindow(def, tz) }));
+    this.cal = toCal(tzOrCal);
+    this.tz = this.cal.tz;
+    this.windows = defs.map((def) => ({ def, w: validWindow(def, this.tz) }));
   }
 
   subsAt(t: number): number {
@@ -187,10 +194,10 @@ export class BudgetPlan {
 
   /** その月の日の発生の合計（全通貨） */
   monthDays(t: number): number {
-    const key = monthKey(t, this.tz);
+    const key = periodKey(t, this.cal);
     let v = this.dayTotals.get(key);
     if (v === undefined) {
-      const { start, end } = monthRange(t, this.tz);
+      const { start, end } = periodRange(t, this.cal);
       v = this.defs.reduce((a, def) => a + monthDayTotal(def, start, end, this.tz), 0);
       this.dayTotals.set(key, v);
     }
@@ -222,7 +229,7 @@ export class BudgetPlan {
 
   /** 月の中で差し引き（S ＋ C）が最大になる時点の内訳と、そのときの月あたりの採掘額 */
   monthSummary(t: number): { subs: number; custom: number; net: number } {
-    const { start, end } = monthRange(t, this.tz);
+    const { start, end } = periodRange(t, this.cal);
     const points = [start, ...this.changePoints().filter((p) => p > start && p < end)];
     let best = { subs: 0, minutes: 0 };
     for (const p of points) {
@@ -254,11 +261,12 @@ export interface Overrun {
  */
 export function budgetOverruns(plan: BudgetPlan, now: number): Overrun[] {
   const tz = plan.tz;
+  const cal = plan.cal;
   const months: number[] = [];
-  let t = monthRange(now, tz).start;
+  let t = periodRange(now, cal).start;
   for (let i = 0; i <= BUDGET_CHECK_MONTHS; i++) {
     months.push(t);
-    t = monthRange(t, tz).end;
+    t = periodRange(t, cal).end;
   }
   const horizon = t;
   const later = new Set<string>();
@@ -269,7 +277,7 @@ export function budgetOverruns(plan: BudgetPlan, now: number): Overrun[] {
         const at = parseDateInTz(d, tz);
         if (at !== null && at >= horizon && !later.has(d.slice(0, 7))) {
           later.add(d.slice(0, 7));
-          months.push(monthRange(at, tz).start);
+          months.push(periodRange(at, cal).start);
         }
       }
     }
@@ -277,7 +285,7 @@ export function budgetOverruns(plan: BudgetPlan, now: number): Overrun[] {
   const out: Overrun[] = [];
   for (const m of months.sort((a, b) => a - b)) {
     const deduction = plan.maxDeduction(m);
-    if (deduction > plan.budget) out.push({ monthKey: monthKey(m, tz), deduction, over: deduction - plan.budget });
+    if (deduction > plan.budget) out.push({ monthKey: periodKey(m, cal), deduction, over: deduction - plan.budget });
   }
   return out;
 }

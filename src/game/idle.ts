@@ -5,12 +5,36 @@
 import { bondCap, bondMultiplier, bondResourceEligible } from "./bond";
 import { alignTick, cityNeeds, tick } from "./city/sim";
 import { MICRO_PER_GOLD, TICK_MS } from "./config";
-import { dayEvents, dayGrid, minuteRule, shiftDays, validWindow, type BudgetPlan, type CurrencyDefLite } from "./currency";
+import { dayEvents, dayGrid, minuteRule, shiftDays, startOfDay, validWindow, type BudgetPlan, type CurrencyDefLite } from "./currency";
 import { GAIN_KEYS, quoteNeedsExchange, ZERO_GAINS } from "./exchange";
 import { goldMineLevel } from "./levels";
 import { accrue, floorMinute } from "./mine";
 import { depositToBond, type Lot, type Purse } from "./settle";
+import { periodKey, type PeriodCal } from "./time";
 import type { CityEvent, CityState } from "./types";
+
+/**
+ * 予約した振り分けの1回分（docs/record-input-redesign.md §5.5）。期日が来たティックで入れる。
+ * 即時の振り分けも同じ関数（applyGrant）で入れる。
+ */
+export interface Grant {
+  id: string;
+  at: number;
+  currency: "GOLD" | "BOND" | "CUSTOM";
+  currencyId?: string | null;
+  amount: number;
+  /** 月の収入の配当か（手元のお金の推測でその月の配当分に数える） */
+  dividend: boolean;
+  /** 入れた時刻（未実行は null） */
+  grantedAt: number | null;
+}
+
+/** 月の収入の−差分で、当期のユーザ通貨の未発生分から減らす額 */
+export interface CustomCut {
+  currencyId: string;
+  periodKey: string;
+  remaining: number;
+}
 
 export interface Accrual {
   currencyId: string;
@@ -26,6 +50,10 @@ export interface World {
   lots: Lot[];
   /** 通貨ごとの発生の進み具合。plan.defs のすべての通貨について用意しておく */
   accruals: Map<string, Accrual>;
+  /** 予約した振り分け（未実行のもの） */
+  grants?: Grant[];
+  /** ユーザ通貨の未発生分から減らす額 */
+  cuts?: CustomCut[];
 }
 
 export interface AdvanceOpts {
@@ -49,7 +77,10 @@ export function advance(w: World, opts: AdvanceOpts, events: CityEvent[]): void 
     .flatMap((def) => dayEvents(def, w.accruals.get(def.id)!.lastAccrualAt, until, tz).map((e) => ({ ...e, def })))
     .sort((a, b) => a.at - b.at || a.def.sortOrder - b.def.sortOrder);
   const minuteDefs = defs.filter((d) => minuteRule(d) > 0).map((def) => ({ def, window: validWindow(def, tz) }));
-  const grid = minuteDefs.length ? dayGrid(from, until, tz) : [];
+  const grid = minuteDefs.length ? dayGrid(from, until, plan.cal) : [];
+  const cuts = w.cuts ?? [];
+  const grants = (w.grants ?? []).filter((g) => g.grantedAt === null).sort((a, b) => a.at - b.at || a.id.localeCompare(b.id));
+  let ni = 0;
 
   const lotIndex = new Map<string, Lot>();
   for (const lot of w.lots) lotIndex.set(`${lot.currencyId}:${lot.issuedAt}`, lot);
@@ -66,8 +97,17 @@ export function advance(w: World, opts: AdvanceOpts, events: CityEvent[]): void 
     }
     return lot;
   };
-  const issue = (def: CurrencyDefLite, dayStart: number, amount: number) => {
+  /** grant：振り分けで入れる分（−差分で減らさない）。dividend：その月の配当分に数えるか */
+  const issue = (def: CurrencyDefLite, dayStart: number, amount: number, o: { grant?: boolean; dividend?: boolean } = {}) => {
+    // 月の収入の−差分：当期の未発生分から減らす
+    const cut = cuts.length && !o.grant ? cuts.find((c) => c.currencyId === def.id && c.remaining > 0 && c.periodKey === periodKey(dayStart, plan.cal)) : undefined;
+    if (cut) {
+      const c = Math.min(cut.remaining, amount);
+      cut.remaining -= c;
+      amount -= c;
+    }
     if (amount <= 0) return;
+    if (o.dividend !== false && periodKey(dayStart, plan.cal) === w.purse.mine.monthKey) w.purse.mine.dividend = (w.purse.mine.dividend ?? 0n) + BigInt(amount) * MICRO_PER_GOLD;
     const lot = lotFor(def, dayStart);
     lot.amount += amount;
     lot.remaining += amount;
@@ -115,7 +155,7 @@ export function advance(w: World, opts: AdvanceOpts, events: CityEvent[]): void 
     // 金鉱（債券化を含む）
     const r = accrue(w.purse.mine, {
       plan,
-      tz,
+      tz: plan.cal,
       until: end,
       bond: { balance: w.purse.bond, rate: opts.bondRate, cap: w.purse.bondCap },
     });
@@ -123,6 +163,14 @@ export function advance(w: World, opts: AdvanceOpts, events: CityEvent[]): void 
     w.purse.bondResource = (w.purse.bondResource ?? 0) + bondResourceEligible(w.purse.bond, r.toBond, w.purse.bondCap);
     w.purse.bond = r.bond;
     toBond += r.toBond;
+
+    // 予約した振り分け（期日が来たもの）
+    while (ni < grants.length && grants[ni].at <= end) {
+      flush();
+      const g = grants[ni++];
+      applyGrant(w.purse, g, defs.find((d) => d.id === g.currencyId), plan.cal, (def, at, amount) => issue(def, startOfDay(at, tz), amount, { grant: true, dividend: g.dividend }));
+      g.grantedAt = g.at;
+    }
 
     // ユーザ通貨の発生
     const to = floorMinute(end);
@@ -188,4 +236,32 @@ export function grantBondResources(city: CityState, goldMine: number) {
   city.treasury += q.gains.treasury;
   for (const k of GAIN_KEYS) total[k] += q.gains[k];
   city.bondResourcePending = 0;
+}
+
+/**
+ * 振り分けの1回分を通貨に入れる。金貨は所持金貨へ、債券は上限まで（超える分は金貨。資源つき）、ユーザ通貨はその日のロットへ。
+ * ユーザ通貨が削除済みなら金貨で入れる。
+ */
+export function applyGrant(
+  purse: Purse,
+  g: Pick<Grant, "currency" | "amount" | "dividend" | "at">,
+  def: CurrencyDefLite | undefined,
+  cal: PeriodCal,
+  issueCustom: (def: CurrencyDefLite, at: number, amount: number) => void,
+) {
+  if (g.amount <= 0) return;
+  const own = periodKey(g.at, cal) === purse.mine.monthKey && g.dividend;
+  if (g.currency === "CUSTOM" && def) {
+    issueCustom(def, g.at, g.amount);
+    return;
+  }
+  if (g.currency === "BOND") {
+    const before = purse.gold;
+    depositToBond(purse, g.amount, "income_grant");
+    if (own && purse.gold > before) purse.mine.dividend = (purse.mine.dividend ?? 0n) + BigInt(purse.gold - before) * MICRO_PER_GOLD;
+    return;
+  }
+  purse.gold += g.amount;
+  purse.moves.push({ currency: "GOLD", delta: g.amount, reason: "income_grant" });
+  if (own) purse.mine.dividend = (purse.mine.dividend ?? 0n) + BigInt(g.amount) * MICRO_PER_GOLD;
 }

@@ -16,6 +16,8 @@ export const MAP_SIZE = 10;
 export const REWARD_PURCHASE = 50;
 export const REWARD_SAVINGS = 100;
 export const REWARD_DAILY_CAP = 300;
+/** 貯金管理の登録は1日3回まで（docs/record-input-redesign.md SV-13） */
+export const SAVINGS_DAILY_LIMIT = 3;
 
 // ---- シーズン初期値 ----
 export const INITIAL_GOLD = 0;

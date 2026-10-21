@@ -25,37 +25,24 @@ export function achievementRate(netSavings: number, goal: number): number {
 }
 
 export interface SavingsParts {
-  /** 記録した貯金の純増額 */
-  net: number;
-  /** 見込み貯金（金貨で資源を得た額） */
-  estimated: number;
   /** 債券（マイナス可） */
   bond: number;
+  /** 都市に使った金貨の累計（金貨 → 資源・都市資金。＋差分のおまかせ交換を含む） */
+  citySpent: number;
 }
 
 /**
- * 貯金目標に数える額。何を含めるかを include で選ぶ（判定と表示の切り替えを1か所で済ませる）。
- * 債券はマイナスなら減らすが、全体は0未満にしない。
+ * 貯金額 ＝ 債券 ＋ 都市に使った金貨（docs/record-input-redesign.md §7.1）。
+ * 金貨はゲーム内で使っても現実のお金は出ていかないので、都市に使った金貨はそのまま貯金になる。債券は現実の支払いに使うと減る。
+ * 技術Lv（最高到達額）・銀行Lv・目標達成の判定と表示はこの額で行う。債券がマイナスなら減らす。
  */
-export function savingsAmount(p: SavingsParts, include: { estimated: boolean; bond: boolean }): number {
-  let v = Math.max(0, p.net);
-  if (include.estimated) v += Math.max(0, p.estimated);
-  if (include.bond) v += p.bond;
-  return Math.max(0, v);
+export function savingsTotal(p: SavingsParts): number {
+  return p.bond + Math.max(0, p.citySpent);
 }
 
-/** 判定（技術Lv・銀行Lv・GOAL_REACHED）に含めるもの。今は記録した実額だけ */
-export const JUDGED: { estimated: boolean; bond: boolean } = { estimated: false, bond: false };
-/** 表示の達成率に含めるもの */
-export const DISPLAYED: { estimated: boolean; bond: boolean } = { estimated: true, bond: true };
-
-/**
- * 表示用の達成率(%)：記録した純増額に見込み貯金と債券を足したもの。
- * 見込み貯金は金貨で資源を得た額（現実で使わずに済んだお金）で、貯金を記録すると実額に置き換わる。
- * 技術Lv・銀行Lv・目標達成の判定には使わない（記録した実額だけで決める）。
- */
-export function projectedRate(netSavings: number, estimated: number, goal: number, bond = 0): number {
-  return achievementRate(savingsAmount({ net: netSavings, estimated, bond }, DISPLAYED), goal);
+/** 達成率(%)：max(0, 貯金額) ÷ 目標 */
+export function savingsRate(p: SavingsParts, goal: number): number {
+  return achievementRate(savingsTotal(p), goal);
 }
 
 /** 銀行Lv：1〜5、6 は「完成」 */
@@ -73,8 +60,9 @@ export function bankLevelBand(goal: number, lv: number): { from: number; next: n
   return { from, next: nextPct === undefined ? null : Math.round((goal * nextPct) / 100) };
 }
 
-export function techLevel(maxNetSavings: number): number {
-  return levelFrom(TECH_THRESHOLDS, maxNetSavings);
+/** 技術Lv：貯金額の最高到達額で決まる（D-7。債券を使って貯金額が下がっても下がらない） */
+export function techLevel(maxSavings: number): number {
+  return levelFrom(TECH_THRESHOLDS, maxSavings);
 }
 
 export function devLevel(points: number): number {
@@ -108,10 +96,7 @@ export function statueRank(price: number): StatueRank {
 
 export const STATUE_RANK_LABELS: Record<StatueRank, string> = { bronze: "銅像", silver: "銀像", gold: "金像" };
 
-/**
- * 貯金記録の並びから純増額と最高到達額を求める。
- * 技術Lvは最高到達額で決まるため、引出では下がらない（D-7）。
- */
+/** 貯金管理の記録（別口座への出し入れ）の並びから純増額と最高到達額を求める。判定には使わない（手元のお金の推測 E5） */
 export function savingsProgress(records: { kind: "DEPOSIT" | "WITHDRAW"; amount: number }[]): {
   net: number;
   max: number;

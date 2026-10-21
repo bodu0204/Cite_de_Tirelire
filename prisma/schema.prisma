@@ -18,6 +18,12 @@ model User {
   timezone       String   @default("Asia/Tokyo")
   /// 採掘の債券化率（%、0〜100、10刻み）
   bondMiningRate Int      @default(0)
+  /// 毎月の収入が入る日（1〜31。その月にない日は末日）。配当・採掘・精算の「月」はこの日で区切る
+  incomeDay      Int      @default(1)
+  /// 収入日の変更の履歴（src/game/time.ts の IncomeEra の配列。from・prevEnd は ms、最初は null）。空なら毎月1日
+  incomeEras     Json     @default("[]")
+  /// 手元のお金の推測のチェックの状態（前回の設定を引き継ぐ）
+  estimateChecks Json?
   createdAt      DateTime @default(now())
 
   sessions        Session[]
@@ -30,6 +36,8 @@ model User {
   idempotencyKeys IdempotencyKey[]
   categories      Category[]
   currencyDefs    CurrencyDef[]
+  incomes         Income[]
+  adjustments     CashAdjustment[]
 }
 
 model Session {
@@ -76,10 +84,20 @@ model Season {
   mineMinedMonth     BigInt   @default(0)
   mineSettledMonth   Int      @default(0)
   mineTotalCollected Int      @default(0)
+  /// 採掘への上乗せの区間（月の収入の差分・臨時の収入。src/game/mine.ts の GoldWindow、total は文字列）
+  mineWindows        Json     @default("[]")
+  /// 当期の残りの採掘から減らす額（µG。月の収入の−差分）
+  mineCut            BigInt   @default(0)
+  /// 当期の配当で所持通貨に入った額（µG。手元のお金の推測）
+  mineDividend       BigInt   @default(0)
+  /// 当期のユーザ通貨の未発生分から減らす額（src/game/idle.ts の CustomCut の配列）
+  customCuts         Json     @default("[]")
 
-  /// 見込み貯金（円）：金貨で資源を得た額。現実で使わなかった＝貯金に回せるはずのお金。
-  /// 貯金を記録すると実額に置き換わる（0に戻る）。表示の達成率にだけ上乗せする
-  estimatedSavings Int @default(0)
+  /// 都市に使った金貨の累計（円）：金貨で資源・都市資金を得た額。現実で使わなかった＝貯金になったお金。
+  /// 貯金額 ＝ 債券 ＋ これ（docs/record-input-redesign.md §7.1）。貯金管理の記録では戻さない
+  citySpentGold    Int @default(0)
+  /// 貯金額の最高到達額（技術Lvの根拠）
+  maxSavingsAmount Int @default(0)
 
   /// 有効な記録件数（銀鉱の経験値）
   rewardedRecords Int       @default(0)
@@ -98,6 +116,8 @@ model Season {
   overspends    MonthlyOverspend[]
   currencyLots  CurrencyLot[]
   accruals      CurrencyAccrual[]
+  grants        ScheduledGrant[]
+  resolutions   Resolution[]
 
   @@unique([userId, number])
   @@index([userId, status])
@@ -192,6 +212,11 @@ model Purchase {
   settledMonth    String?
   /// 像の積立金貨から充当した額
   reservedApplied Int               @default(0)
+  /// サブスクの支払い：どのサブスクの何期間分か（同じサブスク・同じ期間は1件だけ）
+  subscriptionId  String?
+  periodKey       String?
+  /// ベース（サブスクの登録額・ほしい物の価格）。金額との差は差分として解消する
+  baseAmount      Int?
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
   deletedAt       DateTime?
@@ -199,6 +224,7 @@ model Purchase {
   categoryRef     Category?         @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   payments        PurchasePayment[]
 
+  @@unique([subscriptionId, periodKey])
   @@index([userId, date])
 }
 
@@ -377,4 +403,102 @@ model IdempotencyKey {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([userId, key])
+}
+
+enum IncomeKind {
+  MONTHLY
+  EXTRA
+}
+
+/// 収入の記録。月の収入（収入期間ごとに1件。雛形との差分を振り分ける）と臨時の収入（全額を振り分ける）
+model Income {
+  id           String     @id @default(cuid())
+  userId       String
+  seasonId     String?
+  kind         IncomeKind
+  /// 月の収入の収入期間（"YYYY-MM"）
+  monthKey     String?
+  date         String
+  name         String
+  /// 金額（取り消すと 0）
+  amount       Int
+  /// 雛形の金額（月の収入）。臨時の収入は 0
+  baseAmount   Int        @default(0)
+  memo         String?
+  autoExchange Boolean    @default(false)
+  /// 振り分けの行（src/server/incomes.ts の AllocationRow の配列）
+  allocation   Json       @default("[]")
+  createdAt    DateTime   @default(now())
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, monthKey])
+  @@index([userId, date])
+}
+
+/// 予約した振り分けの1回分。放置計算で期日が来たら入れる
+model ScheduledGrant {
+  id         String    @id @default(cuid())
+  seasonId   String
+  incomeId   String
+  at         DateTime
+  /// GOLD / BOND / CUSTOM
+  currency   Currency
+  currencyId String?
+  amount     Int
+  /// 月の収入の配当か
+  dividend   Boolean   @default(false)
+  grantedAt  DateTime?
+  /// 収入の減額・取り消しで取りやめた
+  canceled   Boolean   @default(false)
+  season     Season    @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+
+  @@index([seasonId, grantedAt, at])
+  @@index([incomeId])
+}
+
+/// 差分の解消1回分（＋差分：債券 → おまかせ交換、−差分：債券＋手数料）
+model Resolution {
+  id        String   @id @default(cuid())
+  seasonId  String
+  /// income / purchase / adjustment
+  refType   String
+  refId     String
+  /// 正：＋差分、負：−差分
+  amount    Int
+  /// 債券の増減（＋差分は入った額、−差分は減らした額を負で）
+  bond      Int      @default(0)
+  /// 債券に入った分のうち資源をつけた額
+  resourced Int      @default(0)
+  /// おまかせ交換した金貨
+  exchanged Int      @default(0)
+  /// 得た資源・都市資金
+  gains     Json?
+  feeSilver Int      @default(0)
+  feeBond   Int      @default(0)
+  /// 金額の編集のときの前後
+  before    Int?
+  after     Int?
+  createdAt DateTime @default(now())
+  season    Season   @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+
+  @@index([refType, refId])
+  @@index([seasonId, createdAt])
+}
+
+/// 誤差調整：手元のお金の推測と実際の額の差を解消した記録
+model CashAdjustment {
+  id        String   @id @default(cuid())
+  userId    String
+  seasonId  String?
+  date      String
+  /// その時のチェックの状態と各項目の額
+  checks    Json
+  items     Json
+  estimated Int
+  actual    Int
+  diff      Int
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
 }
