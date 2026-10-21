@@ -30,7 +30,7 @@ const GROUPS: { label: string; keys: Key[] }[] = [
   { label: "債券・銀貨を除く所持通貨", keys: ["E3a", "E3b"] },
   { label: "支出として記録していないほしい物貯金・サブスク", keys: ["E6a", "E6b"] },
   { label: "貯金額", keys: ["E4a", "E4b"] },
-  { label: "貯金額に対する貯金管理で生まれた（＋−）", keys: ["E5"] },
+  { label: "貯金額に対する貯金管理で生まれた（±）", keys: ["E5"] },
 ];
 
 interface Estimate {
