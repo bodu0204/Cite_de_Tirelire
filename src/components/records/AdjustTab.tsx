@@ -22,12 +22,10 @@ const LABELS: Record<Key, string> = {
   E4b: "債券以外（都市に使った金貨）",
   E5: "貯金管理で生まれた（＋−）",
 };
-/** E3a ＋ E3b：未回収金貨 ＋ 所持金貨 ＋ 像の積立金貨 ＋ ユーザ通貨（債券・銀貨は含めない） */
-const CURRENCY_TOTAL = "債券・銀貨を除く手元の通貨合計";
 const GROUPS: { label: string; keys: Key[] }[] = [
   { label: LABELS.E1, keys: ["E1"] },
   { label: LABELS.E2, keys: ["E2"] },
-  { label: CURRENCY_TOTAL, keys: ["E3a", "E3b"] },
+  { label: "債券・銀貨を除く所持通貨", keys: ["E3a", "E3b"] },
   { label: "貯金額", keys: ["E4a", "E4b"] },
   { label: "貯金額に対する貯金管理で生まれた（＋−）", keys: ["E5"] },
 ];
@@ -50,11 +48,10 @@ const COLOR = (k: Key) => `var(--s${KEYS.indexOf(k) + 1})`;
 
 /**
  * 推測の積み上げ（ウォーターフォール）。項目ごとに1行、前の行の終わりから自分の額だけ伸びる（マイナスは左へ戻る）。
- * 所持通貨（E3a・E3b）のあとに、債券・銀貨を除く手元の通貨合計の小計を1行入れる。
  * チェックしていない項目は「足したらここまで」を点線で示す。実際の額を入れると縦線と誤差の区間を出す。
  */
 function Waterfall({ items, checks, actual }: { items: Items; checks: Checks; actual: number | null }) {
-  const [hover, setHover] = useState<Key | "total" | "currency" | null>(null);
+  const [hover, setHover] = useState<Key | "total" | null>(null);
   const rows: { key: Key; from: number; to: number; on: boolean }[] = [];
   let acc = 0;
   for (const k of KEYS) {
@@ -63,12 +60,6 @@ function Waterfall({ items, checks, actual }: { items: Items; checks: Checks; ac
     if (on) acc += items[k];
   }
   const total = acc;
-  // 小計：E3a の始まりから、チェックした E3a・E3b の分だけ
-  const e3a = rows.find((r) => r.key === "E3a")!;
-  const currency = (checks.E3a ? items.E3a : 0) + (checks.E3b ? items.E3b : 0);
-  const sub = { from: e3a.from, to: e3a.from + currency };
-  /** 行の位置：小計の行は E3b の次 */
-  const rowIndex = (k: Key) => KEYS.indexOf(k) + (KEYS.indexOf(k) > KEYS.indexOf("E3b") ? 1 : 0);
   const values = [0, total, ...rows.flatMap((r) => [r.from, r.to]), ...(actual !== null ? [actual] : [])];
   const lo = Math.min(...values);
   const hi = Math.max(...values, lo + 1);
@@ -77,19 +68,15 @@ function Waterfall({ items, checks, actual }: { items: Items; checks: Checks; ac
   const R = 8;
   const ROW = 22;
   const GAP = 2;
-  const H = (KEYS.length + 2) * (ROW + GAP) + 24;
+  const H = (KEYS.length + 1) * (ROW + GAP) + 24;
   const x = (v: number) => L + ((v - lo) / (hi - lo)) * (W - L - R);
   const bar = (from: number, to: number) => ({ x: Math.min(x(from), x(to)), w: Math.max(1, Math.abs(x(to) - x(from))) });
   const diff = actual !== null ? actual - total : 0;
   const totalBar = bar(0, total);
   const diffBar = actual !== null ? bar(total, actual) : null;
-  const totalY = (KEYS.length + 1) * (ROW + GAP);
-  const subY = (KEYS.indexOf("E3b") + 1) * (ROW + GAP);
-  const subBar = bar(sub.from, sub.to);
+  const totalY = KEYS.length * (ROW + GAP);
   const tip =
-    hover === "currency"
-      ? `${CURRENCY_TOTAL} ${yen(items.E3a + items.E3b)}${checks.E3a && checks.E3b ? "" : `（チェックした分 ${yen(currency)}）`}`
-      : hover === "total"
+    hover === "total"
       ? `推測 ${yen(total)}${actual !== null ? ` ・ 実際 ${yen(actual)} ・ 誤差 ${diff >= 0 ? "+" : "−"}${yen(Math.abs(diff))}` : ""}`
       : hover
         ? `${LABELS[hover]} ${items[hover] >= 0 ? "+" : "−"}${yen(Math.abs(items[hover]))}${checks[hover] ? "" : "（チェックなし：足したらここまで）"}`
@@ -99,8 +86,8 @@ function Waterfall({ items, checks, actual }: { items: Items; checks: Checks; ac
       <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full" role="img" aria-label={`手元のお金の推測 ${yen(total)} の積み上げ`}>
         {/* 0 の基準線 */}
         <line x1={x(0)} x2={x(0)} y1={0} y2={H - 20} stroke="var(--line)" />
-        {rows.map((r) => {
-          const y = rowIndex(r.key) * (ROW + GAP);
+        {rows.map((r, i) => {
+          const y = i * (ROW + GAP);
           const b = bar(r.from, r.to);
           return (
             <g key={r.key} onMouseEnter={() => setHover(r.key)} onMouseLeave={() => setHover(null)} tabIndex={0} onFocus={() => setHover(r.key)} onBlur={() => setHover(null)}>
@@ -114,11 +101,6 @@ function Waterfall({ items, checks, actual }: { items: Items; checks: Checks; ac
             </g>
           );
         })}
-        {/* 小計：債券・銀貨を除く手元の通貨合計 */}
-        <g onMouseEnter={() => setHover("currency")} onMouseLeave={() => setHover(null)} tabIndex={0} onFocus={() => setHover("currency")} onBlur={() => setHover(null)}>
-          <rect x={0} y={subY} width={W} height={ROW} fill="transparent" />
-          {currency !== 0 && <rect x={subBar.x} width={subBar.w} y={subY + 7} height={ROW - 14} rx={2} fill="var(--muted)" opacity={hover && hover !== "currency" ? 0.45 : 0.9} />}
-        </g>
         {/* 合計（推測）の行 */}
         <g onMouseEnter={() => setHover("total")} onMouseLeave={() => setHover(null)} tabIndex={0} onFocus={() => setHover("total")} onBlur={() => setHover(null)}>
           <rect x={0} y={totalY} width={W} height={ROW} fill="transparent" />
