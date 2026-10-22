@@ -295,7 +295,10 @@ export function AdjustTab({ onDone }: { onDone: () => void }) {
               誤差 {diff === 0 ? "なし" : `${diff > 0 ? "+" : "−"}${yen(Math.abs(diff))}（実際 − 推測）`}
             </p>
           )}
-          {quote?.resolution && <ResolutionPreview r={quote.resolution} title={diff! > 0 ? "＋誤差の解消（債券 → おまかせ交換）" : "−誤差の解消（債券から・手数料あり）"} />}
+          {/* 誤差なしのときは出さない（サーバーの推測は採掘の進みで少しずれるので、画面の誤差で判断する） */}
+          {diff !== null && diff !== 0 && quote?.resolution && (
+            <ResolutionPreview r={quote.resolution} title={diff > 0 ? "＋誤差の解消（債券 → おまかせ交換）" : "−誤差の解消（債券から・手数料あり）"} />
+          )}
           <Button type="submit" className="w-full" disabled={busy || diff === null || diff === 0}>
             誤差を調整する
           </Button>
