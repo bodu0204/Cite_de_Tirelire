@@ -6,11 +6,11 @@ import { useGame, useSeasonView } from "@/components/GameProvider";
 import { BondIcon, Button, Card, Coin, Field, Tabs } from "@/components/ui";
 import { FEE_EXCHANGE } from "@/game/config";
 import { bondResourceEligible } from "@/game/bond";
-import { canExchange, quoteNeedsExchange, quoteResourceExchange, totalGains, ZERO_GAINS, type Currency } from "@/game/exchange";
+import { quoteNeedsExchange, quoteResourceExchange, totalGains, ZERO_GAINS, type Currency } from "@/game/exchange";
 import type { GainKey, Gains } from "@/game/types";
 import { fmt } from "@/lib/api";
 
-/** 交換で得られるもの（都市資金は金貨だけ） */
+/** 交換で得られるもの */
 const RES: { key: GainKey; label: string }[] = [
   { key: "wood", label: "木材" },
   { key: "stone", label: "石材" },
@@ -63,11 +63,7 @@ export default function ExchangePage() {
   const g2sOk = n > 0 && n <= source.balance;
   const toLabel = mode === "g2b" ? "債券" : "銀貨";
   const resOk = n > 0 && totalGain > 0 && cur.gold >= q.goldCost && cur.silver >= q.silverCost;
-  // 銀貨は都市資金に替えられないので、銀貨の割合は都市資金を除いて表示する
-  const shares = currency === "gold" ? v.exchange.needShares : quoteNeedsExchange("silver", 0, needs, lv).shares;
-  const shareText = RES.filter((r) => canExchange(currency, r.key))
-    .map((r) => `${r.label} ${fmt(shares[r.key] * 100)}%`)
-    .join("・");
+  const shareText = RES.map((r) => `${r.label} ${fmt(v.exchange.needShares[r.key] * 100)}%`).join("・");
 
   return (
     <div className="mx-auto max-w-xl space-y-4">
@@ -77,7 +73,7 @@ export default function ExchangePage() {
           金貨は資源への交換効率が高く、銀貨は手動操作の手数料に使えます。金貨→銀貨は 1:1 で無料、逆はできません。金貨・ユーザ通貨は債券に 1:1 で無料で替えられます（債券からは戻せません。銀貨は記録の報酬なので替えられません）。
           金貨で資源を得た額（1G＝1円）は、現実で使わずに済んだお金として貯金額（都市に使った金貨）に加わります。
           債券は急な出費に備えるお金で、貯金額にそのまま含まれます（二重には数えません）。
-          金貨は自動開発の予算になる都市資金にも替えられます（銀貨は不可）。「おまかせ」は街がいま必要としている資源・都市資金の割合で振り分けます。債券に入った分（0〜上限の範囲）には、同じ量の金貨でおまかせ交換した資源もつきます。
+          金貨・銀貨は自動開発の予算になる都市資金にも替えられます。「おまかせ」は街がいま必要としている資源・都市資金の割合で振り分けます。債券に入った分（0〜上限の範囲）には、同じ量の金貨でおまかせ交換した資源もつきます。
         </p>
       </div>
       <Tabs
@@ -121,11 +117,7 @@ export default function ExchangePage() {
                 <legend className="mb-1 text-sm font-medium">支払う通貨</legend>
                 <Tabs
                   value={currency}
-                  onChange={(c) => {
-                    setCurrency(c);
-                    // 銀貨では都市資金を選べない
-                    if (resource !== "auto" && !canExchange(c, resource)) setResource("auto");
-                  }}
+                  onChange={setCurrency}
                   items={[
                     { value: "gold", label: "金貨" },
                     { value: "silver", label: "銀貨" },
@@ -139,7 +131,7 @@ export default function ExchangePage() {
                   onChange={setResource}
                   items={[
                     { value: "auto" as const, label: "おまかせ" },
-                    ...RES.filter((r) => canExchange(currency, r.key)).map((r) => ({ value: r.key, label: r.label })),
+                    ...RES.map((r) => ({ value: r.key, label: r.label })),
                   ]}
                 />
               </fieldset>
@@ -280,7 +272,7 @@ export default function ExchangePage() {
                 <td className="py-1">{c === "gold" ? "金貨" : "銀貨"}</td>
                 {RES.map((r) => (
                   <td key={r.key} className="text-right">
-                    {canExchange(c, r.key) ? fmt(v.exchange.rates[c][r.key], 2) : "—"}
+                    {fmt(v.exchange.rates[c][r.key], 2)}
                   </td>
                 ))}
               </tr>
@@ -288,7 +280,7 @@ export default function ExchangePage() {
           </tbody>
         </table>
         <p className="mt-2 text-xs text-muted">
-          銀行 Lv{lv.bank}・金鉱 Lv{lv.goldMine}・銀鉱 Lv{lv.silverMine} のボーナス込み。手元の資材：木材 {fmt(Math.floor(v.city.stock.wood))}・石材 {fmt(Math.floor(v.city.stock.stone))}・食料 {fmt(Math.floor(v.city.stock.food))}・都市資金 {fmt(Math.floor(v.city.treasury))}。都市資金は金貨でだけ交換できます。
+          銀行 Lv{lv.bank}・金鉱 Lv{lv.goldMine}・銀鉱 Lv{lv.silverMine} のボーナス込み。手元の資材：木材 {fmt(Math.floor(v.city.stock.wood))}・石材 {fmt(Math.floor(v.city.stock.stone))}・食料 {fmt(Math.floor(v.city.stock.food))}・都市資金 {fmt(Math.floor(v.city.treasury))}
         </p>
       </Card>
     </div>

@@ -206,7 +206,6 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
     exchange: {
       levels,
       rates: {
-        // 銀貨→都市資金はできない（0）
         gold: Object.fromEntries(GAIN_KEYS.map((k) => [k, exchangeRate("gold", k, levels)])) as unknown as Gains,
         silver: Object.fromEntries(GAIN_KEYS.map((k) => [k, exchangeRate("silver", k, levels)])) as unknown as Gains,
       },

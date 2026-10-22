@@ -1,5 +1,5 @@
 // 通貨と資源の交換（種類を選ぶ交換と、都市の必要資源の割合で振り分ける「おまかせ」交換）。金貨→銀貨→資源 の経路が 金貨→資源 より有利にならないことをテストで保証する。
-// 都市資金も金貨でだけ交換できる（銀貨は不可）。
+// 都市資金も資源と同じく金貨・銀貨で交換できる。
 import { FEE_EXCHANGE, GOLD_RESOURCE_VALUE, SILVER_VALUE_RATIO } from "./config";
 import { bankBonus, goldMineBonus, silverMineBonus } from "./levels";
 import type { GainKey, Gains } from "./types";
@@ -12,12 +12,8 @@ export interface FacilityLevels {
   silverMine: number;
 }
 
-/** その通貨で交換できるか（都市資金は金貨だけ） */
-export const canExchange = (currency: Currency, key: GainKey) => currency === "gold" || key !== "treasury";
-
-/** 通貨1枚あたりの資源獲得量（交換できない組み合わせは 0） */
+/** 通貨1枚あたりの資源獲得量 */
 export function exchangeRate(currency: Currency, resource: GainKey, lv: FacilityLevels): number {
-  if (!canExchange(currency, resource)) return 0;
   const base = GOLD_RESOURCE_VALUE[resource];
   if (currency === "gold") return base * (1 + bankBonus(lv.bank) + goldMineBonus(lv.goldMine));
   return base * SILVER_VALUE_RATIO * (1 + bankBonus(lv.bank) + silverMineBonus(lv.silverMine));
@@ -58,16 +54,12 @@ export const GAIN_KEYS: GainKey[] = ["wood", "stone", "food", "treasury"];
 
 export const ZERO_GAINS: Gains = { wood: 0, stone: 0, food: 0, treasury: 0 };
 
-/**
- * 必要割合：必要資源を金貨に換算した額の比。合計は1（すべて0なら均等。計画列が無限に続くので通常は起きない）。
- * 銀貨は都市資金に替えられないので、銀貨の割合は都市資金を除いて求める。
- */
-export function needShares(needs: Gains, currency: Currency = "gold"): Gains {
-  const keys = GAIN_KEYS.filter((k) => canExchange(currency, k));
-  const value = keys.map((k) => Math.max(0, needs[k]) / GOLD_RESOURCE_VALUE[k]);
+/** 必要割合：必要資源を金貨に換算した額の比。合計は1（すべて0なら均等。計画列が無限に続くので通常は起きない） */
+export function needShares(needs: Gains): Gains {
+  const value = GAIN_KEYS.map((k) => Math.max(0, needs[k]) / GOLD_RESOURCE_VALUE[k]);
   const total = value.reduce((a, b) => a + b, 0);
   const shares = { ...ZERO_GAINS };
-  keys.forEach((k, i) => (shares[k] = total > 0 ? value[i] / total : 1 / keys.length));
+  GAIN_KEYS.forEach((k, i) => (shares[k] = total > 0 ? value[i] / total : 1 / GAIN_KEYS.length));
   return shares;
 }
 
@@ -109,7 +101,7 @@ export function quoteNeedsExchange(
   opts: { fee?: boolean; floor?: boolean } = {},
 ): NeedsQuote {
   const { fee = true, floor = true } = opts;
-  const shares = needShares(needs, currency);
+  const shares = needShares(needs);
   const split = floor
     ? splitAmount(amount, shares)
     : { wood: amount * shares.wood, stone: amount * shares.stone, food: amount * shares.food, treasury: amount * shares.treasury };
