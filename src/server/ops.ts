@@ -18,7 +18,7 @@ import { createCity, POLICY_PRESETS } from "@/game/city/init";
 import { cityNeeds } from "@/game/city/sim";
 import { INITIAL_GOLD, INITIAL_SILVER, REWARD_DAILY_CAP, REWARD_PURCHASE, REWARD_SAVINGS, SAVINGS_DAILY_LIMIT } from "@/game/config";
 import { fail } from "@/game/errors";
-import { canExchange, quoteNeedsExchange, quoteResourceExchange, totalGains, ZERO_GAINS, type Currency } from "@/game/exchange";
+import { quoteNeedsExchange, quoteResourceExchange, totalGains, ZERO_GAINS, type Currency } from "@/game/exchange";
 import { budgetOverruns, describeOverruns, startOfDay, type Overrun } from "@/game/currency";
 import { goldMineLevel, silverMineLevel } from "@/game/levels";
 import { collect, newMine } from "@/game/mine";
@@ -450,7 +450,6 @@ export function exchange(ctx: GameCtx, body: Body) {
   }
   const currency = oneOf(body.currency, ["gold", "silver"] as const, "通貨") as Currency;
   const resource = oneOf(body.resource, [...RESOURCES, "treasury", "auto"] as const, "資源");
-  if (resource !== "auto" && !canExchange(currency, resource)) fail("invalid", "都市資金は金貨でだけ交換できます");
   const lv = facilityLevels(ctx);
   // おまかせ：都市の必要資源の割合で振り分ける（手数料は1回分）
   const q =

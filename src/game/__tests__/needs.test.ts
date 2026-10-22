@@ -75,11 +75,16 @@ describe("おまかせ交換", () => {
   });
 });
 
-describe("金貨→都市資金（docs/needs-based-exchange.md §13）", () => {
-  it("1G → 都市資金 10（Lvボーナスは資源と同じ）。銀貨では替えられない", () => {
+describe("金貨・銀貨→都市資金（docs/needs-based-exchange.md §13）", () => {
+  it("1G → 都市資金 10（Lvボーナスは資源と同じ）", () => {
     expect(quoteResourceExchange("gold", "treasury", 100, LV1)).toMatchObject({ gain: 1000, goldCost: 100, silverCost: 5 });
     expect(exchangeRate("gold", "treasury", { bank: 1, goldMine: 6, silverMine: 1 })).toBeCloseTo(exchangeRate("gold", "wood", { bank: 1, goldMine: 6, silverMine: 1 }));
-    expect(exchangeRate("silver", "treasury", LV1)).toBe(0);
+  });
+
+  it("1S → 都市資金 1（銀鉱Lvのボーナスも資源と同じ）。手数料 5S と代金、貯金額には加えない", () => {
+    expect(quoteResourceExchange("silver", "treasury", 100, LV1)).toMatchObject({ gain: 100, goldCost: 0, silverCost: 105 });
+    const lv = { bank: 1, goldMine: 1, silverMine: 6 };
+    expect(exchangeRate("silver", "treasury", lv)).toBeCloseTo(exchangeRate("silver", "wood", lv));
   });
 
   it("おまかせは都市資金の不足も含めた割合で振り分ける", () => {
@@ -90,11 +95,12 @@ describe("金貨→都市資金（docs/needs-based-exchange.md §13）", () => {
     expect(q.gains.treasury).toBe(2000);
   });
 
-  it("銀貨のおまかせは都市資金を除いた割合", () => {
+  it("銀貨のおまかせも都市資金の不足を含めた同じ割合", () => {
     const needs = { wood: 300, stone: 200, food: 100, treasury: 200 };
     const q = quoteNeedsExchange("silver", 1000, needs, LV1);
-    expect(q.split).toEqual({ wood: 375, stone: 500, food: 125, treasury: 0 });
-    expect(q.gains.treasury).toBe(0);
+    expect(q.split).toEqual({ wood: 300, stone: 400, food: 100, treasury: 200 });
+    expect(q.gains).toEqual({ wood: 300, stone: 200, food: 100, treasury: 200 });
+    expect(q.silverCost).toBe(1005);
   });
 });
 
