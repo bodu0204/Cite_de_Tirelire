@@ -89,7 +89,7 @@
       "stage": "M1-t4",
       "endpoint": "generate-image-v2",
       "heightTiles": 2.25,
-      "description": "seven storey modern condominium tower, cream and red facade, rows of balconies, red roof trim, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "description": "seven storey modern condominium tower, cream and red facade, rows of balconies, red roof trim, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it, the whole building including the roof and antenna fits inside the canvas with a few empty transparent pixels above the top, nothing is cut off at the top or the sides",
       "body": {},
       "styled": true,
       "refs": {
@@ -101,7 +101,7 @@
       "stage": "M1-t5",
       "endpoint": "generate-image-v2",
       "heightTiles": 2.625,
-      "description": "tall twelve storey high-rise residential tower, slim, cream facade with red accent stripes, many lit windows, rooftop water tank, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "description": "tall twelve storey high-rise residential tower, slim, cream facade with red accent stripes, many lit windows, rooftop water tank, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it, the whole building including the roof and antenna fits inside the canvas with a few empty transparent pixels above the top, nothing is cut off at the top or the sides",
       "body": {},
       "styled": true,
       "refs": {
@@ -209,7 +209,7 @@
       "stage": "M1-t3",
       "endpoint": "generate-image-v2",
       "heightTiles": 2.25,
-      "description": "automated factory complex, tall modern grey hall with yellow stripes, conveyor bridges, big vents and a control tower, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "description": "automated factory complex, tall modern grey hall with yellow stripes, conveyor bridges, big vents and a control tower, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it, the whole building including the roof and antenna fits inside the canvas with a few empty transparent pixels above the top, nothing is cut off at the top or the sides",
       "body": {},
       "styled": true,
       "refs": {
@@ -254,7 +254,7 @@
       "stage": "M1-t4",
       "endpoint": "generate-image-v2",
       "heightTiles": 2.25,
-      "description": "grand department store, five storey elegant building with blue roof, many display windows, flags on the roof, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "description": "grand department store, five storey elegant building with blue roof, many display windows, flags on the roof, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it, the whole building including the roof and antenna fits inside the canvas with a few empty transparent pixels above the top, nothing is cut off at the top or the sides",
       "body": {},
       "styled": true,
       "refs": {
@@ -266,7 +266,7 @@
       "stage": "M1-t0",
       "endpoint": "generate-image-v2",
       "heightTiles": 2.0,
-      "description": "six storey office building, grey-blue glass curtain wall with blue roof trim, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "description": "six storey office building, grey-blue glass curtain wall with blue roof trim, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it, the whole building including the roof and antenna fits inside the canvas with a few empty transparent pixels above the top, nothing is cut off at the top or the sides",
       "body": {},
       "styled": true
     },
@@ -275,7 +275,7 @@
       "stage": "M1-t1",
       "endpoint": "generate-image-v2",
       "heightTiles": 2.625,
-      "description": "tall commercial skyscraper tower, slim blue glass facade, antenna on top, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "description": "tall commercial skyscraper tower, slim blue glass facade, antenna on top, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it, the whole building including the roof and antenna fits inside the canvas with a few empty transparent pixels above the top, nothing is cut off at the top or the sides",
       "body": {},
       "styled": true,
       "refs": {
@@ -308,7 +308,7 @@
       "stage": "M1-t2",
       "endpoint": "generate-image-v2",
       "heightTiles": 2.25,
-      "description": "advanced energy facility, futuristic grey and yellow fusion reactor building with a glowing cyan core dome, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "description": "advanced energy facility, futuristic grey and yellow fusion reactor building with a glowing cyan core dome, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it, the whole building including the roof and antenna fits inside the canvas with a few empty transparent pixels above the top, nothing is cut off at the top or the sides",
       "body": {},
       "styled": true,
       "refs": {
@@ -359,7 +359,7 @@
       "stage": "M1-t2",
       "endpoint": "generate-image-v2",
       "heightTiles": 2.25,
-      "description": "research institute, modern white building with purple accents and a large observatory dome, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "description": "research institute, modern white building with purple accents and a large observatory dome, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it, the whole building including the roof and antenna fits inside the canvas with a few empty transparent pixels above the top, nothing is cut off at the top or the sides",
       "body": {},
       "styled": true,
       "refs": {
@@ -401,7 +401,7 @@
       "stage": "M1-t0",
       "endpoint": "generate-image-v2",
       "heightTiles": 2.625,
-      "description": "futuristic city center tower, sleek white and cyan glass spire with floating rings and glowing lights, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "description": "futuristic city center tower, sleek white and cyan glass spire with floating rings and glowing lights, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it, the whole building including the roof and antenna fits inside the canvas with a few empty transparent pixels above the top, nothing is cut off at the top or the sides",
       "body": {},
       "styled": true
     },
@@ -479,7 +479,7 @@
       "stage": "M1-special",
       "endpoint": "generate-image-v2",
       "heightTiles": 2.0,
-      "description": "grand bank, four storey neoclassical building with columns, a gold-trimmed pediment and a gold coin emblem, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "description": "grand bank, four storey neoclassical building with columns, a gold-trimmed pediment and a gold coin emblem, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it, the whole building including the roof and antenna fits inside the canvas with a few empty transparent pixels above the top, nothing is cut off at the top or the sides",
       "body": {},
       "styled": true,
       "refs": {
@@ -491,7 +491,7 @@
       "stage": "M1-special",
       "endpoint": "generate-image-v2",
       "heightTiles": 2.25,
-      "description": "grand bank tower, five storey neoclassical building with columns, a gold dome and a gold coin emblem, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "description": "grand bank tower, five storey neoclassical building with columns, a gold dome and a gold coin emblem, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it, the whole building including the roof and antenna fits inside the canvas with a few empty transparent pixels above the top, nothing is cut off at the top or the sides",
       "body": {},
       "styled": true,
       "refs": {
@@ -503,7 +503,7 @@
       "stage": "M1-special",
       "endpoint": "generate-image-v2",
       "heightTiles": 2.5,
-      "description": "magnificent completed central bank, white marble with a shining golden dome, gold columns and a large gold coin emblem, sparkles, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "description": "magnificent completed central bank, white marble with a shining golden dome, gold columns and a large gold coin emblem, sparkles, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it, the whole building including the roof and antenna fits inside the canvas with a few empty transparent pixels above the top, nothing is cut off at the top or the sides",
       "body": {},
       "styled": true,
       "refs": {
