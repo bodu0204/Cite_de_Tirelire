@@ -9,7 +9,9 @@
       "heightTiles": 0.5,
       "description": "1). short green grass 2). green grass with a few tiny white and yellow flowers 3). green grass with small clover patches 4). slightly darker green grass with a few longer blades. Calm, even colors so that tiles repeat seamlessly; no rocks, no paths, no objects",
       "body": {
-        "tile_view": "high top-down"
+        "tile_view_angle": 30,
+        "tile_depth_ratio": 0.1,
+        "outline_mode": "segmentation"
       }
     },
     {
@@ -20,7 +22,9 @@
       "description": "paved grey asphalt city road with a dashed white center line and light grey curbs, on green grass",
       "body": {
         "tile_feature": "roads",
-        "tile_view": "high top-down"
+        "tile_view_angle": 30,
+        "tile_depth_ratio": 0.1,
+        "outline_mode": "segmentation"
       }
     },
     {

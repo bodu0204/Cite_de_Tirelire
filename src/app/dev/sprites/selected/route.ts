@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { devOnly, SELECTED } from "../files";
 
@@ -16,5 +16,7 @@ export async function GET(req: Request) {
     }
   };
   if (existsSync(root)) walk("");
-  return Response.json({ keys: keys.sort() });
+  const anchorsFile = path.join(root, "anchors.json");
+  const anchors = existsSync(anchorsFile) ? JSON.parse(readFileSync(anchorsFile, "utf8")) : {};
+  return Response.json({ keys: keys.sort(), anchors });
 }

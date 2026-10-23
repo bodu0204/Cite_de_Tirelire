@@ -259,7 +259,9 @@ export class IsoStage {
     for (const s of this.baked.values()) s.destroy({ texture: true, textureSource: true });
     this.baked.clear();
     this.book.destroy();
-    this.app.destroy(true, { children: true });
+    // destroy(true) は PixiJS 全体で共有する資源（バッチのプールなど）まで解放し、
+    // 同時に動いている別の描画（作り直した直後の新しい描画）を壊すので、canvas を外すだけにする
+    this.app.destroy({ removeView: true }, { children: true });
   }
 
   // ---- カメラ ----

@@ -74,7 +74,7 @@ export function buildBody(def: SpriteDef, style: string, tw: number): Record<str
 
 /** 結果の画像と、画像を除いた返答を保存する */
 function save(dir: string, res: unknown) {
-  for (const f of readdirSync(dir)) if (f.endsWith(".png")) rmSync(path.join(dir, f));
+  for (const f of readdirSync(dir)) if (f.endsWith(".png") || f === "error.txt") rmSync(path.join(dir, f));
   // create-tiles-pro は tile_0, tile_1… の名前を保つ（tile_rules がその名前で規則を持つため）
   const named = (res as { tiles?: { images?: Record<string, string> } }).tiles?.images;
   const images = named ? Object.entries(named).map(([k, b64]) => [k, Buffer.from(b64, "base64")] as const) : findImages(res).map((png, i) => [String(i).padStart(2, "0"), png] as const);

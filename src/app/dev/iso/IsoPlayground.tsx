@@ -17,6 +17,7 @@ export function IsoPlayground() {
   const [fixed, setFixed] = useState(false);
   const [useArt, setUseArt] = useState(true);
   const [artKeys, setArtKeys] = useState<string[] | null>(null);
+  const [anchors, setAnchors] = useState<Record<string, [number, number]>>({});
   const [selected, setSelected] = useState<{ x: number; y: number } | null>(null);
   const [stats, setStats] = useState({ fps: 0, panFps: 0, panMinFps: 0, sprites: 0, chunks: 0 });
   const stage = useRef<IsoStage | null>(null);
@@ -27,12 +28,15 @@ export function IsoPlayground() {
     setArtKeys(null);
     fetch(`/dev/sprites/selected?tw=${tw}`)
       .then((r) => r.json())
-      .then((j: { keys: string[] }) => setArtKeys(j.keys))
+      .then((j: { keys: string[]; anchors: Record<string, [number, number]> }) => {
+        setAnchors(j.anchors);
+        setArtKeys(j.keys);
+      })
       .catch(() => setArtKeys([]));
   }, [tw]);
   const art = useMemo(
-    () => (useArt && artKeys?.length ? { keys: artKeys, url: (k: string) => `/dev/sprites/file/sprites/${tw}/${k}.png` } : undefined),
-    [useArt, artKeys, tw],
+    () => (useArt && artKeys?.length ? { keys: artKeys, anchors, url: (k: string) => `/dev/sprites/file/sprites/${tw}/${k}.png` } : undefined),
+    [useArt, artKeys, anchors, tw],
   );
 
   return (
@@ -74,7 +78,7 @@ export function IsoPlayground() {
         label={size ? `検証用のダミーマップ ${size}×${size}` : "画風の見本の街"}
       />}
       <p className="text-xs text-muted">
-        選んだ絵がないところは M0 用の仮の絵で描きます。草はどの種類も草の絵1枚、東西の道路は南北の道路の反転で代用し、交差点などは仮の絵のままです。
+        選んだ絵がないところは M0 用の仮の絵で描きます。道路は全段階を舗装道路で、足りないつながり方は反転か十字路で代用します。
       </p>
     </main>
   );

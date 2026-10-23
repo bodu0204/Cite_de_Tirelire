@@ -44,6 +44,13 @@ function missingArt(tw: number): Art {
 export interface ArtSource {
   url: (key: string) => string;
   keys: string[];
+  /** 基準点（地面・道路のタイルは画像から求めて anchors.json に書いてある） */
+  anchors?: Record<string, [number, number]>;
+}
+
+/** 左右反転したときのつながり方（北↔西、東↔南） */
+function mirrorMask(m: number): number {
+  return ((m & 1) << 3) | ((m & 8) >> 3) | ((m & 2) << 1) | ((m & 4) >> 1);
 }
 
 function loadImage(url: string): Promise<HTMLImageElement> {
@@ -74,8 +81,8 @@ export class TextureBook {
   constructor(readonly tw: number) {}
 
   /**
-   * 選んだ絵を読み込む。基準点は「下端から th/2 上、横の中央」とみなす（M0 の仮の決め方。
-   * 後処理で基準点を決める §4.1 の5 ができたら、アトラスの JSON から読む）。
+   * 選んだ絵を読み込む。基準点は anchors にあればそれを、なければ「下端から th/2 上、横の中央」とみなす
+   * （建物の M0 の仮の決め方。後処理で基準点を決める §4.1 の5 ができたら、アトラスの JSON から読む）。
    */
   async load(src: ArtSource) {
     await Promise.all(
@@ -85,22 +92,29 @@ export class TextureBook {
         c.width = img.naturalWidth;
         c.height = img.naturalHeight;
         c.getContext("2d")!.drawImage(img, 0, 0);
-        this.loaded.set(key, { canvas: c, ax: c.width / 2, ay: c.height - this.tw / 4 });
+        const [ax, ay] = src.anchors?.[key] ?? [c.width / 2, c.height - this.tw / 4];
+        this.loaded.set(key, { canvas: c, ax, ay });
       }),
     );
   }
 
-  /** 読み込んだ絵から探す。草は種類違いを、東西の道路は南北の道路の反転を代わりに使う */
+  /**
+   * 読み込んだ絵から探す。足りない分は代わりを使う：草は1種目、道路は1段階目（舗装道路）。
+   * 道路のつながり方がなければ、左右反転したつながり方の絵を反転して使い、それもなければ十字路にする。
+   */
   private loadedArt(key: string): Art | null {
     const hit = this.loaded.get(key);
     if (hit) return hit;
     const [kind, a, b] = key.split("/");
     if (kind === "ground" && a === "grass") return this.loaded.get("ground/grass/0") ?? null;
     if (kind === "road") {
-      const ns = this.loaded.get(`road/${a}/5`) ?? this.loaded.get("road/1/5");
-      if (!ns) return null;
-      if (b === "5" || b === "1" || b === "4") return ns;
-      if (b === "10" || b === "2" || b === "8") return mirror(ns);
+      const mask = Number(b);
+      const tier = this.loaded.has(`road/${a}/15`) ? a : "1";
+      const same = this.loaded.get(`road/${tier}/${mask}`);
+      if (same) return same;
+      const flipped = this.loaded.get(`road/${tier}/${mirrorMask(mask)}`);
+      if (flipped) return mirror(flipped);
+      return this.loaded.get(`road/${tier}/15`) ?? null;
     }
     return null;
   }
