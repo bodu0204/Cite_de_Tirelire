@@ -50,6 +50,620 @@
       "heightTiles": 1.5,
       "description": "small brick factory, grey saw-tooth roof with yellow trim, one tall chimney, loading door on the left face, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
       "body": {}
+    },
+    {
+      "key": "building/housing/0",
+      "stage": "M1-t0",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.0,
+      "description": "tiny one-room wooden hut with a small red roof and one door, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "building/housing/2",
+      "stage": "M1-t2",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.5,
+      "description": "two-and-a-half storey red brick town house with a red tiled roof, chimney, white window frames, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/housing/1"
+      }
+    },
+    {
+      "key": "building/housing/3",
+      "stage": "M1-t3",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.875,
+      "description": "four storey apartment block with red roof edges, cream walls, many windows and small balconies, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/housing/2"
+      }
+    },
+    {
+      "key": "building/housing/4",
+      "stage": "M1-t4",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.25,
+      "description": "seven storey modern condominium tower, cream and red facade, rows of balconies, red roof trim, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/housing/3"
+      }
+    },
+    {
+      "key": "building/housing/5",
+      "stage": "M1-t5",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.625,
+      "description": "tall twelve storey high-rise residential tower, slim, cream facade with red accent stripes, many lit windows, rooftop water tank, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/housing/4"
+      }
+    },
+    {
+      "key": "building/farm/0",
+      "stage": "M1-t0",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 0.75,
+      "description": "small vegetable field with neat rows of green crops and brown soil, a tiny scarecrow, low to the ground, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "building/farm/1",
+      "stage": "M1-t1",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.0,
+      "description": "small farm with a red wooden barn on a field of crops, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/farm/0"
+      }
+    },
+    {
+      "key": "building/farm/2",
+      "stage": "M1-t2",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.25,
+      "description": "mechanized farm, red barn with a green tractor and a tall grain silo, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/farm/1"
+      }
+    },
+    {
+      "key": "building/farm/3",
+      "stage": "M1-t3",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.5,
+      "description": "large farm complex, big barn with two tall metal grain silos and a combine harvester, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/farm/2"
+      }
+    },
+    {
+      "key": "building/farm/4",
+      "stage": "M1-t4",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.75,
+      "description": "automated futuristic farm, large glass greenhouse dome with green plants inside, white robotic arms, solar panels, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/farm/3"
+      }
+    },
+    {
+      "key": "building/lumber/0",
+      "stage": "M1-t0",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.25,
+      "description": "lumber mill, wooden shed with a circular saw, stacked logs and planks, yellow and grey industrial trim, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "building/quarry/0",
+      "stage": "M1-t0",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.25,
+      "description": "stone works, grey stone building with a crane lifting cut stone blocks, stacked grey blocks, yellow trim, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "building/factory/0",
+      "stage": "M1-t0",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.25,
+      "description": "small craft workshop, low brick building with a small chimney and a workbench under an awning, grey roof with yellow trim, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "building/factory/2",
+      "stage": "M1-t2",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.875,
+      "description": "large factory, big grey industrial hall with saw-tooth roof, two tall chimneys, yellow trim and loading doors, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/factory/1"
+      }
+    },
+    {
+      "key": "building/factory/3",
+      "stage": "M1-t3",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.25,
+      "description": "automated factory complex, tall modern grey hall with yellow stripes, conveyor bridges, big vents and a control tower, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/factory/2"
+      }
+    },
+    {
+      "key": "building/commerce/0",
+      "stage": "M1-t0",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.0,
+      "description": "small street food stall with a blue and white striped awning and a wooden counter, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "building/commerce/1",
+      "stage": "M1-t1",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.25,
+      "description": "small retail shop with a blue awning, big shop window and a sign with a simple icon, no letters, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/commerce/0"
+      }
+    },
+    {
+      "key": "building/commerce/3",
+      "stage": "M1-t3",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.75,
+      "description": "shopping complex, three storey building with large glass storefronts, blue roof and blue awnings, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/commerce/2"
+      }
+    },
+    {
+      "key": "building/commerce/4",
+      "stage": "M1-t4",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.25,
+      "description": "grand department store, five storey elegant building with blue roof, many display windows, flags on the roof, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/commerce/3"
+      }
+    },
+    {
+      "key": "building/office/0",
+      "stage": "M1-t0",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.0,
+      "description": "six storey office building, grey-blue glass curtain wall with blue roof trim, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "building/office/1",
+      "stage": "M1-t1",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.625,
+      "description": "tall commercial skyscraper tower, slim blue glass facade, antenna on top, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/office/0"
+      }
+    },
+    {
+      "key": "building/power/0",
+      "stage": "M1-t0",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.5,
+      "description": "coal power plant, grey building with two short smokestacks and yellow warning stripes, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "building/power/1",
+      "stage": "M1-t1",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.875,
+      "description": "efficient power station, grey building with a big cooling tower and yellow trim, power lines, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/power/0"
+      }
+    },
+    {
+      "key": "building/power/2",
+      "stage": "M1-t2",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.25,
+      "description": "advanced energy facility, futuristic grey and yellow fusion reactor building with a glowing cyan core dome, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/power/1"
+      }
+    },
+    {
+      "key": "building/rail/0",
+      "stage": "M1-t0",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.5,
+      "description": "small railway station building with a platform canopy, a short train on tracks, grey roof, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "building/logistics/0",
+      "stage": "M1-t0",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.5,
+      "description": "logistics center, large grey warehouse with loading docks, stacked shipping containers and a delivery truck, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "building/school/0",
+      "stage": "M1-t0",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.5,
+      "description": "school building, two storey with a purple roof, clock on the front, small schoolyard, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "building/school/1",
+      "stage": "M1-t1",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.875,
+      "description": "university, grand three storey building with purple roof, columns and a small dome, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/school/0"
+      }
+    },
+    {
+      "key": "building/school/2",
+      "stage": "M1-t2",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.25,
+      "description": "research institute, modern white building with purple accents and a large observatory dome, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/school/1"
+      }
+    },
+    {
+      "key": "building/clinic/0",
+      "stage": "M1-t0",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.875,
+      "description": "hospital, four storey white building with purple roof trim and a helipad on the roof, red cross symbol, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "building/culture/0",
+      "stage": "M1-t0",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.5,
+      "description": "library, classic two storey building with purple roof and stone columns, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "building/culture/1",
+      "stage": "M1-t1",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.875,
+      "description": "cultural center, modern concert hall with a curved purple roof and glass front, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/culture/0"
+      }
+    },
+    {
+      "key": "building/future/0",
+      "stage": "M1-t0",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.625,
+      "description": "futuristic city center tower, sleek white and cyan glass spire with floating rings and glowing lights, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "road/0",
+      "endpoint": "create-tiles-pro",
+      "description": "unpaved brown dirt road with wheel ruts and small pebbles, on green grass",
+      "body": {
+        "tile_feature": "roads",
+        "tile_view_angle": 30,
+        "tile_depth_ratio": 0.1,
+        "outline_mode": "segmentation"
+      },
+      "stage": "M1-road"
+    },
+    {
+      "key": "road/2",
+      "endpoint": "create-tiles-pro",
+      "description": "wide four-lane arterial asphalt road with a double yellow center line, white lane markings and grey curbs, on green grass",
+      "body": {
+        "tile_feature": "roads",
+        "tile_view_angle": 30,
+        "tile_depth_ratio": 0.1,
+        "outline_mode": "segmentation"
+      },
+      "stage": "M1-road"
+    },
+    {
+      "key": "road/3",
+      "endpoint": "create-tiles-pro",
+      "description": "futuristic high-tech road, smooth dark asphalt with glowing cyan lane lines and a tram rail in the middle, white curbs, on green grass",
+      "body": {
+        "tile_feature": "roads",
+        "tile_view_angle": 30,
+        "tile_depth_ratio": 0.1,
+        "outline_mode": "segmentation"
+      },
+      "stage": "M1-road"
+    },
+    {
+      "key": "special/bank/1",
+      "stage": "M1-special",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.25,
+      "description": "small savings bank, stone building with a gold coin emblem over the door, grey roof, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "special/bank/2",
+      "stage": "M1-special",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.5,
+      "description": "bank, two storey stone building with columns and a gold coin emblem, grey roof, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "special/bank/1"
+      }
+    },
+    {
+      "key": "special/bank/3",
+      "stage": "M1-special",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.75,
+      "description": "bank, three storey stone building with tall columns, a gold coin emblem and a small clock, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "special/bank/2"
+      }
+    },
+    {
+      "key": "special/bank/4",
+      "stage": "M1-special",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.0,
+      "description": "grand bank, four storey neoclassical building with columns, a gold-trimmed pediment and a gold coin emblem, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "special/bank/3"
+      }
+    },
+    {
+      "key": "special/bank/5",
+      "stage": "M1-special",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.25,
+      "description": "grand bank tower, five storey neoclassical building with columns, a gold dome and a gold coin emblem, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "special/bank/4"
+      }
+    },
+    {
+      "key": "special/bank/6",
+      "stage": "M1-special",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.5,
+      "description": "magnificent completed central bank, white marble with a shining golden dome, gold columns and a large gold coin emblem, sparkles, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "special/bank/5"
+      }
+    },
+    {
+      "key": "special/gold_mine",
+      "stage": "M1-special",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.25,
+      "description": "gold mine entrance, wooden mine shaft frame in a small rocky hill, a mine cart full of shining gold ore on rails, standing on one isometric ground tile, the object stands directly on the ground with no base platform, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "special/silver_mine",
+      "stage": "M1-special",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.25,
+      "description": "silver mine entrance, wooden mine shaft frame in a small rocky hill, a mine cart full of shining silver ore on rails, standing on one isometric ground tile, the object stands directly on the ground with no base platform, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "special/park/0",
+      "stage": "M1-special",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 0.75,
+      "description": "small park, a patch of lawn with a wooden bench and one small young tree, standing on one isometric ground tile, the object stands directly on the ground with no base platform, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "special/park/1",
+      "stage": "M1-special",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.0,
+      "description": "park with a lawn, two trees, a bench and a small flower bed, standing on one isometric ground tile, the object stands directly on the ground with no base platform, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "special/park/0"
+      }
+    },
+    {
+      "key": "special/park/2",
+      "stage": "M1-special",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.25,
+      "description": "park with a lawn, three big trees, a small blue pond and benches, standing on one isometric ground tile, the object stands directly on the ground with no base platform, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "special/park/1"
+      }
+    },
+    {
+      "key": "special/park/3",
+      "stage": "M1-special",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.5,
+      "description": "beautiful park with big trees, a blue pond with a fountain spraying water, flower beds and benches, standing on one isometric ground tile, the object stands directly on the ground with no base platform, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "special/park/2"
+      }
+    },
+    {
+      "key": "special/statue/bronze",
+      "stage": "M1-special",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.25,
+      "description": "bronze statue of a person holding a coin, on a grey stone pedestal, standing on one isometric ground tile, the object stands directly on the ground with no base platform, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "special/statue/silver",
+      "stage": "M1-special",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.25,
+      "description": "shining silver statue of a person holding a coin, on a white stone pedestal, standing on one isometric ground tile, the object stands directly on the ground with no base platform, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "special/statue/bronze"
+      }
+    },
+    {
+      "key": "special/statue/gold",
+      "stage": "M1-special",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.25,
+      "description": "shining golden statue of a person holding a coin, on a white marble pedestal with gold trim, standing on one isometric ground tile, the object stands directly on the ground with no base platform, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "special/statue/bronze"
+      }
+    },
+    {
+      "key": "fx/scaffold",
+      "stage": "M1-special",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.25,
+      "description": "construction site with wooden scaffolding frame, a few stacked bricks and a small yellow crane, no building yet, standing on one isometric ground tile, the object stands directly on the ground with no base platform, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "fx/cover",
+      "stage": "M1-special",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.0,
+      "description": "low wooden scaffolding with a green safety net and a ladder, under renovation, empty in the middle, standing on one isometric ground tile, the object stands directly on the ground with no base platform, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "locked/forest",
+      "stage": "M1-special",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.25,
+      "description": "dense cluster of dark green pine trees covering the whole tile, standing on one isometric ground tile, the object stands directly on the ground with no base platform, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "locked/rocks",
+      "stage": "M1-special",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 0.75,
+      "description": "pile of large grey boulders and small rocks covering the whole tile, standing on one isometric ground tile, the object stands directly on the ground with no base platform, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "locked/sign",
+      "stage": "M1-special",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 0.75,
+      "description": "short wooden fence with a small wooden signpost showing a padlock symbol, no letters, standing on one isometric ground tile, the object stands directly on the ground with no base platform, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "props/lv",
+      "stage": "M1-special",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 0.5,
+      "description": "1). potted flower planter 2). wooden park bench 3). black street lamp 4). small flag on a pole 5). rooftop air conditioner unit 6). small parked red car. Each is a separate small isometric object on a transparent background, no ground",
+      "body": {},
+      "styled": true,
+      "size": [
+        32,
+        32
+      ]
     }
-  ]
+  ],
+  "styleKey": "building/housing/1"
 }

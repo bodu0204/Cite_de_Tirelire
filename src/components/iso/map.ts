@@ -5,8 +5,26 @@ export interface IsoObject {
   id: string;
   x: number;
   y: number;
-  /** 絵のキー（例 building/housing/2） */
+  /** 絵のキー（例 building/housing/2、building/housing/2@lv3） */
   key: string;
+  /** 同じマスに重ねる時の前後（工事の覆いなど。大きいほど手前） */
+  dz?: number;
+}
+
+/** 土地用途（ゲームの Zone と同じ値。描画側は文字列として扱う） */
+export type IsoZone = "residential" | "commercial" | "industrial" | "agricultural" | "public" | "special" | "none";
+
+/** 盤面の上に重ねる情報（地面の絵や建物とは別に描き直す） */
+export interface IsoOverlay {
+  /** 行優先の土地用途。showZones の時だけ描く（OBJ-08） */
+  zones?: IsoZone[];
+  showZones?: boolean;
+  /** 行優先。自動開発の対象外（OBJ-09） */
+  noAuto?: boolean[];
+  /** 工事の進み具合のバー（OBJ-07）。時刻はミリ秒 */
+  jobs?: { x: number; y: number; startedAt: number; finishAt: number }[];
+  /** 点滅させるマス（"x,y"。B6 の強調） */
+  highlights?: string[];
 }
 
 export interface IsoMap {

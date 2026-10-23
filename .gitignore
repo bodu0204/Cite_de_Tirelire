@@ -60,3 +60,6 @@ next-env.d.ts
 
 # 素材の生成候補（scripts/sprites/generate.ts の出力。選んだ絵は art/sprites/ に入れて Git で管理する）
 art/candidates/
+
+# アトラス（scripts/sprites/build-atlas.ts が art/sprites/ から作る。npm run dev / build の前に自動で作る）
+public/sprites/

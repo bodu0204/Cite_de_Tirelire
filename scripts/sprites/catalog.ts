@@ -1,0 +1,36 @@
+// 描画に必要な絵のキーの一覧（LINT-01 の抜け漏れ検査の正本）。ゲームのカタログから作る。
+import { LINES, LINE_IDS } from "../../src/game/catalog";
+
+export const GRASS_VARIANTS = 4;
+export const ROAD_MASKS = 16;
+export const BANK_LEVELS = 6;
+export const PARK_TIERS = 4;
+export const STATUE_RANKS = ["bronze", "silver", "gold"] as const;
+/** 建物Lv 2〜6 で1つずつ増える小物 */
+export const LV_PROPS = ["props/lv/2", "props/lv/3", "props/lv/4", "props/lv/5", "props/lv/6"];
+
+export function requiredKeys(): string[] {
+  const keys: string[] = [];
+  for (let i = 0; i < GRASS_VARIANTS; i++) keys.push(`ground/grass/${i}`);
+  for (const line of LINE_IDS) {
+    const tiers = LINES[line].tiers.length;
+    for (let t = 0; t < tiers; t++) {
+      if (line === "road") for (let m = 0; m < ROAD_MASKS; m++) keys.push(`road/${t}/${m}`);
+      else keys.push(`building/${line}/${t}`);
+    }
+  }
+  for (let lv = 1; lv <= BANK_LEVELS; lv++) keys.push(`special/bank/${lv}`);
+  keys.push("special/gold_mine", "special/silver_mine");
+  for (let t = 0; t < PARK_TIERS; t++) keys.push(`special/park/${t}`);
+  for (const r of STATUE_RANKS) keys.push(`special/statue/${r}`);
+  keys.push("fx/scaffold", "fx/cover", "locked/forest", "locked/rocks", "locked/sign", ...LV_PROPS);
+  return keys;
+}
+
+/** 系統ごとに段階順に並べたキー（LINT-07：段階が上がるほど高くなる） */
+export function tierChains(): string[][] {
+  const chains = LINE_IDS.filter((l) => l !== "road" && LINES[l].tiers.length > 1).map((l) => LINES[l].tiers.map((_, t) => `building/${l}/${t}`));
+  chains.push(Array.from({ length: BANK_LEVELS }, (_, i) => `special/bank/${i + 1}`));
+  chains.push(Array.from({ length: PARK_TIERS }, (_, i) => `special/park/${i}`));
+  return chains;
+}

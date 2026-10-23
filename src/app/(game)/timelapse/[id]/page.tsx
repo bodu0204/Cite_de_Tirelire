@@ -1,7 +1,7 @@
 "use client";
 
 import { use, useEffect, useMemo, useRef, useState } from "react";
-import { CityCanvas } from "@/components/city/CityCanvas";
+import { CityView } from "@/components/city/CityView";
 import { useGame } from "@/components/GameProvider";
 import { Button, Card, Gauge, LinkButton } from "@/components/ui";
 import { DEV_NAMES } from "@/game/config";
@@ -84,7 +84,8 @@ export default function TimelapsePlayer({ params }: { params: Promise<{ id: stri
         <span className="text-sm text-muted">目標 {yen(s.goal)}</span>
       </div>
       <div className="relative">
-        <CityCanvas
+        <CityView
+          fixed
           label={`${formatDate(t, tz)}時点の街`}
           buildings={[...frame.buildings.values()]}
           zones={frame.zones}

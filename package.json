@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "tsx scripts/sprites/build-atlas.ts || echo 'アトラスを作れませんでした。足りない絵は仮の絵で描きます'",
     "dev": "next dev",
+    "prebuild": "tsx scripts/sprites/build-atlas.ts",
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
@@ -12,7 +14,8 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "postinstall": "prisma generate",
-    "sprites": "tsx scripts/sprites/generate.ts"
+    "sprites": "tsx scripts/sprites/generate.ts",
+    "sprites:atlas": "tsx scripts/sprites/build-atlas.ts"
   },
   "dependencies": {
     "@prisma/client": "6.19.3",

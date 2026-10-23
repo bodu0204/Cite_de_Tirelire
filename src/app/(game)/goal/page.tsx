@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { CityCanvas } from "@/components/city/CityCanvas";
+import { CityView } from "@/components/city/CityView";
 import { useGame, useSeasonView } from "@/components/GameProvider";
 import { Button, Card, LinkButton, Stat } from "@/components/ui";
 import { devLevel } from "@/game/levels";
@@ -30,7 +30,8 @@ export default function GoalPage() {
         <p className="font-pixel text-sm text-gold">GOAL!</p>
         <h1 className="font-pixel text-3xl">貯金目標を達成しました</h1>
       </div>
-      <CityCanvas
+      <CityView
+        fixed
         label="完成間近の街"
         buildings={v.city.buildings}
         jobs={[]}

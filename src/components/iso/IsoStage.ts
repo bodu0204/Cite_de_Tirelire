@@ -1,5 +1,5 @@
 // PixiJS で街を描く本体（docs/rendering-requirements.md §3）。React からは IsoCity を通して使う。
-import { Application, Container, RenderTexture, Sprite } from "pixi.js";
+import { Application, Container, Graphics, RenderTexture, Sprite } from "pixi.js";
 import { type Agent, createAgents, stepAgent } from "./agents";
 import {
   type Camera,
@@ -18,15 +18,15 @@ import {
   zoomRange,
 } from "./camera";
 import { type ChunkId, CHUNK, chunkKey, chunkRect, visibleChunks } from "./chunks";
-import { type IsoMap, groundKey } from "./map";
+import { type IsoMap, type IsoObject, type IsoOverlay, groundKey } from "./map";
 import { type Iso, depth, iso, mapBounds, toScreen, toTile } from "./projection";
 import { type ArtSource, type Entry, TextureBook } from "./textures";
 
 export interface StageOptions {
   /** 基準タイルの幅（64 か 32。§10 の M0 で比べる） */
   tw: number;
-  /** 選んだ絵（なければ仮の絵だけで描く） */
-  art?: ArtSource;
+  /** 絵の読み込み元。"atlas" は public/sprites/ のアトラス、ArtSource は開発用の選んだ絵。なければ仮の絵だけで描く */
+  art?: ArtSource | "atlas";
   /** 人と車の数（OBJ-11） */
   agents?: number;
   /** false ならカメラを固定し、街全体を収める（CAM-09） */
@@ -38,6 +38,8 @@ export interface StageOptions {
   /** panFps・panMinFps は直近5秒の、動かしていた間の平均と最低（0 なら動かしていない） */
   onStats?: (s: { fps: number; panFps: number; panMinFps: number; sprites: number; chunks: number }) => void;
   onContextLost?: () => void;
+  /** 工事の進み具合に使う時刻の補正（サーバー時刻 − 端末時刻） */
+  serverOffset?: number;
 }
 
 interface Placed {
@@ -46,6 +48,16 @@ interface Placed {
   x: number;
   y: number;
 }
+
+/** 用途の色と記号（OBJ-08：色だけに頼らない） */
+const ZONE_STYLE: Record<string, { color: number; mark: "house" | "circle" | "square" | "plus" | "diamond" | "star" } | undefined> = {
+  residential: { color: 0xffd54f, mark: "house" },
+  commercial: { color: 0x4fc3f7, mark: "circle" },
+  industrial: { color: 0xa1887f, mark: "square" },
+  agricultural: { color: 0xc5e1a5, mark: "plus" },
+  public: { color: 0xce93d8, mark: "diamond" },
+  special: { color: 0xffb74d, mark: "star" },
+};
 
 /** 背の高い建物が上のチャンクへはみ出す分（ドット、64px タイル基準） */
 const TALL = 160;
@@ -62,7 +74,14 @@ export class IsoStage {
   private world = new Container();
   private groundLayer = new Container();
   private markLayer = new Container();
+  private zoneGfx = new Graphics();
   private objLayer = new Container();
+  private fxLayer = new Container();
+  private fxGfx = new Graphics();
+  private highlightSprites: Sprite[] = [];
+  private overlay: IsoOverlay = {};
+  private groundKeys: string[] = [];
+  private chunkSig = new Map<string, string>();
   private map!: IsoMap;
   private chunkObjects = new Map<string, Placed[]>();
   private baked = new Map<string, Sprite>();
@@ -82,6 +101,7 @@ export class IsoStage {
   private focus: { from: Camera; to: Camera; t0: number; ms: number } | null = null;
   private lastMove = { x: 0, y: 0, t: 0 };
   private panFrames: { t: number; dt: number }[] = [];
+  private fxDrawn = false;
   private wasBusy = false;
   private lastStats = 0;
   private destroyed = false;
@@ -111,7 +131,9 @@ export class IsoStage {
       s.teardown();
       return s;
     }
-    if (opts.art) await s.book.load(opts.art).catch((e) => console.warn(e));
+    // 絵が読めなくても仮の絵で描けるので、止めずに続ける
+    if (opts.art === "atlas") await s.book.loadAtlas().catch((e) => console.warn(e));
+    else if (opts.art) await s.book.load(opts.art).catch((e) => console.warn(e));
     if (s.destroyed) {
       s.teardown();
       return s;
@@ -130,7 +152,7 @@ export class IsoStage {
     canvas.style.touchAction = "none";
     canvas.style.display = "block";
     canvas.addEventListener("webglcontextlost", this.onContextLost);
-    this.world.addChild(this.groundLayer, this.markLayer, this.objLayer);
+    this.world.addChild(this.groundLayer, this.markLayer, this.objLayer, this.fxLayer);
     this.objLayer.sortableChildren = true;
     this.app.stage.addChild(this.world);
 
@@ -142,7 +164,8 @@ export class IsoStage {
     this.highlight.texture = hl.texture;
     this.highlight.anchor.set(hl.ax / hl.w, hl.ay / hl.h);
     this.highlight.visible = false;
-    this.markLayer.addChild(this.select, this.highlight);
+    this.markLayer.addChild(this.zoneGfx, this.select, this.highlight);
+    this.fxLayer.addChild(this.fxGfx);
 
     this.setMap(map);
     const v = this.viewport;
@@ -167,39 +190,169 @@ export class IsoStage {
     this.app.ticker.add(this.update);
   }
 
-  /** 盤面を入れ替える。地面の焼き付けと建物の絵を作り直す */
+  /**
+   * 盤面を入れ替える。変わったところだけ描き直す（タイムラプスは毎フレーム呼ぶ）。
+   * 地面は絵のキーが変わったマスのチャンクだけ焼き直し、建物はチャンクごとに中身が変わった時だけ作り直す。
+   */
   setMap(map: IsoMap) {
+    const resized = !this.map || this.map.width !== map.width || this.map.height !== map.height;
     this.map = map;
-    for (const s of this.baked.values()) s.destroy({ texture: true, textureSource: true });
-    this.baked.clear();
-    for (const list of this.chunkObjects.values()) for (const o of list) o.sprite.destroy();
-    this.chunkObjects.clear();
-    this.shown.clear();
-    this.bakeQueue = [];
-    this.objLayer.removeChildren();
-    this.visibleObjects = [];
+    if (resized) {
+      for (const s of this.baked.values()) s.destroy({ texture: true, textureSource: true });
+      this.baked.clear();
+      this.groundKeys = [];
+      this.bakeQueue = [];
+    }
+    // 地面
+    const keys = new Array<string>(map.width * map.height);
+    const dirty = new Set<string>();
+    for (let y = 0; y < map.height; y++)
+      for (let x = 0; x < map.width; x++) {
+        const i = y * map.width + x;
+        keys[i] = groundKey(map, x, y);
+        if (keys[i] !== this.groundKeys[i]) dirty.add(chunkKey({ cx: Math.floor(x / CHUNK), cy: Math.floor(y / CHUNK) }));
+      }
+    this.groundKeys = keys;
+    for (const k of dirty) {
+      this.baked.get(k)?.destroy({ texture: true, textureSource: true });
+      this.baked.delete(k);
+    }
+    // 建物などの絵
+    const byChunk = new Map<string, IsoObject[]>();
     for (const o of map.objects) {
       const k = chunkKey({ cx: Math.floor(o.x / CHUNK), cy: Math.floor(o.y / CHUNK) });
-      const entry = this.book.get(o.key);
-      const sprite = new Sprite(entry.texture);
-      sprite.anchor.set(entry.ax / entry.w, entry.ay / entry.h);
-      const s = toScreen(this.p, o.x, o.y);
-      sprite.position.set(s.sx, s.sy);
-      sprite.zIndex = depth(o.x, o.y);
-      const list = this.chunkObjects.get(k) ?? [];
-      list.push({ sprite, entry, x: o.x, y: o.y });
-      this.chunkObjects.set(k, list);
+      const list = byChunk.get(k) ?? [];
+      list.push(o);
+      byChunk.set(k, list);
     }
-    for (const s of this.agentSprites) s.destroy();
-    this.agents = createAgents(map, this.opts.agents ?? 0);
-    this.agentSprites = this.agents.map((a, i) => {
-      const e = this.book.get(`agent/${a.kind}/${i % 5}`);
-      const s = new Sprite(e.texture);
-      s.anchor.set(e.ax / e.w, e.ay / e.h);
-      return s;
+    const allChunks = new Set([...byChunk.keys(), ...this.chunkObjects.keys()]);
+    let changed = false;
+    for (const k of allChunks) {
+      const list = byChunk.get(k) ?? [];
+      const sig = list.map((o) => `${o.id}:${o.key}:${o.x},${o.y}:${o.dz ?? 0}`).join("|");
+      if (this.chunkSig.get(k) === sig) continue;
+      changed = true;
+      this.chunkSig.set(k, sig);
+      const shown = this.shown.has(k);
+      for (const o of this.chunkObjects.get(k) ?? []) {
+        if (shown) this.objLayer.removeChild(o.sprite);
+        o.sprite.destroy();
+      }
+      const placed = list.map((o) => this.place(o));
+      this.chunkObjects.set(k, placed);
+      if (shown && placed.length) this.objLayer.addChild(...placed.map((o) => o.sprite));
+    }
+    if (changed) this.visibleObjects = [...this.shown].flatMap((k) => this.chunkObjects.get(k) ?? []);
+    if (resized) {
+      for (const s of this.agentSprites) s.destroy();
+      this.agents = createAgents(map, this.opts.agents ?? 0);
+      this.agentSprites = this.agents.map((a, i) => {
+        const e = this.book.get(`agent/${a.kind}/${i % 5}`);
+        const s = new Sprite(e.texture);
+        s.anchor.set(e.ax / e.w, e.ay / e.h);
+        return s;
+      });
+      if (this.agentSprites.length) this.objLayer.addChild(...this.agentSprites);
+    }
+    if (dirty.size || resized) this.camDirty = true;
+  }
+
+  private place(o: IsoObject): Placed {
+    const entry = this.book.get(o.key);
+    const sprite = new Sprite(entry.texture);
+    sprite.anchor.set(entry.ax / entry.w, entry.ay / entry.h);
+    const s = toScreen(this.p, o.x, o.y);
+    sprite.position.set(s.sx, s.sy);
+    sprite.zIndex = depth(o.x, o.y) + (o.dz ?? 0);
+    return { sprite, entry, x: o.x, y: o.y };
+  }
+
+  setServerOffset(ms: number) {
+    this.opts.serverOffset = ms;
+  }
+
+  /** 用途・対象外の印・工事のバー・強調（盤面とは別に描き直す） */
+  setOverlay(o: IsoOverlay) {
+    this.overlay = o;
+    this.drawZones();
+    // 強調（B6）：マスの枠を点滅させる
+    const want = o.highlights ?? [];
+    while (this.highlightSprites.length < want.length) {
+      const e = this.book.get("ui/highlight");
+      const sp = new Sprite(e.texture);
+      sp.anchor.set(e.ax / e.w, e.ay / e.h);
+      this.markLayer.addChild(sp);
+      this.highlightSprites.push(sp);
+    }
+    this.highlightSprites.forEach((sp, i) => {
+      const k = want[i];
+      sp.visible = !!k;
+      if (!k) return;
+      const [x, y] = k.split(",").map(Number);
+      const s = toScreen(this.p, x, y);
+      sp.position.set(s.sx, s.sy);
     });
-    if (this.agentSprites.length) this.objLayer.addChild(...this.agentSprites);
-    this.camDirty = true;
+  }
+
+  private diamond(g: Graphics, x: number, y: number, scale = 1) {
+    const s = toScreen(this.p, x, y);
+    const hw = (this.p.tw / 2) * scale;
+    const hh = (this.p.th / 2) * scale;
+    g.poly([s.sx, s.sy - hh, s.sx + hw, s.sy, s.sx, s.sy + hh, s.sx - hw, s.sy]);
+  }
+
+  private drawZones() {
+    const g = this.zoneGfx;
+    g.clear();
+    const { zones, showZones } = this.overlay;
+    if (!showZones || !zones) return;
+    const u = this.p.tw / 64;
+    for (let y = 0; y < this.map.height; y++)
+      for (let x = 0; x < this.map.width; x++) {
+        const st = ZONE_STYLE[zones[y * this.map.width + x]];
+        if (!st) continue;
+        this.diamond(g, x, y, 0.92);
+        g.fill({ color: st.color, alpha: 0.45 });
+        // 記号はマスの左の角寄りに小さく描く（建物に隠れにくい）
+        const c = toScreen(this.p, x, y);
+        const mx = c.sx - 18 * u;
+        const my = c.sy;
+        const r = 3 * u;
+        if (st.mark === "house") g.poly([mx - r, my + r, mx - r, my, mx, my - r, mx + r, my, mx + r, my + r]);
+        else if (st.mark === "circle") g.circle(mx, my, r);
+        else if (st.mark === "square") g.rect(mx - r, my - r, r * 2, r * 2);
+        else if (st.mark === "plus") g.rect(mx - r, my - u, r * 2, 2 * u).rect(mx - u, my - r, 2 * u, r * 2);
+        else if (st.mark === "diamond") g.poly([mx, my - r, mx + r, my, mx, my + r, mx - r, my]);
+        else g.star(mx, my, 5, r * 1.3, r * 0.6);
+        g.fill({ color: 0x3e2723, alpha: 0.85 });
+      }
+  }
+
+  /** 工事のバーと対象外の印（毎フレーム。工事中だけ） */
+  private drawFx(now: number) {
+    const g = this.fxGfx;
+    g.clear();
+    const u = this.p.tw / 64;
+    const { noAuto, jobs } = this.overlay;
+    if (noAuto)
+      noAuto.forEach((on, i) => {
+        if (!on) return;
+        // ひし形の左の角に、鍵の形の印（OBJ-09）
+        const c = toScreen(this.p, i % this.map.width, Math.floor(i / this.map.width));
+        const x = c.sx - 26 * u;
+        const y = c.sy - 2 * u;
+        g.roundRect(x - 3 * u, y - u, 6 * u, 5 * u, u).fill(0x5d4037);
+        g.circle(x, y - 2 * u, 2 * u).stroke({ color: 0x5d4037, width: u });
+      });
+    for (const j of jobs ?? []) {
+      const ratio = Math.max(0, Math.min(1, (now - j.startedAt) / Math.max(1, j.finishAt - j.startedAt)));
+      const c = toScreen(this.p, j.x, j.y);
+      const w = 36 * u;
+      const x = Math.round(c.sx - w / 2);
+      const y = Math.round(c.sy + 6 * u);
+      g.rect(x - u, y - u, w + 2 * u, 5 * u).fill(0x3e2723);
+      g.rect(x, y, Math.max(u, Math.round(w * ratio)), 3 * u).fill(0xffca28);
+    }
   }
 
   setSelected(tile: { x: number; y: number } | null) {
@@ -276,7 +429,9 @@ export class IsoStage {
   }
 
   private fitAll() {
-    const b = this.bounds();
+    // 背の高い建物が上にはみ出す分も収める
+    const b = { ...this.bounds() };
+    b.minY -= (TALL * this.p.tw) / 64 / 2;
     this.cam = { cx: (b.minX + b.maxX) / 2, cy: (b.minY + b.maxY) / 2, zoom: fitZoom(b, this.viewport) };
     this.camDirty = true;
   }
@@ -397,7 +552,17 @@ export class IsoStage {
       }
     }
 
-    this.highlight.visible = now < this.highlightUntil && Math.floor(now / 250) % 2 === 0;
+    const blink = Math.floor(now / 250) % 2 === 0;
+    this.highlight.visible = now < this.highlightUntil && blink;
+    if (this.highlightSprites.length) {
+      const on = this.opts.reducedMotion || Math.floor(now / 450) % 2 === 0;
+      const want = this.overlay.highlights ?? [];
+      this.highlightSprites.forEach((sp, i) => (sp.visible = !!want[i] && on));
+    }
+    if (this.overlay.jobs?.length || this.overlay.noAuto || this.fxDrawn) {
+      this.drawFx(Date.now() + (this.opts.serverOffset ?? 0));
+      this.fxDrawn = !!(this.overlay.jobs?.length || this.overlay.noAuto);
+    }
 
     if (this.camDirty) {
       this.camDirty = false;

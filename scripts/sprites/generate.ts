@@ -10,6 +10,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { balance, findImages, generate, getTiles, imageParam, stripImages, waitJob } from "./pixellab";
+import { readPng } from "./png";
 
 interface SpriteDef {
   key: string;
@@ -18,12 +19,18 @@ interface SpriteDef {
   heightTiles: number;
   description: string;
   body: Record<string, unknown>;
-  /** API の項目名 → 参照する絵のキー */
+  /** API の項目名 → 参照する絵のキー（reference_images は前の段階の絵など） */
   refs?: Record<string, string>;
+  /** 画風の基準（manifest の styleKey）とマスターパレットで描かせる */
+  styled?: boolean;
+  /** 幅と高さ（ドット）。heightTiles より優先する */
+  size?: [number, number];
 }
 
 interface Manifest {
   style: string;
+  /** 画風の基準にする絵のキー（styled な絵の style_image） */
+  styleKey?: string;
   sprites: SpriteDef[];
 }
 
@@ -44,9 +51,18 @@ export function loadManifest(): Manifest {
 }
 
 /** 端点ごとに送る内容を組み立てる */
-export function buildBody(def: SpriteDef, style: string, tw: number): Record<string, unknown> {
-  const width = tw;
-  const height = Math.round(tw * def.heightTiles);
+/** generate-image-v2 の ReferenceImage（画像と大きさ） */
+function referenceImage(tw: number, key: string, usage?: string) {
+  const file = path.join(SELECTED, String(tw), `${key}.png`);
+  if (!existsSync(file)) throw new Error(`参照する絵 ${key} がまだ選ばれていません（${file}）`);
+  const buf = readFileSync(file);
+  const { width, height } = readPng(buf);
+  return { image: imageParam(buf), size: { width, height }, ...(usage ? { usage_description: usage } : {}) };
+}
+
+export function buildBody(def: SpriteDef, style: string, tw: number, styleKey?: string): Record<string, unknown> {
+  // 小物は size で大きさを直接決める（地面のひし形に乗らない絵）
+  const [width, height] = def.size ?? [tw, Math.round(tw * def.heightTiles)];
   const description = `${def.description}. ${style}`;
   const body: Record<string, unknown> = { description };
   if (def.endpoint === "create-isometric-tile") {
@@ -62,12 +78,17 @@ export function buildBody(def: SpriteDef, style: string, tw: number): Record<str
     body.image_size = { width, height };
     body.no_background = true;
   }
+  if (def.styled && styleKey) {
+    // 画風（画素の大きさ・輪郭・陰影）は基準の絵に、色はマスターパレットに合わせる
+    body.style_image = referenceImage(tw, styleKey);
+    body.style_options = { color_palette: false, outline: true, detail: true, shading: true };
+    body.target_palette = { colors: (JSON.parse(readFileSync(path.join(ROOT, "art/palette.json"), "utf8")) as { colors: string[] }).colors, name: "Cite de Tirelire" };
+  }
   Object.assign(body, def.body);
   for (const [field, key] of Object.entries(def.refs ?? {})) {
-    const file = path.join(SELECTED, String(tw), `${key}.png`);
-    if (!existsSync(file)) throw new Error(`${def.key}：参照する絵 ${key} がまだ選ばれていません（${file}）`);
-    const img = imageParam(readFileSync(file));
-    body[field] = field.endsWith("s") ? [img] : img;
+    if (field === "reference_images")
+      body[field] = [referenceImage(tw, key, "the previous, smaller stage of the same building line: keep its materials and identity colors, but make this one clearly bigger, taller and more developed")];
+    else body[field] = imageParam(readFileSync(path.join(SELECTED, String(tw), `${key}.png`)));
   }
   return body;
 }
@@ -115,7 +136,7 @@ async function main() {
 
   const run = new Date().toISOString().replace(/[:.]/g, "-");
   for (const def of targets) {
-    const body = buildBody(def, m.style, tw);
+    const body = buildBody(def, m.style, tw, m.styleKey);
     console.log(`▶ ${def.key}（${def.endpoint}、${tw}px）`);
     if (dry) {
       console.log(JSON.stringify(stripImages(body), null, 2));

@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { drawBuilding } from "@/components/city/draw";
+import { SpritePreview } from "@/components/city/SpritePreview";
+import { buildingKey } from "@/components/city/toIso";
 import { useGame, useSeasonView } from "@/components/GameProvider";
 import { Button, Card, Empty, Field, Gauge, Modal } from "@/components/ui";
 import { statueStage } from "@/game/city/actions";
@@ -24,21 +25,9 @@ const PRIORITY = ["", "高", "中", "低"];
 const RANKS = ["bronze", "silver", "gold"] as const;
 
 function StatueIcon({ w }: { w: Wish }) {
-  return (
-    <canvas
-      width={16}
-      height={16}
-      aria-hidden
-      className="pixelated h-12 w-12 shrink-0 rounded-md bg-[#66bb6a]"
-      ref={(c) => {
-        const ctx = c?.getContext("2d");
-        if (!ctx) return;
-        ctx.clearRect(0, 0, 16, 16);
-        const stage = statueStage({ id: w.id, name: w.name, price: w.price, progress: w.reserved / w.price, purchased: !!w.purchasedAt });
-        drawBuilding(ctx, { id: w.id, special: "statue", tier: RANKS.indexOf(statueRank(w.price)), level: stage, x: 0, y: 0 }, 0, 0, 1, 0);
-      }}
-    />
-  );
+  const stage = statueStage({ id: w.id, name: w.name, price: w.price, progress: w.reserved / w.price, purchased: !!w.purchasedAt });
+  const key = buildingKey({ id: w.id, special: "statue", tier: RANKS.indexOf(statueRank(w.price)), level: stage, x: 0, y: 0 }, 1);
+  return <SpritePreview spriteKey={key} className="h-12 w-12 shrink-0 rounded-md bg-[#66bb6a]" />;
 }
 
 /** 像の状態の1行説明 */

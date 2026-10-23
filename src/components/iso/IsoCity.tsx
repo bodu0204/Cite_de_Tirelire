@@ -4,10 +4,14 @@
 import { useEffect, useRef, useState } from "react";
 import type { Camera } from "./camera";
 import type { IsoStage, StageOptions } from "./IsoStage";
-import type { IsoMap } from "./map";
+import type { IsoMap, IsoOverlay } from "./map";
 
 type Props = {
   map: IsoMap;
+  /** 用途・対象外の印・工事のバー・強調 */
+  overlay?: IsoOverlay;
+  /** 工事の進み具合に使う時刻の補正（サーバー時刻 − 端末時刻） */
+  serverOffset?: number;
   tw?: number;
   agents?: number;
   /** 選んだ絵（StageOptions.art） */
@@ -52,13 +56,13 @@ function hasWebGL(): boolean {
   }
 }
 
-export function IsoCity({ map, tw = 64, art, agents = 0, interactive = true, storageKey, selected, onSelect, onStats, onReady, label, className }: Props) {
+export function IsoCity({ map, overlay, serverOffset, tw = 64, art, agents = 0, interactive = true, storageKey, selected, onSelect, onStats, onReady, label, className }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const stage = useRef<IsoStage | null>(null);
   const [failed, setFailed] = useState<null | "nowebgl" | "lost">(null);
   const [generation, setGeneration] = useState(0);
-  const latest = useRef({ onSelect, onStats, onReady, selected });
-  latest.current = { onSelect, onStats, onReady, selected };
+  const latest = useRef({ onSelect, onStats, onReady, selected, map, overlay });
+  latest.current = { onSelect, onStats, onReady, selected, map, overlay };
 
   useEffect(() => {
     const el = host.current;
@@ -75,6 +79,7 @@ export function IsoCity({ map, tw = 64, art, agents = 0, interactive = true, sto
         IsoStage.create(el, map, {
           tw,
           art,
+          serverOffset,
           agents,
           interactive,
           reducedMotion,
@@ -99,6 +104,9 @@ export function IsoCity({ map, tw = 64, art, agents = 0, interactive = true, sto
       .then((s) => {
         if (!alive) return s.destroy();
         stage.current = s;
+        // 作成を待つ間に変わった盤面を反映する
+        s.setMap(latest.current.map);
+        s.setOverlay(latest.current.overlay ?? {});
         s.setSelected(latest.current.selected ?? null);
         latest.current.onReady?.(s);
       })
@@ -115,6 +123,14 @@ export function IsoCity({ map, tw = 64, art, agents = 0, interactive = true, sto
   useEffect(() => {
     stage.current?.setMap(map);
   }, [map]);
+
+  useEffect(() => {
+    stage.current?.setOverlay(overlay ?? {});
+  }, [overlay]);
+
+  useEffect(() => {
+    stage.current?.setServerOffset(serverOffset ?? 0);
+  }, [serverOffset]);
 
   useEffect(() => {
     stage.current?.setSelected(selected ?? null);
