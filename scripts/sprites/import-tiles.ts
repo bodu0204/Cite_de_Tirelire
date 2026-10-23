@@ -123,6 +123,20 @@ function main() {
       done.add(mask);
       put(tile, `${prefix}/${mask}`);
     }
+    // 欠けたつながり方は、まず左右反転したつながり方の絵を反転して作る（北↔西、東↔南）
+    for (let m = 0; m < 16; m++) {
+      const flip = ((m & 1) << 3) | ((m & 8) >> 3) | ((m & 2) << 1) | ((m & 4) >> 1);
+      if (done.has(m) || !done.has(flip)) continue;
+      const src = readPng(readFileSync(path.join(outDir, `${prefix}/${flip}.png`)));
+      const out = new Uint8Array(src.rgba.length);
+      for (let y = 0; y < src.height; y++)
+        for (let x = 0; x < src.width; x++) out.set(src.rgba.subarray((y * src.width + x) * 4, (y * src.width + x) * 4 + 4), (y * src.width + (src.width - 1 - x)) * 4);
+      writeFileSync(path.join(outDir, `${prefix}/${m}.png`), writePng(src.width, src.height, out));
+      const [ax, ay] = anchors[`${prefix}/${flip}`];
+      anchors[`${prefix}/${m}`] = [src.width - ax, ay];
+      done.add(m);
+      console.log(`反転 → ${prefix}/${m}（${flip} を左右反転）`);
+    }
     // 3方向以上のつながり方が欠けていたら、十字路から腕を消して作る
     for (let m = 0; m < 16; m++) {
       if (done.has(m) || bits(m) < 3 || !done.has(15) || !done.has(5) || !done.has(10)) continue;
