@@ -88,6 +88,10 @@ export default function HomePage() {
             onSelect={setTile}
             timezone={dayNight ? view.user.timezone : undefined}
             occupancy={m.housingCap > 0 ? m.population / m.housingCap : 0}
+            population={m.population}
+            logistics={m.logistics}
+            supply={{ power: m.powerRatio, workers: m.laborRatio, food: m.foodRatio }}
+            gold={{ uncollected: v.mine.uncollected, ratePerMinute: v.mine.ratePerMinute }}
           />
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
             <span>マスを選ぶと建物の操作ができます。街は操作しなくても自動で発展します。</span>

@@ -91,12 +91,12 @@ export class ArtBook {
     const base = at < 0 ? key : key.slice(0, at);
     const mod = at < 0 ? "" : key.slice(at + 1);
     const a = this.anims[base];
-    if (!a || (mod && !mod.startsWith("lv"))) return null;
+    if (!a || (mod && !mod.startsWith("lv") && mod !== "flip")) return null;
     const arts: Art[] = [];
     for (let i = 0; i < a.frames; i++) {
       const f = this.loaded.get(`anim/${base}/${i}`);
       if (!f) return null;
-      arts.push(mod ? withLevel(f, Number(mod.slice(2)), this.props(), this.tw) : f);
+      arts.push(mod === "flip" ? mirror(f) : mod ? withLevel(f, Number(mod.slice(2)), this.props(), this.tw) : f);
     }
     return { arts, fps: a.fps };
   }
@@ -176,6 +176,8 @@ export class ArtBook {
       return withLevel(base, Number(mod.slice(2)), props, this.tw);
     }
     if (mod === "closed") return dimmed(base, 0.7, 0.8);
+    // 左右反転（人と車の左向き）
+    if (mod === "flip") return mirror(base);
     if (mod.startsWith("stage")) return statueInProgress(base, Number(mod.slice(5)), this.loaded.get("fx/cover") ?? null);
     return base;
   }
@@ -192,7 +194,9 @@ export class ArtBook {
         c.width = img.naturalWidth;
         c.height = img.naturalHeight;
         c.getContext("2d", { willReadFrequently: true })!.drawImage(img, 0, 0);
-        const [ax, ay] = src.anchors?.[key] ?? [c.width / 2, opaqueBottom(c) - (this.tw / 4 - 1)];
+        // 小物・人と車・アイコンは地面のひし形に乗らないので、不透明な画素の一番下を基準点にする
+        const small = /^(props|agent|icons)\//.test(key);
+        const [ax, ay] = src.anchors?.[key] ?? [c.width / 2, opaqueBottom(c) - (small ? 0 : this.tw / 4 - 1)];
         this.loaded.set(key, { canvas: c, ax, ay });
       }),
     );

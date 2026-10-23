@@ -9,6 +9,9 @@ export interface IsoObject {
   key: string;
   /** 同じマスに重ねる時の前後（工事の覆いなど。大きいほど手前） */
   dz?: number;
+  /** マスの中心からずらして置く（ドット、64px タイル基準。金鉱の前の金貨の山など） */
+  ox?: number;
+  oy?: number;
 }
 
 /** 土地用途（ゲームの Zone と同じ値。描画側は文字列として扱う） */
@@ -29,6 +32,14 @@ export interface IsoOverlay {
   night?: number;
   /** 夜に灯る窓の割合（0〜1。人口に比例させる） */
   lights?: number;
+  /** 道路を行き交う人と車の数（OBJ-11。人口・物流効率に比例させ、上限を設ける） */
+  people?: number;
+  cars?: number;
+  /**
+   * 困りごとアイコン（A3）。建物の上に出す。kind は icons/<kind> の絵。
+   * dark は電気が足りない建物で、夜も窓を灯さない
+   */
+  troubles?: { x: number; y: number; kind: string; dark?: boolean }[];
 }
 
 export interface IsoMap {

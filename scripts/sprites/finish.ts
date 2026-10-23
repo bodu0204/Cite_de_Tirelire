@@ -95,12 +95,62 @@ export function crop(png: Png): Png {
   return { width: cw, height: ch, rgba: out, alpha };
 }
 
+/**
+ * 一番大きい塊と、その範囲の中にある塊だけを残す（小さな絵は、まとめて生成した時に隣の絵の切れ端が
+ * 端に入ることがある）。
+ */
+export function largestPart(png: Png): number {
+  const { width: w, height: h, rgba } = png;
+  const label = new Int32Array(w * h).fill(-1);
+  const parts: { size: number; x0: number; y0: number; x1: number; y1: number }[] = [];
+  for (let i = 0; i < w * h; i++) {
+    if (!rgba[i * 4 + 3] || label[i] >= 0) continue;
+    const part = { size: 0, x0: w, y0: h, x1: -1, y1: -1 };
+    const stack = [i];
+    label[i] = parts.length;
+    while (stack.length) {
+      const j = stack.pop()!;
+      const x = j % w;
+      const y = Math.floor(j / w);
+      part.size++;
+      part.x0 = Math.min(part.x0, x);
+      part.y0 = Math.min(part.y0, y);
+      part.x1 = Math.max(part.x1, x);
+      part.y1 = Math.max(part.y1, y);
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = x + dx;
+        const ny = y + dy;
+        const k = ny * w + nx;
+        if (nx < 0 || ny < 0 || nx >= w || ny >= h || !rgba[k * 4 + 3] || label[k] >= 0) continue;
+        label[k] = parts.length;
+        stack.push(k);
+      }
+    }
+    parts.push(part);
+  }
+  if (parts.length < 2) return 0;
+  const main = parts.reduce((a, b) => (b.size > a.size ? b : a));
+  const keep = parts.map((p) => p === main || (p.x0 >= main.x0 - 1 && p.x1 <= main.x1 + 1 && p.y0 >= main.y0 - 1 && p.y1 <= main.y1 + 1));
+  let removed = 0;
+  for (let i = 0; i < w * h; i++)
+    if (label[i] >= 0 && !keep[label[i]]) {
+      rgba.fill(0, i * 4, i * 4 + 4);
+      png.alpha[i] = 0;
+      removed++;
+    }
+  return removed;
+}
+
+/** 地面のひし形に乗らない小さな絵（小物・人と車・アイコン）。不透明な所に切り詰める */
+export const isSmall = (key: string) => /^(props|agent|icons)\//.test(key);
+
 export function finish(buf: Buffer, key = ""): { png: Png; outline: number } {
   const pal = loadPalette();
   let png = readPng(buf);
   toPalette(png, pal);
+  if (isSmall(key)) largestPart(png);
   const outline = selectiveOutline(png, pal);
-  if (key.startsWith("props/")) png = crop(png);
+  if (isSmall(key)) png = crop(png);
   return { png, outline };
 }
 

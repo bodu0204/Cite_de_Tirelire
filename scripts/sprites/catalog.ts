@@ -8,6 +8,11 @@ export const PARK_TIERS = 4;
 export const STATUE_RANKS = ["bronze", "silver", "gold"] as const;
 /** 建物Lv 2〜6 で1つずつ増える小物 */
 export const LV_PROPS = ["props/lv/2", "props/lv/3", "props/lv/4", "props/lv/5", "props/lv/6"];
+/** 人と車の見た目の種類（src/components/iso/agents.ts の AGENT_VARIANTS と揃える） */
+export const AGENT_VARIANTS = 4;
+/** 困りごとアイコン（A3）と金貨の山（A4）の段階 */
+export const TROUBLES = ["power", "workers", "food"] as const;
+export const GOLD_STAGES = 3;
 
 export function requiredKeys(): string[] {
   const keys: string[] = [];
@@ -24,6 +29,9 @@ export function requiredKeys(): string[] {
   for (let t = 0; t < PARK_TIERS; t++) keys.push(`special/park/${t}`);
   for (const r of STATUE_RANKS) keys.push(`special/statue/${r}`);
   keys.push("fx/scaffold", "fx/cover", "locked/forest", "locked/rocks", "locked/sign", ...LV_PROPS);
+  for (let v = 0; v < AGENT_VARIANTS; v++) keys.push(`agent/person/${v}/se`, `agent/person/${v}/ne`, `agent/car/${v}/sw`);
+  for (const t of TROUBLES) keys.push(`icons/${t}`);
+  for (let s = 1; s <= GOLD_STAGES; s++) keys.push(`props/gold/${s}`);
   return keys;
 }
 

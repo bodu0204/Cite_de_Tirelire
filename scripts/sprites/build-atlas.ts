@@ -8,6 +8,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { requiredKeys, tierChains } from "./catalog";
+import { isSmall } from "./finish";
 import { ANIM_FILE, type AnimDef } from "./import-anim";
 import { PALETTE_FILE } from "./palette";
 import { type Png, readPng, writePng } from "./png";
@@ -38,8 +39,8 @@ function walk(dir: string, rel = ""): string[] {
   return out;
 }
 
-/** 地面のひし形に乗る絵（幅が基準タイルの倍数で、基準点が足元にある） */
-const onTile = (key: string) => !key.startsWith("props/");
+/** 地面のひし形に乗る絵（幅が基準タイルの倍数で、基準点が足元にある）。小物・人と車・アイコンは除く */
+const onTile = (key: string) => !isSmall(key);
 
 /** 不透明な画素の上端と下端 */
 function opaqueRows(p: Png): [number, number] {

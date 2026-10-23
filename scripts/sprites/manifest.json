@@ -818,6 +818,84 @@
       "refs": {
         "first_frame": "special/silver_mine"
       }
+    },
+    {
+      "key": "agent/person/se",
+      "stage": "M3",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 0,
+      "description": "1). tiny townsperson in a red shirt 2). tiny townsperson in a blue coat 3). tiny townsperson in a yellow dress 4). tiny townsperson in a green jacket 5). tiny townsperson in a purple top 6). tiny townsperson in a white shirt. Every person is full body, walking toward the lower right of the image (facing the viewer and to the right) Each is a separate tiny isometric sprite on a transparent background, 3/4 top-down view matching a 2:1 isometric city, no ground, no shadow, no text",
+      "body": {},
+      "styled": true,
+      "size": [
+        16,
+        16
+      ]
+    },
+    {
+      "key": "agent/person/ne",
+      "stage": "M3",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 0,
+      "description": "1). tiny townsperson in a red shirt 2). tiny townsperson in a blue coat 3). tiny townsperson in a yellow dress 4). tiny townsperson in a green jacket 5). tiny townsperson in a purple top 6). tiny townsperson in a white shirt. Every person is full body, seen from behind, walking away toward the upper right of the image Each is a separate tiny isometric sprite on a transparent background, 3/4 top-down view matching a 2:1 isometric city, no ground, no shadow, no text",
+      "body": {},
+      "styled": true,
+      "size": [
+        16,
+        16
+      ]
+    },
+    {
+      "key": "agent/car/se",
+      "stage": "M3",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 0,
+      "description": "1). small red car 2). small blue car 3). small yellow taxi 4). small white van 5). small green car 6). small grey truck. Every vehicle drives toward the lower right of the image along a 2:1 isometric road, front of the car visible Each is a separate tiny isometric sprite on a transparent background, 3/4 top-down view matching a 2:1 isometric city, no ground, no shadow, no text",
+      "body": {},
+      "styled": true,
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "key": "agent/car/ne",
+      "stage": "M3",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 0,
+      "description": "1). small red car 2). small blue car 3). small yellow taxi 4). small white van 5). small green car 6). small grey truck. Every vehicle drives away toward the upper right of the image along a 2:1 isometric road, rear of the car visible Each is a separate tiny isometric sprite on a transparent background, 3/4 top-down view matching a 2:1 isometric city, no ground, no shadow, no text",
+      "body": {},
+      "styled": true,
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "key": "icons/trouble",
+      "stage": "M3",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 0,
+      "description": "1). yellow lightning bolt inside a small round white speech bubble 2). brown bread loaf inside a small round white speech bubble 3). small worker with a yellow hard hat inside a small round white speech bubble. Simple, bold, readable status icons for a city builder, soft colors, no red warning signs Each is a separate tiny isometric sprite on a transparent background, 3/4 top-down view matching a 2:1 isometric city, no ground, no shadow, no text",
+      "body": {},
+      "styled": true,
+      "size": [
+        16,
+        16
+      ]
+    },
+    {
+      "key": "props/gold",
+      "stage": "M3",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 0,
+      "description": "1). small pile of a few shiny gold coins 2). medium pile of shiny gold coins 3). big heap of shiny gold coins with sparkles. Coins lie on the ground Each is a separate tiny isometric sprite on a transparent background, 3/4 top-down view matching a 2:1 isometric city, no ground, no shadow, no text",
+      "body": {},
+      "styled": true,
+      "size": [
+        32,
+        32
+      ]
     }
   ],
   "styleKey": "building/housing/1"

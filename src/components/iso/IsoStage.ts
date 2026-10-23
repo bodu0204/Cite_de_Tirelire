@@ -1,6 +1,6 @@
 // PixiJS で街を描く本体（docs/rendering-requirements.md §3）。React からは IsoCity を通して使う。
 import { AnimatedSprite, Application, Container, Graphics, RenderTexture, Sprite } from "pixi.js";
-import { type Agent, createAgents, stepAgent } from "./agents";
+import { type Agent, agentFacing, createAgents, stepAgent } from "./agents";
 import {
   type Camera,
   type Viewport,
@@ -19,7 +19,8 @@ import {
 } from "./camera";
 import { type ChunkId, CHUNK, chunkKey, chunkRect, visibleChunks } from "./chunks";
 import { nightColor } from "./compose";
-import { type IsoMap, type IsoObject, type IsoOverlay, groundKey } from "./map";
+import { type EffectKind, EFFECT_MS, MAX_EFFECTS, effectKind, flashAlpha, particles, popScale } from "./effects";
+import { type IsoMap, type IsoObject, type IsoOverlay, groundKey, hash2 } from "./map";
 import { type Iso, depth, iso, mapBounds, toScreen, toTile } from "./projection";
 import { type ArtSource, type Entry, TextureBook } from "./textures";
 
@@ -44,11 +45,14 @@ export interface StageOptions {
 }
 
 interface Placed {
+  id: string;
   /** 建物の絵と夜の窓の灯りをまとめた入れ物（並べ替えはこの単位） */
   node: Container;
   sprite: Sprite;
   /** 夜の窓の灯り（加算。夜の色は掛けない） */
   glow: Sprite | null;
+  /** 進化の時に建物を光らせる、同じ絵の加算の重ね */
+  flash: Sprite | null;
   key: string;
   entry: Entry;
   x: number;
@@ -64,6 +68,18 @@ const ZONE_STYLE: Record<string, { color: number; mark: "house" | "circle" | "sq
   public: { color: 0xce93d8, mark: "diamond" },
   special: { color: 0xffb74d, mark: "star" },
 };
+
+/** 完成・進化の演出の1件（OBJ-13） */
+interface Effect {
+  kind: EffectKind;
+  id: string;
+  x: number;
+  y: number;
+  /** 建物の絵の、基準点から上の高さ（64px タイル基準のドット） */
+  height: number;
+  seed: number;
+  t0: number;
+}
 
 /** 背の高い建物が上のチャンクへはみ出す分（ドット、64px タイル基準） */
 const TALL = 160;
@@ -95,7 +111,20 @@ export class IsoStage {
   private bakeQueue: ChunkId[] = [];
   private visibleObjects: Placed[] = [];
   private agents: Agent[] = [];
-  private agentSprites: Sprite[] = [];
+  private agentSprites: AnimatedSprite[] = [];
+  /** 人や車がいま使っている絵のキー（向きが変わった時だけ絵を替える） */
+  private agentFace: string[] = [];
+  private roadSig = "";
+  /** 前の盤面の絵のキー（id → キー）。演出を決めるのに使う。最初の読み込みの前は null */
+  private objKeys: Map<string, string> | null = null;
+  private effects: Effect[] = [];
+  private placedById = new Map<string, Placed>();
+  /** 困りごとアイコン（A3）。建物の上に出し、夜の色は掛けない */
+  private troubleLayer = new Container();
+  private troubleSprites: { sp: Sprite; y: number }[] = [];
+  private troubleSig = "";
+  private darkTiles = new Set<string>();
+  private heights = new Map<string, number>();
   private select: Sprite;
   private highlight: Sprite;
   private highlightUntil = 0;
@@ -160,7 +189,7 @@ export class IsoStage {
     canvas.style.touchAction = "none";
     canvas.style.display = "block";
     canvas.addEventListener("webglcontextlost", this.onContextLost);
-    this.world.addChild(this.groundLayer, this.markLayer, this.objLayer, this.fxLayer);
+    this.world.addChild(this.groundLayer, this.markLayer, this.objLayer, this.fxLayer, this.troubleLayer);
     this.objLayer.sortableChildren = true;
     this.app.stage.addChild(this.world);
 
@@ -233,11 +262,20 @@ export class IsoStage {
       list.push(o);
       byChunk.set(k, list);
     }
+    // 完成・進化の演出（OBJ-13）：前の盤面との差から決める。最初の読み込みと大きさが変わった時は出さない
+    const prevKeys = this.objKeys;
+    this.objKeys = new Map(map.objects.map((o) => [o.id, o.key]));
+    const born: { o: IsoObject; kind: EffectKind }[] = [];
+    if (prevKeys && !resized && !this.opts.reducedMotion)
+      for (const o of map.objects) {
+        const kind = effectKind(prevKeys.get(o.id), o.key);
+        if (kind) born.push({ o, kind });
+      }
     const allChunks = new Set([...byChunk.keys(), ...this.chunkObjects.keys()]);
     let changed = false;
     for (const k of allChunks) {
       const list = byChunk.get(k) ?? [];
-      const sig = list.map((o) => `${o.id}:${o.key}:${o.x},${o.y}:${o.dz ?? 0}`).join("|");
+      const sig = list.map((o) => `${o.id}:${o.key}:${o.x},${o.y}:${o.dz ?? 0}:${o.ox ?? 0},${o.oy ?? 0}`).join("|");
       if (this.chunkSig.get(k) === sig) continue;
       changed = true;
       this.chunkSig.set(k, sig);
@@ -245,26 +283,86 @@ export class IsoStage {
       for (const o of this.chunkObjects.get(k) ?? []) {
         if (shown) this.objLayer.removeChild(o.node);
         if (o.sprite instanceof AnimatedSprite) this.animCount--;
+        if (this.placedById.get(o.id) === o) this.placedById.delete(o.id);
         o.node.destroy({ children: true });
       }
       const placed = list.map((o) => this.place(o));
+      for (const o of placed) this.placedById.set(o.id, o);
       this.chunkObjects.set(k, placed);
       if (shown && placed.length) this.objLayer.addChild(...placed.map((o) => o.node));
     }
-    if (changed) this.visibleObjects = [...this.shown].flatMap((k) => this.chunkObjects.get(k) ?? []);
-    if (resized) {
-      for (const s of this.agentSprites) s.destroy();
-      this.agents = createAgents(map, this.opts.agents ?? 0);
-      this.agentSprites = this.agents.map((a, i) => {
-        const e = this.book.get(`agent/${a.kind}/${i % 5}`);
-        const s = new Sprite(e.texture);
-        s.anchor.set(e.ax / e.w, e.ay / e.h);
-        s.tint = this.nightTint;
-        return s;
-      });
-      if (this.agentSprites.length) this.objLayer.addChild(...this.agentSprites);
+    if (changed) {
+      this.visibleObjects = [...this.shown].flatMap((k) => this.chunkObjects.get(k) ?? []);
+      // 建物が変わると屋根の高さも変わるので、アイコンを置き直す
+      this.troubleSig = "";
+      this.drawTroubles();
+    }
+    const now = performance.now();
+    for (const { o, kind } of born) {
+      // 同じ建物の演出は新しい方に置き換える
+      this.effects = this.effects.filter((e) => e.id !== o.id);
+      if (this.effects.length >= MAX_EFFECTS) break;
+      const pl = this.placedById.get(o.id);
+      this.effects.push({ kind, id: o.id, x: o.x, y: o.y, height: pl ? (this.artHeight(o.key) * 64) / this.p.tw : 32, seed: hash2(o.x, o.y, 5), t0: now });
+    }
+    // 道路が変わったら人と車を置き直す（道路の上にしかいられないため）
+    const roadSig = map.road.join("");
+    if (resized || roadSig !== this.roadSig) {
+      this.roadSig = roadSig;
+      this.resetAgents();
     }
     if (dirty.size || resized) this.camDirty = true;
+  }
+
+  /** 人と車の数（overlay で指定がなければ、試作ページの agents を人2：車1 で分ける） */
+  private get agentCounts(): { people: number; cars: number } {
+    const o = this.overlay;
+    if (o.people !== undefined || o.cars !== undefined) return { people: o.people ?? 0, cars: o.cars ?? 0 };
+    const n = this.opts.agents ?? 0;
+    const people = Math.round((n * 2) / 3);
+    return { people, cars: n - people };
+  }
+
+  private resetAgents() {
+    for (const sp of this.agentSprites) {
+      this.objLayer.removeChild(sp);
+      sp.destroy();
+    }
+    const { people, cars } = this.agentCounts;
+    this.agents = createAgents(this.map, people, cars);
+    this.agentFace = [];
+    this.agentSprites = this.agents.map((a) => {
+      const sp = new AnimatedSprite([this.book.get(this.agentKey(a)).texture]);
+      sp.tint = this.nightTint;
+      return sp;
+    });
+    this.agents.forEach((_, i) => this.faceAgent(i));
+    if (this.agentSprites.length) this.objLayer.addChild(...this.agentSprites);
+    this.camDirty = true;
+  }
+
+  private agentKey(a: Agent): string {
+    const { dir, flip } = agentFacing(a);
+    return `agent/${a.kind}/${a.variant}/${dir}${flip ? "@flip" : ""}`;
+  }
+
+  /** 進む向きの絵にする。人は歩くコマを再生する（動きを減らす設定では止めた絵） */
+  private faceAgent(i: number) {
+    const key = this.agentKey(this.agents[i]);
+    if (this.agentFace[i] === key) return;
+    this.agentFace[i] = key;
+    const sp = this.agentSprites[i];
+    const anim = this.opts.reducedMotion ? null : this.book.getAnim(key);
+    const first = anim ? anim.entries[0] : this.book.get(key);
+    if (anim) {
+      sp.textures = anim.entries.map((e) => e.texture);
+      sp.animationSpeed = anim.fps / 60;
+      sp.play();
+    } else {
+      sp.textures = [first.texture];
+      sp.stop();
+    }
+    sp.anchor.set(first.ax / first.w, first.ay / first.h);
   }
 
   private place(o: IsoObject): Placed {
@@ -285,9 +383,10 @@ export class IsoStage {
     const node = new Container();
     node.addChild(sprite);
     const s = toScreen(this.p, o.x, o.y);
-    node.position.set(s.sx, s.sy);
+    const u = this.p.tw / 64;
+    node.position.set(Math.round(s.sx + (o.ox ?? 0) * u), Math.round(s.sy + (o.oy ?? 0) * u));
     node.zIndex = depth(o.x, o.y) + (o.dz ?? 0);
-    const placed: Placed = { node, sprite, glow: null, key: o.key, entry, x: o.x, y: o.y };
+    const placed: Placed = { id: o.id, node, sprite, glow: null, flash: null, key: o.key, entry, x: o.x, y: o.y };
     this.updateGlow(placed);
     return placed;
   }
@@ -295,7 +394,9 @@ export class IsoStage {
   /** 夜の窓の灯りを付け外しする（夜の暗さと灯る割合に合わせる） */
   private updateGlow(o: Placed) {
     const night = this.overlay.night ?? 0;
-    const g = night > 0 ? this.book.getGlow(o.key, this.overlay.lights ?? 1) : null;
+    // 電気が足りない建物（困りごとアイコンの dark）は窓を灯さない
+    const dark = this.darkTiles.has(`${o.x},${o.y}`);
+    const g = night > 0 && !dark ? this.book.getGlow(o.key, this.overlay.lights ?? 1) : null;
     if (!g) {
       if (o.glow) {
         o.glow.destroy();
@@ -337,8 +438,14 @@ export class IsoStage {
   /** 用途・対象外の印・工事のバー・強調（盤面とは別に描き直す） */
   setOverlay(o: IsoOverlay) {
     const nightChanged = (o.night ?? 0) !== (this.overlay.night ?? 0) || (o.lights ?? 1) !== (this.overlay.lights ?? 1);
+    const agentsChanged = o.people !== this.overlay.people || o.cars !== this.overlay.cars;
+    const dark = new Set((o.troubles ?? []).filter((t) => t.dark).map((t) => `${t.x},${t.y}`));
+    const darkChanged = [...dark].join() !== [...this.darkTiles].join();
+    this.darkTiles = dark;
     this.overlay = o;
-    if (nightChanged && this.map) this.applyNight();
+    if ((nightChanged || darkChanged) && this.map) this.applyNight();
+    if (this.map) this.drawTroubles();
+    if (agentsChanged && this.map) this.resetAgents();
     this.drawZones();
     // 強調（B6）：マスの枠を点滅させる
     const want = o.highlights ?? [];
@@ -356,6 +463,45 @@ export class IsoStage {
       const [x, y] = k.split(",").map(Number);
       const s = toScreen(this.p, x, y);
       sp.position.set(s.sx, s.sy);
+    });
+  }
+
+  /**
+   * 絵の、基準点から一番上の不透明な画素までの高さ（ドット）。止めた絵で測る（煙のコマは上に余白を足してあり、
+   * 生成した絵も上に透明な余白があるため、基準点の位置だけでは屋根の高さが分からない）
+   */
+  private artHeight(key: string): number {
+    let h = this.heights.get(key);
+    if (h === undefined) {
+      const e = this.book.get(key);
+      let top = 0;
+      while (top < e.h && !e.mask.subarray(top * e.w, (top + 1) * e.w).some((v) => v)) top++;
+      h = Math.max(0, e.ay - top);
+      this.heights.set(key, h);
+    }
+    return h;
+  }
+
+  /** 困りごとアイコンを建物の上に置き直す（並びが変わった時だけ） */
+  private drawTroubles() {
+    const list = this.overlay.troubles ?? [];
+    const sig = list.map((t) => `${t.x},${t.y},${t.kind}`).join("|");
+    if (sig === this.troubleSig) return;
+    this.troubleSig = sig;
+    for (const t of this.troubleSprites) t.sp.destroy();
+    const u = this.p.tw / 64;
+    const tops = new Map<string, number>();
+    for (const l of this.chunkObjects.values()) for (const o of l) tops.set(`${o.x},${o.y}`, Math.max(tops.get(`${o.x},${o.y}`) ?? 0, this.artHeight(o.key)));
+    this.troubleSprites = list.map((t) => {
+      const e = this.book.get(`icons/${t.kind}`);
+      const sp = new Sprite(e.texture);
+      sp.anchor.set(e.ax / e.w, e.ay / e.h);
+      const s = toScreen(this.p, t.x, t.y);
+      // 屋根の一番上に少し重ねる（離れて浮くと、どの建物のアイコンか分かりにくい）
+      const y = Math.round(s.sy - (tops.get(`${t.x},${t.y}`) ?? 16 * u) + 4 * u);
+      sp.position.set(Math.round(s.sx), y);
+      this.troubleLayer.addChild(sp);
+      return { sp, y };
     });
   }
 
@@ -418,6 +564,44 @@ export class IsoStage {
       g.rect(x - u, y - u, w + 2 * u, 5 * u).fill(0x3e2723);
       g.rect(x, y, Math.max(u, Math.round(w * ratio)), 3 * u).fill(0xffca28);
     }
+  }
+
+  /** 完成・進化の演出を進める（建物の伸び縮み・光と、粒）。終わったものは消す */
+  private drawEffects(now: number) {
+    const g = this.fxGfx;
+    const u = this.p.tw / 64;
+    this.effects = this.effects.filter((e) => {
+      const t = now - e.t0;
+      const done = t >= EFFECT_MS[e.kind];
+      const pl = this.placedById.get(e.id);
+      if (pl && !pl.node.destroyed) {
+        const sc = e.kind === "build" && !done ? popScale(t) : { x: 1, y: 1 };
+        pl.node.scale.set(sc.x, sc.y);
+        const a = e.kind === "evolve" && !done ? flashAlpha(t) : 0;
+        if (a > 0) {
+          if (!pl.flash) {
+            pl.flash = new Sprite(pl.sprite.texture);
+            pl.flash.anchor.copyFrom(pl.sprite.anchor);
+            pl.flash.blendMode = "add";
+            pl.node.addChild(pl.flash);
+          }
+          pl.flash.alpha = a;
+        } else if (pl.flash) {
+          pl.flash.destroy();
+          pl.flash = null;
+        }
+      }
+      if (done) return false;
+      const c = toScreen(this.p, e.x, e.y);
+      for (const q of particles(e.kind, t, e.height, e.seed)) {
+        const x = Math.round(c.sx + q.x * u);
+        const y = Math.round(c.sy + q.y * u);
+        if (q.shape === 2) g.rect(x - u, y, 3 * u, u).rect(x, y - u, u, 3 * u);
+        else g.rect(x, y, 2 * u, 2 * u);
+        g.fill(q.color);
+      }
+      return true;
+    });
   }
 
   setSelected(tile: { x: number; y: number } | null) {
@@ -600,13 +784,18 @@ export class IsoStage {
       for (let i = 0; i < this.agents.length; i++) {
         const a = this.agents[i];
         stepAgent(a, this.map, dt / 1000);
+        this.faceAgent(i);
         const s = toScreen(this.p, a.x, a.y);
         const sp = this.agentSprites[i];
         const on = s.sx > r.minX - pad && s.sx < r.maxX + pad && s.sy > r.minY - pad && s.sy < r.maxY + pad;
         sp.visible = on;
         if (!on) continue;
-        // 道の左側を歩く（向きで少しずらす）
-        sp.position.set(Math.round(s.sx + a.dy * 6 * (this.p.tw / 64)), Math.round(s.sy - a.dx * 3 * (this.p.tw / 64)));
+        // 進む向きの右側を通る（人は歩道寄り、車は車線の中ほど）
+        const u = this.p.tw / 64;
+        const side = (a.kind === "person" ? 9 : 5) * u;
+        // 人は4分の1マス進むごとに1ドット弾ませて、歩いているように見せる
+        const bob = a.kind === "person" && Math.floor((a.x + a.y) * 4) % 2 ? Math.max(1, Math.round(u)) : 0;
+        sp.position.set(Math.round(s.sx - a.dy * side), Math.round(s.sy + (a.dx * side) / 2) - bob);
         // 並べ替えはマス単位で足りる。値が変わった時だけ並べ替えが起きるよう、マスに丸める
         sp.zIndex = depth(Math.round(a.x), Math.round(a.y)) + 0.5;
       }
@@ -618,6 +807,11 @@ export class IsoStage {
       }
     }
 
+    // 困りごとアイコンは 450 ミリ秒ごとに1ドット上下させて目を引く（点滅はさせない）
+    if (this.troubleSprites.length) {
+      const up = !this.opts.reducedMotion && Math.floor(now / 450) % 2 === 0 ? Math.max(1, Math.round(this.p.tw / 64)) : 0;
+      for (const t of this.troubleSprites) t.sp.y = t.y - up;
+    }
     const blink = Math.floor(now / 250) % 2 === 0;
     this.highlight.visible = now < this.highlightUntil && blink;
     if (this.highlightSprites.length) {
@@ -625,9 +819,10 @@ export class IsoStage {
       const want = this.overlay.highlights ?? [];
       this.highlightSprites.forEach((sp, i) => (sp.visible = !!want[i] && on));
     }
-    if (this.overlay.jobs?.length || this.overlay.noAuto || this.fxDrawn) {
+    if (this.overlay.jobs?.length || this.overlay.noAuto || this.effects.length || this.fxDrawn) {
       this.drawFx(Date.now() + (this.opts.serverOffset ?? 0));
-      this.fxDrawn = !!(this.overlay.jobs?.length || this.overlay.noAuto);
+      this.drawEffects(now);
+      this.fxDrawn = !!(this.overlay.jobs?.length || this.overlay.noAuto || this.effects.length);
     }
 
     if (this.camDirty) {
@@ -637,7 +832,8 @@ export class IsoStage {
     if (this.bakeQueue.length) this.bake(this.bakeQueue.shift()!);
 
     // 動きがない時は描画回数を下げる（NF-02）
-    const busy = this.pointers.size > 0 || !!this.focus || Math.abs(this.vel.x) > 0.01 || Math.abs(this.vel.y) > 0.01 || now < this.highlightUntil;
+    const busy =
+      this.pointers.size > 0 || !!this.focus || Math.abs(this.vel.x) > 0.01 || Math.abs(this.vel.y) > 0.01 || now < this.highlightUntil || this.effects.length > 0;
     // 動く絵のコマ送り（6〜12fps）が飛ばないよう、動きがある時は 12fps より下げない
     this.app.ticker.maxFPS = busy ? 0 : this.agents.length && !this.opts.reducedMotion ? 30 : this.animCount > 0 ? 12 : 10;
 

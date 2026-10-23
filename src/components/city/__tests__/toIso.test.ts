@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MAP_SIZE } from "@/game/config";
 import { defaultZones, tileUnlockLevel } from "@/game/city/layout";
-import { buildingKey, cityToIso, hourIn, lightRatio, nightLevel } from "../toIso";
+import { MAX_CARS, MAX_PEOPLE, agentCounts, buildingKey, cityToIso, goldStage, hourIn, lightRatio, nightLevel, troubleIcons } from "../toIso";
 
 const b = (over: Partial<Parameters<typeof buildingKey>[0]>) => ({ id: "b", tier: 0, level: 1, x: 4, y: 4, ...over });
 
@@ -89,5 +89,48 @@ describe("OBJ-14 昼夜", () => {
     const { overlay } = cityToIso({ buildings: [], zones: defaultZones(), devLevel: 6, bankLevel: 1 });
     expect(overlay.night).toBe(0);
     expect(cityToIso({ buildings: [], zones: defaultZones(), devLevel: 6, bankLevel: 1, hour: 22 }).overlay.night).toBe(1);
+  });
+});
+
+describe("M3 にぎわい", () => {
+  it("OBJ-11 人と車の数は人口と物流に比例し、上限と道路の長さで頭打ち", () => {
+    expect(agentCounts(100, 1, 500)).toEqual({ people: 40, cars: 12 });
+    expect(agentCounts(100, 0.6, 500).cars).toBeLessThan(12);
+    expect(agentCounts(100000, 1, 10000)).toEqual({ people: MAX_PEOPLE, cars: MAX_CARS });
+    expect(agentCounts(1000, 1, 10)).toEqual({ people: 10, cars: 3 });
+    expect(agentCounts(0, 1, 100)).toEqual({ people: 0, cars: 0 });
+  });
+
+  it("A4 金貨の山は未回収が採掘の何分ぶんかで3段階", () => {
+    expect(goldStage(0.5, 1)).toBe(0);
+    expect(goldStage(30, 1)).toBe(1);
+    expect(goldStage(300, 1)).toBe(2);
+    expect(goldStage(1000, 1)).toBe(3);
+    expect(goldStage(5, 0)).toBe(3);
+  });
+
+  it("A4 金鉱の前に金貨の山を置く", () => {
+    const zones = defaultZones();
+    const mine = { id: "m", special: "gold_mine" as const, tier: 0, level: 1, x: 3, y: 3 };
+    const { map } = cityToIso({ buildings: [mine], zones, devLevel: 9, bankLevel: 1, gold: { uncollected: 120, ratePerMinute: 1 } });
+    expect(map.objects.find((o) => o.id === "gold")).toMatchObject({ x: 3, y: 3, key: "props/gold/2" });
+    const none = cityToIso({ buildings: [mine], zones, devLevel: 9, bankLevel: 1, gold: { uncollected: 0, ratePerMinute: 1 } });
+    expect(none.map.objects.find((o) => o.id === "gold")).toBeUndefined();
+  });
+
+  it("A3 困りごと：足りない割合だけ、その資源を使う建物に出す", () => {
+    const many = Array.from({ length: 200 }, (_, i) => ({ id: `f${i}`, line: "factory" as const, tier: 1, level: 1, x: i % 20, y: Math.floor(i / 20) }));
+    expect(troubleIcons(many, { power: 1, workers: 1, food: 1 })).toEqual([]);
+    const half = troubleIcons(many, { power: 0.5, workers: 1, food: 1 });
+    expect(half.length).toBeGreaterThan(70);
+    expect(half.length).toBeLessThan(130);
+    expect(half.every((t) => t.kind === "power" && t.dark)).toBe(true);
+    // 電気を使わない建物（工房）には電気のアイコンを出さない
+    const workshops = many.map((b) => ({ ...b, tier: 0 }));
+    expect(troubleIcons(workshops, { power: 0, workers: 1, food: 1 })).toEqual([]);
+    expect(troubleIcons(workshops, { power: 1, workers: 0, food: 1 })).toHaveLength(200);
+    // 食料は住宅に出す
+    const homes = many.map((b) => ({ ...b, line: "housing" as const, tier: 0 }));
+    expect(troubleIcons(homes, { power: 1, workers: 1, food: 0 }).every((t) => t.kind === "food")).toBe(true);
   });
 });

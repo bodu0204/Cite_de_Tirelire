@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { IsoCity } from "@/components/iso/IsoCity";
 import type { IsoStage } from "@/components/iso/IsoStage";
-import { dummyMap, sampleMap } from "@/components/iso/map";
+import { type IsoMap, dummyMap, hash2, sampleMap } from "@/components/iso/map";
+import { LINES, type LineId } from "@/game/catalog";
 
 /** 0 は画風の見本（sampleMap） */
 const SIZES = [0, 10, 32, 128];
@@ -23,7 +24,19 @@ export function IsoPlayground() {
   const [selected, setSelected] = useState<{ x: number; y: number } | null>(null);
   const [stats, setStats] = useState({ fps: 0, panFps: 0, panMinFps: 0, sprites: 0, chunks: 0 });
   const stage = useRef<IsoStage | null>(null);
-  const map = useMemo(() => (size ? dummyMap(size) : sampleMap()), [size]);
+  const base = useMemo(() => (size ? dummyMap(size) : sampleMap()), [size]);
+  // 選んだマスの建物を建てる・進化させる（完成・進化の演出を確かめる。"x,y" → キー、null は空き地）
+  const [edits, setEdits] = useState<Map<string, string | null>>(new Map());
+  useEffect(() => setEdits(new Map()), [base]);
+  const [troubles, setTroubles] = useState(false);
+  const map = useMemo(() => {
+    const m = applyEdits(base, edits);
+    // 困りごとの見本では、最初の建物の前に金貨の山（A4）も置く
+    const first = m.objects[0];
+    return troubles && first ? { ...m, objects: [...m.objects, { id: "gold", x: first.x, y: first.y, key: "props/gold/3", dz: 0.3, ox: 14, oy: 7 }] } : m;
+  }, [base, edits, troubles]);
+  const here = selected && map.objects.find((o) => o.x === selected.x && o.y === selected.y);
+  const edit = (key: string | null) => selected && setEdits((m) => new Map(m).set(`${selected.x},${selected.y}`, key));
 
   // 確認ページで選んだ絵（art/sprites/<tw>/）があれば、仮の絵の代わりに使う
   useEffect(() => {
@@ -48,7 +61,15 @@ export function IsoPlayground() {
             : undefined,
     [useArt, artKeys, anchors, tw],
   );
-  const overlay = useMemo(() => ({ night, lights }), [night, lights]);
+  // 困りごとアイコン（A3）の見本：建物の3割に、電気・働き手・食料を順に出す
+  const overlay = useMemo(() => {
+    const list = troubles
+      ? map.objects
+          .filter((o) => o.key.startsWith("building/") && hash2(o.x, o.y, 9) % 10 < 3)
+          .map((o, i) => ({ x: o.x, y: o.y, kind: ["power", "workers", "food"][i % 3], dark: i % 3 === 0 }))
+      : undefined;
+    return { night, lights, troubles: list };
+  }, [night, lights, troubles, map]);
 
   return (
     <main className="mx-auto flex h-dvh max-w-3xl flex-col gap-2 p-2">
@@ -73,10 +94,32 @@ export function IsoPlayground() {
           灯る窓
           <input type="range" min={0} max={1} step={0.1} value={lights} onChange={(e) => setLights(Number(e.target.value))} className="w-24" />
         </label>
+        <label className="flex items-center gap-1">
+          <input type="checkbox" checked={troubles} onChange={(e) => setTroubles(e.target.checked)} />
+          困りごと
+        </label>
         <button type="button" className="underline" onClick={() => stage.current?.focusTile(Math.floor(size / 2), Math.floor(size / 2))}>
           中心へ飛ぶ
         </button>
       </div>
+      {selected && (
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="text-xs">{here?.key ?? "空き地"}</span>
+          <button type="button" className="rounded border px-2" onClick={() => edit(here ? null : "building/housing/0")}>
+            {here ? "壊す" : "建てる"}
+          </button>
+          {here && nextTier(here.key) && (
+            <button type="button" className="rounded border px-2" onClick={() => edit(nextTier(here.key))}>
+              進化
+            </button>
+          )}
+          {here && nextLevel(here.key) && (
+            <button type="button" className="rounded border px-2" onClick={() => edit(nextLevel(here.key))}>
+              Lv を上げる
+            </button>
+          )}
+        </div>
+      )}
       <p className="num text-xs">
         {stats.fps} fps・パン中（直近5秒）平均 {stats.panFps || "—"}・最低 {stats.panMinFps || "—"}・描画中の建物と人 {stats.sprites}・地面のチャンク {stats.chunks}
         {selected && ` ・選択 (${selected.x}, ${selected.y})`}
@@ -115,4 +158,32 @@ function Choice<T extends number>({ label, value, options, format, onChange }: {
       ))}
     </span>
   );
+}
+
+function applyEdits(m: IsoMap, edits: Map<string, string | null>): IsoMap {
+  if (!edits.size) return m;
+  const objects = m.objects.filter((o) => !edits.has(`${o.x},${o.y}`));
+  for (const [k, key] of edits) {
+    if (!key) continue;
+    const [x, y] = k.split(",").map(Number);
+    // 元からある建物は同じ id のまま変え、進化・Lv上げを「同じ建物の変化」として描く
+    const id = m.objects.find((o) => o.x === x && o.y === y)?.id ?? `edit:${k}`;
+    objects.push({ id, x, y, key });
+  }
+  return { ...m, objects };
+}
+
+/** building/<系統>/<段階>@lvN の段階を1つ上げる（最後の段階なら null） */
+function nextTier(key: string): string | null {
+  const m = /^building\/(\w+)\/(\d+)(@lv\d)?$/.exec(key);
+  if (!m) return null;
+  const tier = Number(m[2]) + 1;
+  return tier < LINES[m[1] as LineId].tiers.length ? `building/${m[1]}/${tier}${m[3] ?? ""}` : null;
+}
+
+function nextLevel(key: string): string | null {
+  const m = /^(building\/\w+\/\d+)(?:@lv(\d))?$/.exec(key);
+  if (!m) return null;
+  const lv = Number(m[2] ?? 1) + 1;
+  return lv <= 6 ? `${m[1]}@lv${lv}` : null;
 }

@@ -5,6 +5,8 @@ export type AgentKind = "person" | "car";
 
 export interface Agent {
   kind: AgentKind;
+  /** 見た目の種類（服や車の色） */
+  variant: number;
   /** 連続したマス座標 */
   x: number;
   y: number;
@@ -23,22 +25,51 @@ const DIRS: [number, number][] = [
   [-1, 0],
 ];
 
-export function createAgents(m: IsoMap, n: number, seed = 1): Agent[] {
+/** 見た目の種類の数（agent/<種類>/<番号>/<向き> の番号） */
+export const AGENT_VARIANTS = 4;
+
+/**
+ * 人 people 人と車 cars 台を道路に置く。k 番目の人や車の位置と見た目は k とシードだけで決まるので、
+ * 数が増えても既にいる人や車はそのまま（再読み込みやタイムラプスでも同じ見た目。OBJ-11）。
+ */
+export function createAgents(m: IsoMap, people: number, cars = 0, seed = 1): Agent[] {
   const roads: number[] = [];
   for (let i = 0; i < m.road.length; i++) if (m.road[i]) roads.push(i);
   if (!roads.length) return [];
   const out: Agent[] = [];
-  for (let k = 0; k < n; k++) {
-    const h = hash2(k, seed, 7);
+  const add = (kind: AgentKind, k: number) => {
+    const h = hash2(k, seed, kind === "car" ? 13 : 7);
     const i = roads[h % roads.length];
-    const x = i % m.width;
-    const y = Math.floor(i / m.width);
-    const kind: AgentKind = h % 3 === 0 ? "car" : "person";
-    const a: Agent = { kind, x, y, dx: 0, dy: 0, speed: kind === "car" ? 1.6 : 0.5 + ((h >> 4) % 4) * 0.1, rng: h | 1 };
+    const a: Agent = {
+      kind,
+      variant: (h >>> 8) % AGENT_VARIANTS,
+      x: i % m.width,
+      y: Math.floor(i / m.width),
+      dx: 0,
+      dy: 0,
+      speed: kind === "car" ? 1.6 : 0.5 + ((h >> 4) % 4) * 0.1,
+      rng: h | 1,
+    };
     turn(a, m);
     out.push(a);
-  }
+  };
+  for (let k = 0; k < people; k++) add("person", k);
+  for (let k = 0; k < cars; k++) add("car", k);
   return out;
+}
+
+/**
+ * 進む向きの絵（東＝画面の右下、南＝左下、北＝右上、西＝左上）。左向きは右向きの絵を左右反転する。
+ * 人は前向き（se）と後ろ向き（ne）の2枚。車は左下向き（sw）の1枚で、道の向き（右下がりか右上がりか）だけ合わせる
+ * （24px では前後の違いがほとんど見えず、生成した後ろ向きの絵は向きが揃わなかったため）。
+ */
+export function agentFacing(a: Pick<Agent, "kind" | "dx" | "dy">): { dir: "se" | "ne" | "sw"; flip: boolean } {
+  if (a.kind === "car") return { dir: "sw", flip: a.dx !== 0 };
+  if (a.dx > 0) return { dir: "se", flip: false };
+  if (a.dy > 0) return { dir: "se", flip: true };
+  if (a.dy < 0) return { dir: "ne", flip: false };
+  if (a.dx < 0) return { dir: "ne", flip: true };
+  return { dir: "se", flip: false };
 }
 
 function nextRand(a: Agent): number {

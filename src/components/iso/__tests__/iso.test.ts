@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { createAgents, stepAgent } from "../agents";
+import { agentFacing, createAgents, stepAgent } from "../agents";
+import { effectKind, flashAlpha, particles, popScale } from "../effects";
 import { clampCamera, fitZoom, screenToWorld, snapZoom, stepZoom, worldOffset, zoomAt, zoomRange } from "../camera";
 import { CHUNK, chunkRect, visibleChunks } from "../chunks";
 import { BUILDING_LINES, dummyMap, groundKey, isRoad, roadMask } from "../map";
@@ -160,5 +161,50 @@ describe("OBJ-11 人と車", () => {
       b.forEach((x) => stepAgent(x, m, 0.25));
     }
     expect(a).toEqual(b);
+  });
+
+  it("人と車の数を分けて置き、増やしても前からいる人は変わらない", () => {
+    const few = createAgents(m, 10, 4);
+    const more = createAgents(m, 20, 8);
+    expect(few.filter((a) => a.kind === "person")).toHaveLength(10);
+    expect(few.filter((a) => a.kind === "car")).toHaveLength(4);
+    expect(more.slice(0, 10)).toEqual(few.slice(0, 10));
+    expect(more.filter((a) => a.kind === "car").slice(0, 4)).toEqual(few.slice(10));
+  });
+
+  it("向きの絵：人は前と後ろ、車は道の向きだけ", () => {
+    expect(agentFacing({ kind: "person", dx: 1, dy: 0 })).toEqual({ dir: "se", flip: false });
+    expect(agentFacing({ kind: "person", dx: 0, dy: 1 })).toEqual({ dir: "se", flip: true });
+    expect(agentFacing({ kind: "person", dx: 0, dy: -1 })).toEqual({ dir: "ne", flip: false });
+    expect(agentFacing({ kind: "person", dx: -1, dy: 0 })).toEqual({ dir: "ne", flip: true });
+    expect(agentFacing({ kind: "car", dx: 0, dy: 1 })).toEqual({ dir: "sw", flip: false });
+    expect(agentFacing({ kind: "car", dx: -1, dy: 0 })).toEqual({ dir: "sw", flip: true });
+  });
+});
+
+describe("OBJ-13 完成・進化の演出", () => {
+  it("差分から種類を決める", () => {
+    expect(effectKind(undefined, "building/housing/0")).toBe("build");
+    expect(effectKind("building/housing/0", "building/housing/1")).toBe("evolve");
+    expect(effectKind("building/housing/1", "building/housing/1@lv2")).toBe("level");
+    expect(effectKind("special/statue/gold@stage4", "special/statue/gold")).toBe("build");
+    expect(effectKind("special/park/1", "special/park/1@closed")).toBeNull();
+    expect(effectKind("building/housing/1", "building/housing/1")).toBeNull();
+    expect(effectKind(undefined, "locked/forest")).toBeNull();
+    expect(effectKind(undefined, "fx/scaffold")).toBeNull();
+  });
+
+  it("粒は同じ入力なら同じで、終われば消える", () => {
+    expect(particles("build", 200, 40, 7)).toEqual(particles("build", 200, 40, 7));
+    expect(particles("build", 200, 40, 7).length).toBeGreaterThan(0);
+    expect(particles("build", 900, 40, 7)).toEqual([]);
+    expect(particles("evolve", 1000, 40, 7)).toEqual([]);
+  });
+
+  it("跳ねて元の大きさに戻り、光は消える", () => {
+    expect(popScale(0).y).toBeLessThan(0.1);
+    expect(popScale(350)).toEqual({ x: 1, y: 1 });
+    expect(flashAlpha(80)).toBeCloseTo(0.9);
+    expect(flashAlpha(500)).toBe(0);
   });
 });

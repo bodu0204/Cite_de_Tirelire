@@ -38,6 +38,8 @@ export default function GoalPage() {
         zones={v.city.zones}
         devLevel={devLevel(v.city.devPoints)}
         bankLevel={v.city.bankLevel}
+        population={v.metrics.population}
+        logistics={v.metrics.logistics}
       />
       <div className="grid grid-cols-2 gap-2">
         <Stat label="達成した貯金額" value={yen(s.savings)} sub={`目標 ${yen(s.goal)}`} />
