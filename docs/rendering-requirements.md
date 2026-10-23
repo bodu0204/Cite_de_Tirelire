@@ -126,7 +126,7 @@ API は v2（`https://api.pixellab.ai/v2`）を使う。生成は非同期なの
 |---|---|---|
 | 建物・特殊施設 | `POST /generate-image-v2` | `style_image` に画風の基準を渡し、`target_palette` にマスターパレットを渡す。**1つ前の段階の絵を `reference_images` に入れる**と、系統の中で見た目がつながる。64px なら1回で16候補、128px なら4候補が出る |
 | 建物（画風合わせの代替） | `POST /generate-with-style-v2` | 参照画像を最大4枚渡して画風を合わせる。`generate-image-v2` で画風がずれる時に使う |
-| 地面・地形の境目 | `POST /create-tiles-pro` | `tile_type: "isometric"`、`tile_feature: "tileset"` で境目の16枚組を作る。`style_images` で草のタイルに合わせる |
+| 地面・地形の境目 | `POST /create-tiles-pro` | `tile_type: "isometric"`、`tile_feature: "tileset"` で境目の16枚組を作る。**`tile_feature: "tileset"` と `style_images` は一緒に使えない**ので、画風は `target_palette` とプロンプトで合わせる（2026-10-23 確認） |
 | 道路 | `POST /create-tiles-pro` | `tile_type: "isometric"`、`tile_feature: "roads"` で、つながり方18通りの組を作る。4段階それぞれで作る |
 | 未開放区画の岩・林・柵 | `POST /create-isometric-tile` か `POST /map-objects` | `map-objects` は `background_image` で周りの地面に画風を合わせられる |
 | 人・車 | `POST /create-8-direction-object`、`POST /animate-with-text-v3` | 斜め4方向だけ使う。歩く動きは4コマ |
@@ -211,6 +211,28 @@ API は v2（`https://api.pixellab.ai/v2`）を使う。生成は非同期なの
 | M1 置き換え | 地面・未開放区画・全建物・特殊施設・工事・選択・用途表示を新しい描画にする。像のプレビュー・目標達成・タイムラプスも移す。Canvas 2D の描画（draw.ts）を消す | 今の描画でできたことが全部でき、LINT が全部通る |
 | M2 街らしさ | 道路のつながり（A2）、建物Lvの小物、昼夜（A7）、建物の動き | 確認ページで合格 |
 | M3 にぎわい | 人と車（A5）、完成・進化の演出（A6）、困りごとアイコン（A3）、金貨の山（A4） | NF-01 を人と車ありで満たす |
+
+### 8.1 M0 の進み具合（2026-10-23）
+
+| 項目 | 状態 | 場所 |
+|---|---|---|
+| 座標変換・カメラ・チャンク・人と車の動き（純粋な計算） | 済み。テストあり | `src/components/iso/`（`projection.ts`・`camera.ts`・`chunks.ts`・`agents.ts`・`map.ts`） |
+| PixiJS の描画（地面の焼き付け、画面外の省略、並べ替え、タップ判定、パン・ピンチ・ホイール・＋−、慣性、整数倍ズーム、カメラの記憶、描画回数の調整、WebGL が失われた時の作り直し） | 済み | `IsoStage.ts`・`IsoCity.tsx` |
+| 128×128 のダミーマップと試作ページ（タイル 64/32、人と車 0/100/300、カメラ固定を切り替え、fps を表示） | 済み | `/dev/iso`（開発環境だけ） |
+| 仮の絵（PixelLab の絵が揃うまで同じキーで出す） | 済み | `placeholder.ts`・`textures.ts` |
+| 生成スクリプトと台帳（代表5枚） | 済み。実際の生成はまだ | `scripts/sprites/`（`npm run sprites`） |
+| 確認ページ（全段階の並び、候補から選ぶ） | 済み | `/dev/sprites`（開発環境だけ） |
+| 代表5枚の生成と画風の決定、64×32 と 32×16 の比較 | 未着手（PixelLab へ接続でき次第） | |
+| NF-01 の実機での確認（iPhone 12・Pixel 6 相当） | 未着手（人の作業） | `/dev/iso` を実機で開く |
+
+生成の手順：
+
+1. `npm run sprites -- balance` で残高を確かめる（クラウド環境では先頭に `NODE_USE_ENV_PROXY=1` を付ける。Node の fetch がプロキシを使うようにするため）
+2. `npm run sprites -- --tw 64 --stage M0 --dry-run` で送る内容を確かめる（課金なし）
+3. `npm run sprites -- --tw 64 --stage M0` で候補を作る。`--tw 32` でも作って比べる
+4. `/dev/sprites` で候補を選ぶ。選んだ絵は `art/sprites/<tw>/<キー>.png` に入り、Git で管理する（候補の `art/candidates/` は入れない）
+
+費用の目安：`generate-image-v2` などの Pro の端点は、1回 10 generations（16〜256px）。1回で 64px なら16候補、86〜170px なら4候補が出る。実際の消費は返答の `usage` で確かめる。
 
 ## 9. 他の文書との関係
 

@@ -1,0 +1,46 @@
+{
+  "$comment": "絵の台帳（docs/rendering-requirements.md §4.1 の2）。heightTiles は基準タイルの幅を1とした絵の高さ。body はそのまま API に送り、refs は art/sprites/<tw>/<キー>.png を参照画像として差し込む。",
+  "style": "isometric pixel art in the style of a cozy city-building game, 2:1 dimetric projection, crisp single-pixel lines, light from the top-left so the right-facing wall is darker, selective outline (outline colors follow the face colors, no black outline), limited palette, no text, no letters, transparent background",
+  "sprites": [
+    {
+      "key": "ground/grass/0",
+      "stage": "M0",
+      "endpoint": "create-isometric-tile",
+      "heightTiles": 0.5,
+      "description": "flat isometric grass ground tile, short bright green grass with a few lighter blades, seamless edges",
+      "body": { "isometric_tile_shape": "thin tile" }
+    },
+    {
+      "key": "road/1/10",
+      "stage": "M0",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 0.5,
+      "description": "flat isometric paved asphalt road tile running from the upper-left edge to the lower-right edge, grey asphalt with a dashed white center line, curbs on both sides, the diamond fills the whole canvas",
+      "body": {}
+    },
+    {
+      "key": "building/housing/1",
+      "stage": "M0",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.25,
+      "description": "small two-storey wooden house standing on one isometric ground tile, red pitched roof, cream wooden walls, small windows and a door on the left face, building footprint fits inside the bottom diamond",
+      "body": {}
+    },
+    {
+      "key": "building/commerce/2",
+      "stage": "M0",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.25,
+      "description": "small covered market hall standing on one isometric ground tile, blue striped awnings over open stalls with fruit crates, light stone walls, building footprint fits inside the bottom diamond",
+      "body": {}
+    },
+    {
+      "key": "building/factory/1",
+      "stage": "M0",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.5,
+      "description": "small brick factory standing on one isometric ground tile, grey saw-tooth roof with yellow trim, one tall chimney, loading door on the left face, building footprint fits inside the bottom diamond",
+      "body": {}
+    }
+  ]
+}

@@ -57,3 +57,6 @@ tmp/
 .next/
 next-env.d.ts
 *.tsbuildinfo
+
+# 素材の生成候補（scripts/sprites/generate.ts の出力。選んだ絵は art/sprites/ に入れて Git で管理する）
+art/candidates/
