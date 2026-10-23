@@ -663,6 +663,161 @@
         32,
         32
       ]
+    },
+    {
+      "key": "anim/building/factory/0",
+      "stage": "M2-anim",
+      "endpoint": "animate-with-text-v3",
+      "heightTiles": 0,
+      "description": "soft light grey and white round smoke puffs with highlights rise slowly from the small chimney and drift away. Only the described part moves; the building itself, its outline, colors and position stay exactly the same in every frame. Seamless loop.",
+      "body": {},
+      "refs": {
+        "first_frame": "building/factory/0"
+      },
+      "padTop": 24
+    },
+    {
+      "key": "anim/building/factory/1",
+      "stage": "M2-anim",
+      "endpoint": "animate-with-text-v3",
+      "heightTiles": 0,
+      "description": "soft light grey and white round smoke puffs with highlights rise slowly from the tall chimney and drift away. Only the described part moves; the building itself, its outline, colors and position stay exactly the same in every frame. Seamless loop.",
+      "body": {},
+      "refs": {
+        "first_frame": "building/factory/1"
+      },
+      "padTop": 24
+    },
+    {
+      "key": "anim/building/factory/2",
+      "stage": "M2-anim",
+      "endpoint": "animate-with-text-v3",
+      "heightTiles": 0,
+      "description": "soft light grey and white round smoke puffs with highlights rise slowly from the chimneys and drift away. Only the described part moves; the building itself, its outline, colors and position stay exactly the same in every frame. Seamless loop.",
+      "body": {},
+      "refs": {
+        "first_frame": "building/factory/2"
+      },
+      "padTop": 24
+    },
+    {
+      "key": "anim/building/factory/3",
+      "stage": "M2-anim",
+      "endpoint": "animate-with-text-v3",
+      "heightTiles": 0,
+      "description": "light grey steam puffs rise slowly from the vents and the yellow lights blink. Only the described part moves; the building itself, its outline, colors and position stay exactly the same in every frame. Seamless loop.",
+      "body": {},
+      "refs": {
+        "first_frame": "building/factory/3"
+      },
+      "padTop": 24
+    },
+    {
+      "key": "anim/building/power/0",
+      "stage": "M2-anim",
+      "endpoint": "animate-with-text-v3",
+      "heightTiles": 0,
+      "description": "soft light grey and white round smoke puffs with highlights rise slowly from the smokestacks and drift away. Only the described part moves; the building itself, its outline, colors and position stay exactly the same in every frame. Seamless loop.",
+      "body": {
+        "drift_threshold": 0
+      },
+      "refs": {
+        "first_frame": "building/power/0"
+      },
+      "padTop": 24
+    },
+    {
+      "key": "anim/building/power/1",
+      "stage": "M2-anim",
+      "endpoint": "animate-with-text-v3",
+      "heightTiles": 0,
+      "description": "white steam rises slowly from the cooling tower. Only the described part moves; the building itself, its outline, colors and position stay exactly the same in every frame. Seamless loop.",
+      "body": {},
+      "refs": {
+        "first_frame": "building/power/1"
+      },
+      "padTop": 24
+    },
+    {
+      "key": "anim/building/power/2",
+      "stage": "M2-anim",
+      "endpoint": "animate-with-text-v3",
+      "heightTiles": 0,
+      "description": "the cyan energy core glows brighter and dimmer, pulsing softly. Only the described part moves; the building itself, its outline, colors and position stay exactly the same in every frame. Seamless loop.",
+      "body": {},
+      "refs": {
+        "first_frame": "building/power/2"
+      }
+    },
+    {
+      "key": "anim/building/lumber/0",
+      "stage": "M2-anim",
+      "endpoint": "animate-with-text-v3",
+      "heightTiles": 0,
+      "description": "the circular saw blade spins and a few wood chips fly. Only the described part moves; the building itself, its outline, colors and position stay exactly the same in every frame. Seamless loop.",
+      "body": {},
+      "refs": {
+        "first_frame": "building/lumber/0"
+      },
+      "padTop": 24
+    },
+    {
+      "key": "anim/building/future/0",
+      "stage": "M2-anim",
+      "endpoint": "animate-with-text-v3",
+      "heightTiles": 0,
+      "description": "the floating rings rotate slowly around the tower and the lights twinkle. Only the described part moves; the building itself, its outline, colors and position stay exactly the same in every frame. Seamless loop.",
+      "body": {
+        "drift_threshold": 0
+      },
+      "refs": {
+        "first_frame": "building/future/0"
+      }
+    },
+    {
+      "key": "anim/special/park/3",
+      "stage": "M2-anim",
+      "endpoint": "animate-with-text-v3",
+      "heightTiles": 0,
+      "description": "water sprays up from the fountain and falls back into the pond. Only the described part moves; the building itself, its outline, colors and position stay exactly the same in every frame. Seamless loop.",
+      "body": {},
+      "refs": {
+        "first_frame": "special/park/3"
+      },
+      "padTop": 24
+    },
+    {
+      "key": "anim/special/bank/6",
+      "stage": "M2-anim",
+      "endpoint": "animate-with-text-v3",
+      "heightTiles": 0,
+      "description": "small sparkles twinkle on the golden dome. Only the described part moves; the building itself, its outline, colors and position stay exactly the same in every frame. Seamless loop.",
+      "body": {},
+      "refs": {
+        "first_frame": "special/bank/6"
+      }
+    },
+    {
+      "key": "anim/special/gold_mine",
+      "stage": "M2-anim",
+      "endpoint": "animate-with-text-v3",
+      "heightTiles": 0,
+      "description": "small sparkles twinkle on the gold ore in the mine cart. Only the described part moves; the building itself, its outline, colors and position stay exactly the same in every frame. Seamless loop.",
+      "body": {},
+      "refs": {
+        "first_frame": "special/gold_mine"
+      }
+    },
+    {
+      "key": "anim/special/silver_mine",
+      "stage": "M2-anim",
+      "endpoint": "animate-with-text-v3",
+      "heightTiles": 0,
+      "description": "small sparkles twinkle on the silver ore in the mine cart. Only the described part moves; the building itself, its outline, colors and position stay exactly the same in every frame. Seamless loop.",
+      "body": {},
+      "refs": {
+        "first_frame": "special/silver_mine"
+      }
     }
   ],
   "styleKey": "building/housing/1"

@@ -20,6 +20,15 @@ function copy(a: Art): [HTMLCanvasElement, CanvasRenderingContext2D] {
   return [c, ctx];
 }
 
+/** 夜に掛ける色（OBJ-14。昼は白＝そのまま、夜ほどこの色に近づける） */
+export const NIGHT_RGB: [number, number, number] = [0x4a, 0x58, 0x94];
+
+/** 夜の暗さ n（0〜1）で掛ける色 */
+export function nightColor(n: number): [number, number, number] {
+  const k = Math.max(0, Math.min(1, n));
+  return NIGHT_RGB.map((c) => Math.round(255 + (c - 255) * k)) as [number, number, number];
+}
+
 /** 建物Lv の小物を置く位置（基準点からのずれ。64px タイル基準）。Lv2 から順に1つずつ増える */
 const PROP_SPOTS: [number, number][] = [
   [-21, 10], // Lv2 植木鉢

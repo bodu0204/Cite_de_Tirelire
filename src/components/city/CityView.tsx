@@ -1,9 +1,9 @@
 "use client";
 
 // 街の描画（ホーム・目標達成・タイムラプス）。ゲームの盤面をアイソメトリック描画の形に変えて IsoCity に渡す。
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { IsoCity } from "@/components/iso/IsoCity";
-import { type CityInput, cityToIso } from "./toIso";
+import { type CityInput, cityToIso, hourIn } from "./toIso";
 
 type Props = CityInput & {
   label: string;
@@ -13,14 +13,28 @@ type Props = CityInput & {
   serverOffset?: number;
   /** カメラを固定して街全体を見せる（目標達成・タイムラプス。CAM-09） */
   fixed?: boolean;
+  /** 昼夜をこのタイムゾーンの時刻に合わせる（OBJ-14）。省略すると昼のまま */
+  timezone?: string;
   className?: string;
 };
 
-export function CityView({ label, selected, onSelect, serverOffset = 0, fixed = false, className, ...input }: Props) {
-  const { buildings, jobs, zones, noAuto, devLevel, bankLevel, highlights, showZones } = input;
+export function CityView({ label, selected, onSelect, serverOffset = 0, fixed = false, timezone, className, ...input }: Props) {
+  const { buildings, jobs, zones, noAuto, devLevel, bankLevel, highlights, showZones, occupancy } = input;
+  // 時刻は1分ごとに見直す（暗さは2時間かけて変わるので、それで十分なめらか）
+  const [hour, setHour] = useState<number | undefined>(undefined);
+  useEffect(() => {
+    if (!timezone) {
+      setHour(undefined);
+      return;
+    }
+    const tick = () => setHour(hourIn(timezone));
+    tick();
+    const t = setInterval(tick, 60_000);
+    return () => clearInterval(t);
+  }, [timezone]);
   const { map, overlay } = useMemo(
-    () => cityToIso({ buildings, jobs, zones, noAuto, devLevel, bankLevel, highlights, showZones }),
-    [buildings, jobs, zones, noAuto, devLevel, bankLevel, highlights, showZones],
+    () => cityToIso({ buildings, jobs, zones, noAuto, devLevel, bankLevel, highlights, showZones, hour, occupancy }),
+    [buildings, jobs, zones, noAuto, devLevel, bankLevel, highlights, showZones, hour, occupancy],
   );
   return (
     <div className="rounded-xl border-4 border-[var(--map-frame)] bg-[var(--map-frame)] shadow-inner">

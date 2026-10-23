@@ -1,7 +1,7 @@
 // 絵をキーで引く台帳（§9 の getTexture）の、PixiJS に依存しない部分。読み込んだ絵（アトラスか、開発用の選んだ絵）を
 // 先に引き、組み合わせの絵（compose.ts）を作り、なければ仮の絵を描いて返す。
 import { LINES, type LineId } from "@/game/catalog";
-import { loadAtlas, loadImage } from "./atlas";
+import { type AnimIndex, loadAtlas, loadImage } from "./atlas";
 import { dimmed, statueInProgress, withLevel } from "./compose";
 import { type Art, drawAgentArt, drawBuildingArt, drawGroundArt, drawSelectArt } from "./placeholder";
 
@@ -24,7 +24,7 @@ function missingArt(tw: number): Art {
   const c = document.createElement("canvas");
   c.width = tw / 2;
   c.height = tw / 2;
-  const ctx = c.getContext("2d")!;
+  const ctx = c.getContext("2d", { willReadFrequently: true })!;
   ctx.fillStyle = "#ff00ff";
   ctx.fillRect(0, 0, c.width, c.height);
   return { canvas: c, ax: c.width / 2, ay: c.height - 1 };
@@ -48,30 +48,110 @@ function mirror(a: Art): Art {
   const c = document.createElement("canvas");
   c.width = a.canvas.width;
   c.height = a.canvas.height;
-  const ctx = c.getContext("2d")!;
+  const ctx = c.getContext("2d", { willReadFrequently: true })!;
   ctx.translate(c.width, 0);
   ctx.scale(-1, 1);
   ctx.drawImage(a.canvas, 0, 0);
   return { canvas: c, ax: c.width - a.ax, ay: a.ay };
 }
 
+function hashStr(s: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+  return h >>> 0;
+}
+
 /** 不透明な画素の一番下の行（建物の足元のひし形の下の頂点） */
 function opaqueBottom(c: HTMLCanvasElement): number {
-  const d = c.getContext("2d")!.getImageData(0, 0, c.width, c.height).data;
+  const d = c.getContext("2d", { willReadFrequently: true })!.getImageData(0, 0, c.width, c.height).data;
   for (let y = c.height - 1; y >= 0; y--) for (let x = 0; x < c.width; x++) if (d[(y * c.width + x) * 4 + 3] > 127) return y;
   return c.height - 1;
 }
 
 export class ArtBook {
   protected loaded = new Map<string, Art>();
+  protected anims: AnimIndex = {};
 
   constructor(readonly tw: number) {}
 
   /** アトラスを読み込む（基準点はアトラスの JSON の anchor） */
   async loadAtlas() {
-    const { tw, arts } = await loadAtlas();
+    const { tw, arts, anims } = await loadAtlas();
     if (tw !== this.tw) throw new Error(`アトラスは ${tw}px 用です（描画は ${this.tw}px）`);
     for (const [k, a] of arts) this.loaded.set(k, a);
+    this.anims = anims;
+  }
+
+  /**
+   * 動く絵のコマ（OBJ-12）。基の絵に動きがなければ null。建物Lv の小物（@lv）は各コマに重ねる。
+   * 閉園・建設途中など、止まっているはずの見た目には動きを付けない。
+   */
+  frames(key: string): { arts: Art[]; fps: number } | null {
+    const at = key.indexOf("@");
+    const base = at < 0 ? key : key.slice(0, at);
+    const mod = at < 0 ? "" : key.slice(at + 1);
+    const a = this.anims[base];
+    if (!a || (mod && !mod.startsWith("lv"))) return null;
+    const arts: Art[] = [];
+    for (let i = 0; i < a.frames; i++) {
+      const f = this.loaded.get(`anim/${base}/${i}`);
+      if (!f) return null;
+      arts.push(mod ? withLevel(f, Number(mod.slice(2)), this.props(), this.tw) : f);
+    }
+    return { arts, fps: a.fps };
+  }
+
+  /**
+   * 夜の窓の灯り（OBJ-14）。発光マスク glow/<基のキー> の、つながった灯りのかたまりごとに、
+   * 割合 ratio に応じて灯すかを決める（同じ建物はいつも同じ窓が灯る）。マスクがなければ null。
+   */
+  glow(key: string, ratio: number): Art | null {
+    const at = key.indexOf("@");
+    const base = at < 0 ? key : key.slice(0, at);
+    const mask = this.loaded.get(`glow/${base}`);
+    const shape = this.loaded.get(base);
+    if (!mask || !shape || ratio <= 0) return null;
+    const { width: w, height: h } = mask.canvas;
+    const ctx = mask.canvas.getContext("2d", { willReadFrequently: true })!;
+    const src = ctx.getImageData(0, 0, w, h);
+    const d = src.data;
+    const seen = new Uint8Array(w * h);
+    const c = document.createElement("canvas");
+    c.width = w;
+    c.height = h;
+    const out = c.getContext("2d", { willReadFrequently: true })!.createImageData(w, h);
+    for (let start = 0; start < w * h; start++) {
+      if (seen[start] || d[start * 4 + 3] < 128) continue;
+      // つながった灯りの画素（上下左右と斜め）を1つの窓とみなす
+      const stack = [start];
+      const comp: number[] = [];
+      seen[start] = 1;
+      while (stack.length) {
+        const i = stack.pop()!;
+        comp.push(i);
+        const x = i % w;
+        const y = (i - x) / w;
+        for (let dy = -1; dy <= 1; dy++)
+          for (let dx = -1; dx <= 1; dx++) {
+            const nx = x + dx;
+            const ny = y + dy;
+            if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+            const j = ny * w + nx;
+            if (!seen[j] && d[j * 4 + 3] >= 128) {
+              seen[j] = 1;
+              stack.push(j);
+            }
+          }
+      }
+      if ((hashStr(base) ^ Math.imul(start, 2654435761)) >>> 0 > ratio * 0xffffffff) continue;
+      for (const i of comp) out.data.set(d.subarray(i * 4, i * 4 + 4), i * 4);
+    }
+    c.getContext("2d", { willReadFrequently: true })!.putImageData(out, 0, 0);
+    return { canvas: c, ax: shape.ax, ay: shape.ay };
+  }
+
+  private props(): (Art | null)[] {
+    return [2, 3, 4, 5, 6].map((lv) => this.loaded.get(`props/lv/${lv}`) ?? null);
   }
 
   /** キーの絵（組み合わせも含む）を canvas で返す。PixiJS を使わない画面向け */
@@ -111,7 +191,7 @@ export class ArtBook {
         const c = document.createElement("canvas");
         c.width = img.naturalWidth;
         c.height = img.naturalHeight;
-        c.getContext("2d")!.drawImage(img, 0, 0);
+        c.getContext("2d", { willReadFrequently: true })!.drawImage(img, 0, 0);
         const [ax, ay] = src.anchors?.[key] ?? [c.width / 2, opaqueBottom(c) - (this.tw / 4 - 1)];
         this.loaded.set(key, { canvas: c, ax, ay });
       }),

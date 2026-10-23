@@ -26,7 +26,7 @@ function canvas(w: number, h: number): [HTMLCanvasElement, Ctx] {
   const c = document.createElement("canvas");
   c.width = w;
   c.height = h;
-  const ctx = c.getContext("2d")!;
+  const ctx = c.getContext("2d", { willReadFrequently: true })!;
   ctx.imageSmoothingEnabled = false;
   return [c, ctx];
 }
@@ -176,7 +176,7 @@ export function drawAgentArt(kind: "person" | "car", variant: number, tw: number
 /** 不透明な画素（CAM-05 のタップ判定に使う） */
 export function alphaMask(a: Art): Uint8Array {
   const { width, height } = a.canvas;
-  const data = a.canvas.getContext("2d")!.getImageData(0, 0, width, height).data;
+  const data = a.canvas.getContext("2d", { willReadFrequently: true })!.getImageData(0, 0, width, height).data;
   const out = new Uint8Array(width * height);
   for (let i = 0; i < out.length; i++) out[i] = data[i * 4 + 3] > 127 ? 1 : 0;
   return out;

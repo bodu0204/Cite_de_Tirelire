@@ -21,6 +21,23 @@ export default function HomePage() {
   const [tile, setTile] = useState<{ x: number; y: number } | null>(null);
   const [moving, setMoving] = useState<string | null>(null);
   const [showZones, setShowZones] = useState(false);
+  // 昼夜を時刻に合わせるか（OBJ-14）。端末ごとに覚える。読めなければ合わせる
+  const [dayNight, setDayNight] = useState(true);
+  useEffect(() => {
+    try {
+      setDayNight(localStorage.getItem("city-daynight") !== "off");
+    } catch {
+      // 保存できない環境では既定のまま
+    }
+  }, []);
+  const toggleDayNight = (on: boolean) => {
+    setDayNight(on);
+    try {
+      localStorage.setItem("city-daynight", on ? "on" : "off");
+    } catch {
+      // 保存できなくても表示は切り替わる
+    }
+  };
   const [away, setAway] = useState<NonNullable<NonNullable<typeof v>["away"]> | null>(null);
   const [highlights, setHighlights] = useState<Set<string>>(new Set());
   const [allCurrencies, setAllCurrencies] = useState(false);
@@ -69,13 +86,21 @@ export default function HomePage() {
             showZones={showZones}
             serverOffset={offset}
             onSelect={setTile}
+            timezone={dayNight ? view.user.timezone : undefined}
+            occupancy={m.housingCap > 0 ? m.population / m.housingCap : 0}
           />
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
             <span>マスを選ぶと建物の操作ができます。街は操作しなくても自動で発展します。</span>
-            <label className="flex shrink-0 items-center gap-1.5 whitespace-nowrap">
-              <input type="checkbox" className="w-auto" checked={showZones} onChange={(e) => setShowZones(e.target.checked)} />
-              土地用途を表示
-            </label>
+            <span className="flex shrink-0 flex-wrap items-center gap-3">
+              <label className="flex items-center gap-1.5 whitespace-nowrap">
+                <input type="checkbox" className="w-auto" checked={showZones} onChange={(e) => setShowZones(e.target.checked)} />
+                土地用途を表示
+              </label>
+              <label className="flex items-center gap-1.5 whitespace-nowrap">
+                <input type="checkbox" className="w-auto" checked={dayNight} onChange={(e) => toggleDayNight(e.target.checked)} />
+                時刻に合わせて昼夜を表示
+              </label>
+            </span>
           </div>
         </div>
 

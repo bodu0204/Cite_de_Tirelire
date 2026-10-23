@@ -25,6 +25,10 @@ export interface IsoOverlay {
   jobs?: { x: number; y: number; startedAt: number; finishAt: number }[];
   /** 点滅させるマス（"x,y"。B6 の強調） */
   highlights?: string[];
+  /** 夜の暗さ（0 = 昼、1 = 夜。OBJ-14） */
+  night?: number;
+  /** 夜に灯る窓の割合（0〜1。人口に比例させる） */
+  lights?: number;
 }
 
 export interface IsoMap {

@@ -8,6 +8,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { requiredKeys, tierChains } from "./catalog";
+import { ANIM_FILE, type AnimDef } from "./import-anim";
 import { PALETTE_FILE } from "./palette";
 import { type Png, readPng, writePng } from "./png";
 
@@ -75,7 +76,7 @@ function looksUpscaled(p: Png): boolean {
   return false;
 }
 
-export function lint(sprites: Map<string, Sprite>, palette: Set<string>): string[] {
+export function lint(sprites: Map<string, Sprite>, palette: Set<string>, anims: Record<string, AnimDef> = {}): string[] {
   const errors: string[] = [];
   // LINT-01：抜け漏れ
   for (const k of requiredKeys()) if (!sprites.has(k)) errors.push(`LINT-01 絵がありません：${k}`);
@@ -96,9 +97,24 @@ export function lint(sprites: Map<string, Sprite>, palette: Set<string>): string
       if (png.width % TW) errors.push(`LINT-04 幅 ${png.width} が ${TW} の倍数でない：${key}`);
       if (s.ax !== png.width / 2 || s.ay < 0 || s.ay >= png.height) errors.push(`LINT-04 基準点 ${s.ax},${s.ay} が足元の中心にない：${key}`);
     }
-    if (looksUpscaled(png)) errors.push(`LINT-05 2倍に拡大された絵に見える：${key}`);
+    // 発光マスクは灯りの画素がまばらなので、拡大の判定から外す
+    if (!key.startsWith("glow/") && looksUpscaled(png)) errors.push(`LINT-05 2倍に拡大された絵に見える：${key}`);
   }
-  // LINT-06：アニメのコマ（M2 で動く絵を入れるまで対象なし）
+  // LINT-06：動きの全コマがあり、同じ大きさで、同じ基準点を持つ
+  for (const [key, a] of Object.entries(anims)) {
+    if (!sprites.has(key)) errors.push(`LINT-06 動きの基になる絵がありません：${key}`);
+    const frames = Array.from({ length: a.frames }, (_, i) => sprites.get(`anim/${key}/${i}`));
+    if (frames.some((f) => !f)) {
+      errors.push(`LINT-06 コマが足りません：${key}`);
+      continue;
+    }
+    const [f0] = frames as Sprite[];
+    for (const f of frames as Sprite[]) {
+      if (f.png.width !== f0.png.width || f.png.height !== f0.png.height) errors.push(`LINT-06 コマの大きさがそろっていません：${f.key}`);
+      if (f.ax !== f0.ax || f.ay !== f0.ay) errors.push(`LINT-06 コマの基準点がそろっていません：${f.key}`);
+    }
+    if (a.fps < 6 || a.fps > 12) errors.push(`LINT-06 コマ送りの速さ ${a.fps}fps が 6〜12 の外：${key}`);
+  }
   // LINT-07：段階が上がるほど高くなる
   for (const chain of tierChains()) {
     let prev = 0;
@@ -154,16 +170,28 @@ function main() {
   const palette = new Set((JSON.parse(readFileSync(PALETTE_FILE, "utf8")).colors as string[]).map((c) => c.toLowerCase()));
   const anchorsFile = path.join(SRC, "anchors.json");
   const anchors: Record<string, [number, number]> = existsSync(anchorsFile) ? JSON.parse(readFileSync(anchorsFile, "utf8")) : {};
+  const anims: Record<string, AnimDef> = existsSync(ANIM_FILE) ? JSON.parse(readFileSync(ANIM_FILE, "utf8")) : {};
   const sprites = new Map<string, Sprite>();
   for (const key of walk(SRC)) {
     const png = readPng(readFileSync(path.join(SRC, `${key}.png`)));
     // 基準点：タイルは anchors.json。建物などは「横の中央・足元のひし形の中心」＝不透明な画素の一番下（ひし形の
     // 下の頂点）から th/2 上（生成した絵は下に余白が残ることがあるため、画像から求める）。小物は一番下
     const bottom = opaqueRows(png)[1];
-    const [ax, ay] = anchors[key] ?? (onTile(key) ? [png.width / 2, bottom - (TW / 4 - 1)] : [png.width / 2, bottom]);
+    // 動きのコマは anim.json の基準点（全コマ共通）
+    const animKey = key.startsWith("anim/") ? key.slice(5, key.lastIndexOf("/")) : null;
+    const [ax, ay] = (animKey && anims[animKey]?.anchor) || anchors[key] || (onTile(key) ? [png.width / 2, bottom - (TW / 4 - 1)] : [png.width / 2, bottom]);
     sprites.set(key, { key, png, ax, ay });
   }
-  let errors = lint(sprites, palette);
+  // 発光マスクは元の建物の絵に重ねるので、基準点も元の絵と同じにする
+  for (const s of sprites.values()) {
+    if (!s.key.startsWith("glow/")) continue;
+    const base = sprites.get(s.key.slice(5));
+    if (base) {
+      s.ax = base.ax;
+      s.ay = base.ay;
+    }
+  }
+  let errors = lint(sprites, palette, anims);
   if (allowMissing) {
     const missing = errors.filter((e) => e.startsWith("LINT-01"));
     if (missing.length) console.warn(`LINT-01：絵が ${missing.length} 枚足りません（仮の絵で描きます）`);
@@ -208,7 +236,9 @@ function main() {
     console.log(`${image}：${a.items.length} 枚、${a.w}×${a.h}`);
   });
   // 入口のファイルだけは名前を固定する（中身のアトラスはハッシュ付きなので、更新時に古い絵が残らない）
-  writeFileSync(path.join(OUT, "index.json"), JSON.stringify({ tw: TW, atlases: index }) + "\n");
+  // anims：動く絵のキー → コマ数と速さ（コマは anim/<キー>/<番号> の名前でアトラスに入っている）
+  const animIndex = Object.fromEntries(Object.entries(anims).map(([k, a]) => [k, { fps: a.fps, frames: a.frames }]));
+  writeFileSync(path.join(OUT, "index.json"), JSON.stringify({ tw: TW, atlases: index, anims: animIndex }) + "\n");
 }
 
 if (require.main === module) main();

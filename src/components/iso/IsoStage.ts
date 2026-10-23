@@ -1,5 +1,5 @@
 // PixiJS で街を描く本体（docs/rendering-requirements.md §3）。React からは IsoCity を通して使う。
-import { Application, Container, Graphics, RenderTexture, Sprite } from "pixi.js";
+import { AnimatedSprite, Application, Container, Graphics, RenderTexture, Sprite } from "pixi.js";
 import { type Agent, createAgents, stepAgent } from "./agents";
 import {
   type Camera,
@@ -18,6 +18,7 @@ import {
   zoomRange,
 } from "./camera";
 import { type ChunkId, CHUNK, chunkKey, chunkRect, visibleChunks } from "./chunks";
+import { nightColor } from "./compose";
 import { type IsoMap, type IsoObject, type IsoOverlay, groundKey } from "./map";
 import { type Iso, depth, iso, mapBounds, toScreen, toTile } from "./projection";
 import { type ArtSource, type Entry, TextureBook } from "./textures";
@@ -43,7 +44,12 @@ export interface StageOptions {
 }
 
 interface Placed {
+  /** 建物の絵と夜の窓の灯りをまとめた入れ物（並べ替えはこの単位） */
+  node: Container;
   sprite: Sprite;
+  /** 夜の窓の灯り（加算。夜の色は掛けない） */
+  glow: Sprite | null;
+  key: string;
   entry: Entry;
   x: number;
   y: number;
@@ -102,6 +108,8 @@ export class IsoStage {
   private lastMove = { x: 0, y: 0, t: 0 };
   private panFrames: { t: number; dt: number }[] = [];
   private fxDrawn = false;
+  /** 再生中の動く絵の数（動きがある間は描画回数を下げすぎない） */
+  private animCount = 0;
   private wasBusy = false;
   private lastStats = 0;
   private destroyed = false;
@@ -235,12 +243,13 @@ export class IsoStage {
       this.chunkSig.set(k, sig);
       const shown = this.shown.has(k);
       for (const o of this.chunkObjects.get(k) ?? []) {
-        if (shown) this.objLayer.removeChild(o.sprite);
-        o.sprite.destroy();
+        if (shown) this.objLayer.removeChild(o.node);
+        if (o.sprite instanceof AnimatedSprite) this.animCount--;
+        o.node.destroy({ children: true });
       }
       const placed = list.map((o) => this.place(o));
       this.chunkObjects.set(k, placed);
-      if (shown && placed.length) this.objLayer.addChild(...placed.map((o) => o.sprite));
+      if (shown && placed.length) this.objLayer.addChild(...placed.map((o) => o.node));
     }
     if (changed) this.visibleObjects = [...this.shown].flatMap((k) => this.chunkObjects.get(k) ?? []);
     if (resized) {
@@ -250,6 +259,7 @@ export class IsoStage {
         const e = this.book.get(`agent/${a.kind}/${i % 5}`);
         const s = new Sprite(e.texture);
         s.anchor.set(e.ax / e.w, e.ay / e.h);
+        s.tint = this.nightTint;
         return s;
       });
       if (this.agentSprites.length) this.objLayer.addChild(...this.agentSprites);
@@ -258,13 +268,66 @@ export class IsoStage {
   }
 
   private place(o: IsoObject): Placed {
-    const entry = this.book.get(o.key);
-    const sprite = new Sprite(entry.texture);
+    // 動く絵はコマ送りで再生する（OBJ-12）。動きを減らす設定の時は止めた絵（1コマ目と同じ見た目）を出す
+    const anim = this.opts.reducedMotion ? null : this.book.getAnim(o.key);
+    const entry = anim ? anim.entries[0] : this.book.get(o.key);
+    let sprite: Sprite;
+    if (anim) {
+      const a = new AnimatedSprite(anim.entries.map((e) => e.texture));
+      a.animationSpeed = anim.fps / 60;
+      // 同じ絵が並んでも揃って動かないよう、マスごとに始めのコマをずらす
+      a.gotoAndPlay((o.x * 3 + o.y * 5) % anim.entries.length);
+      sprite = a;
+      this.animCount++;
+    } else sprite = new Sprite(entry.texture);
     sprite.anchor.set(entry.ax / entry.w, entry.ay / entry.h);
+    sprite.tint = this.nightTint;
+    const node = new Container();
+    node.addChild(sprite);
     const s = toScreen(this.p, o.x, o.y);
-    sprite.position.set(s.sx, s.sy);
-    sprite.zIndex = depth(o.x, o.y) + (o.dz ?? 0);
-    return { sprite, entry, x: o.x, y: o.y };
+    node.position.set(s.sx, s.sy);
+    node.zIndex = depth(o.x, o.y) + (o.dz ?? 0);
+    const placed: Placed = { node, sprite, glow: null, key: o.key, entry, x: o.x, y: o.y };
+    this.updateGlow(placed);
+    return placed;
+  }
+
+  /** 夜の窓の灯りを付け外しする（夜の暗さと灯る割合に合わせる） */
+  private updateGlow(o: Placed) {
+    const night = this.overlay.night ?? 0;
+    const g = night > 0 ? this.book.getGlow(o.key, this.overlay.lights ?? 1) : null;
+    if (!g) {
+      if (o.glow) {
+        o.glow.destroy();
+        o.glow = null;
+      }
+      return;
+    }
+    if (!o.glow) {
+      o.glow = new Sprite();
+      o.glow.blendMode = "add";
+      o.node.addChild(o.glow);
+    }
+    o.glow.texture = g.texture;
+    o.glow.anchor.set(g.ax / g.w, g.ay / g.h);
+    o.glow.alpha = night;
+  }
+
+  /** 昼夜の色（OBJ-14）：夜ほど暗い青を掛ける。窓の灯りには掛けない */
+  private get nightTint(): number {
+    const [r, g, b] = nightColor(this.overlay.night ?? 0);
+    return (r << 16) | (g << 8) | b;
+  }
+
+  private applyNight() {
+    const tint = this.nightTint;
+    for (const sp of this.baked.values()) sp.tint = tint;
+    for (const list of this.chunkObjects.values())
+      for (const o of list) {
+        o.sprite.tint = tint;
+        this.updateGlow(o);
+      }
+    for (const a of this.agentSprites) a.tint = tint;
   }
 
   setServerOffset(ms: number) {
@@ -273,7 +336,9 @@ export class IsoStage {
 
   /** 用途・対象外の印・工事のバー・強調（盤面とは別に描き直す） */
   setOverlay(o: IsoOverlay) {
+    const nightChanged = (o.night ?? 0) !== (this.overlay.night ?? 0) || (o.lights ?? 1) !== (this.overlay.lights ?? 1);
     this.overlay = o;
+    if (nightChanged && this.map) this.applyNight();
     this.drawZones();
     // 強調（B6）：マスの枠を点滅させる
     const want = o.highlights ?? [];
@@ -473,10 +538,10 @@ export class IsoStage {
     const added = [...drawKeys].filter((k) => !this.shown.has(k));
     if (!removed.length && !added.length) return;
     this.shown = drawKeys;
-    for (const k of removed) for (const o of this.chunkObjects.get(k) ?? []) this.objLayer.removeChild(o.sprite);
+    for (const k of removed) for (const o of this.chunkObjects.get(k) ?? []) this.objLayer.removeChild(o.node);
     for (const k of added) {
       const list = this.chunkObjects.get(k);
-      if (list?.length) this.objLayer.addChild(...list.map((o) => o.sprite));
+      if (list?.length) this.objLayer.addChild(...list.map((o) => o.node));
     }
     this.visibleObjects = [];
     for (const k of drawKeys) for (const o of this.chunkObjects.get(k) ?? []) this.visibleObjects.push(o);
@@ -502,6 +567,7 @@ export class IsoStage {
     tmp.destroy({ children: true });
     const sprite = new Sprite(rt);
     sprite.position.set(r.minX, r.minY);
+    sprite.tint = this.nightTint;
     // 余白として先に焼いた分は、見えるようになるまで描かない
     sprite.visible = this.shown.has(k);
     this.groundLayer.addChild(sprite);
@@ -572,7 +638,8 @@ export class IsoStage {
 
     // 動きがない時は描画回数を下げる（NF-02）
     const busy = this.pointers.size > 0 || !!this.focus || Math.abs(this.vel.x) > 0.01 || Math.abs(this.vel.y) > 0.01 || now < this.highlightUntil;
-    this.app.ticker.maxFPS = busy ? 0 : this.agents.length && !this.opts.reducedMotion ? 30 : 10;
+    // 動く絵のコマ送り（6〜12fps）が飛ばないよう、動きがある時は 12fps より下げない
+    this.app.ticker.maxFPS = busy ? 0 : this.agents.length && !this.opts.reducedMotion ? 30 : this.animCount > 0 ? 12 : 10;
 
     this.stats(now, busy, dt);
   };
@@ -687,10 +754,10 @@ export class IsoStage {
   /** 手前の建物の不透明な画素を先に調べ、当たらなければ地面のマス（CAM-05） */
   private pick(px: number, py: number): { x: number; y: number } | null {
     const w = screenToWorld(this.cam, this.viewport, px, py);
-    const sorted = [...this.visibleObjects].sort((a, b) => b.sprite.zIndex - a.sprite.zIndex);
+    const sorted = [...this.visibleObjects].sort((a, b) => b.node.zIndex - a.node.zIndex);
     for (const o of sorted) {
-      const lx = Math.floor(w.x - (o.sprite.x - o.entry.ax));
-      const ly = Math.floor(w.y - (o.sprite.y - o.entry.ay));
+      const lx = Math.floor(w.x - (o.node.x - o.entry.ax));
+      const ly = Math.floor(w.y - (o.node.y - o.entry.ay));
       if (lx < 0 || ly < 0 || lx >= o.entry.w || ly >= o.entry.h) continue;
       if (o.entry.mask[ly * o.entry.w + lx]) return { x: o.x, y: o.y };
     }

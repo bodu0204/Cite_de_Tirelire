@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { SpritePreview } from "@/components/city/SpritePreview";
 import { BUILDING_LINES } from "@/components/iso/map";
 import { drawBuildingArt } from "@/components/iso/placeholder";
 import { LINES } from "@/game/catalog";
@@ -8,11 +9,36 @@ import type { CandidateRun } from "./files";
 
 const fileUrl = (rel: string) => `/dev/sprites/file/${rel.split("/").map(encodeURIComponent).join("/")}`;
 
-/** 系統ごとに全段階を横一列に並べる */
+/** 系統ごとに全段階を横一列に並べる（§5.2：等倍と2倍、昼と夜） */
 export function Lineup({ selected }: { selected: Record<string, string[]> }) {
   const [tw, setTw] = useState("64");
+  const [night, setNight] = useState(false);
+  if (night)
+    return (
+      <div className="space-y-2">
+        <button type="button" className="rounded border px-2 text-sm" onClick={() => setNight(false)}>
+          昼に戻す
+        </button>
+        {[1, 2].map((scale) => (
+          <div key={scale} className="overflow-x-auto rounded bg-[#1d2333] p-2 text-white">
+            <p className="text-xs">夜・{scale}倍（アトラスの絵。窓の灯りは全部灯した状態）</p>
+            {BUILDING_LINES.map((line) => (
+              <div key={line} className="flex items-end gap-2">
+                <span className="w-20 shrink-0 text-xs">{LINES[line].label}</span>
+                {LINES[line].tiers.map((t, i) => (
+                  <SpritePreview key={i} spriteKey={`building/${line}/${i}`} night={1} lights={1} scale={scale} />
+                ))}
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    );
   return (
     <div className="space-y-2">
+      <button type="button" className="rounded border px-2 text-sm" onClick={() => setNight(true)}>
+        夜を見る
+      </button>
       <div className="flex gap-2 text-sm">
         {Object.keys(selected).map((t) => (
           <button key={t} type="button" className={`rounded border px-2 ${t === tw ? "bg-black text-white" : ""}`} onClick={() => setTw(t)}>

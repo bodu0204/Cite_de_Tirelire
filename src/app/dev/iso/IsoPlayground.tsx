@@ -16,6 +16,8 @@ export function IsoPlayground() {
   const [agents, setAgents] = useState(300);
   const [fixed, setFixed] = useState(false);
   const [useArt, setUseArt] = useState(true);
+  const [night, setNight] = useState(0);
+  const [lights, setLights] = useState(0.7);
   const [artKeys, setArtKeys] = useState<string[] | null>(null);
   const [anchors, setAnchors] = useState<Record<string, [number, number]>>({});
   const [selected, setSelected] = useState<{ x: number; y: number } | null>(null);
@@ -34,10 +36,19 @@ export function IsoPlayground() {
       })
       .catch(() => setArtKeys([]));
   }, [tw]);
+  // 64px はアトラス（npm run dev の前に作る。動きと窓の灯りも入る）、32px は選んだ絵を直接読む
   const art = useMemo(
-    () => (useArt && artKeys?.length ? { keys: artKeys, anchors, url: (k: string) => `/dev/sprites/file/sprites/${tw}/${k}.png` } : undefined),
+    () =>
+      !useArt
+        ? undefined
+        : tw === 64
+          ? ("atlas" as const)
+          : artKeys?.length
+            ? { keys: artKeys, anchors, url: (k: string) => `/dev/sprites/file/sprites/${tw}/${k}.png` }
+            : undefined,
     [useArt, artKeys, anchors, tw],
   );
+  const overlay = useMemo(() => ({ night, lights }), [night, lights]);
 
   return (
     <main className="mx-auto flex h-dvh max-w-3xl flex-col gap-2 p-2">
@@ -54,6 +65,14 @@ export function IsoPlayground() {
           <input type="checkbox" checked={useArt} onChange={(e) => setUseArt(e.target.checked)} />
           選んだ絵を使う（{artKeys?.length ?? "…"}枚）
         </label>
+        <label className="flex items-center gap-1">
+          夜
+          <input type="range" min={0} max={1} step={0.1} value={night} onChange={(e) => setNight(Number(e.target.value))} className="w-24" />
+        </label>
+        <label className="flex items-center gap-1">
+          灯る窓
+          <input type="range" min={0} max={1} step={0.1} value={lights} onChange={(e) => setLights(Number(e.target.value))} className="w-24" />
+        </label>
         <button type="button" className="underline" onClick={() => stage.current?.focusTile(Math.floor(size / 2), Math.floor(size / 2))}>
           中心へ飛ぶ
         </button>
@@ -63,8 +82,9 @@ export function IsoPlayground() {
         {selected && ` ・選択 (${selected.x}, ${selected.y})`}
       </p>
       {artKeys && <IsoCity
-        key={`${tw}-${size}-${agents}-${fixed}-${art ? art.keys.join() : "none"}`}
+        key={`${tw}-${size}-${agents}-${fixed}-${typeof art === "object" ? art.keys.join() : (art ?? "none")}`}
         art={art}
+        overlay={overlay}
         className="min-h-0 flex-1"
         map={map}
         tw={tw}

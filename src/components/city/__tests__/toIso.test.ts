@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MAP_SIZE } from "@/game/config";
 import { defaultZones, tileUnlockLevel } from "@/game/city/layout";
-import { buildingKey, cityToIso } from "../toIso";
+import { buildingKey, cityToIso, hourIn, lightRatio, nightLevel } from "../toIso";
 
 const b = (over: Partial<Parameters<typeof buildingKey>[0]>) => ({ id: "b", tier: 0, level: 1, x: 4, y: 4, ...over });
 
@@ -57,5 +57,37 @@ describe("盤面の変換", () => {
     expect(overlay.jobs).toHaveLength(2);
     expect(overlay.highlights).toEqual(["4,4"]);
     expect(overlay.showZones).toBe(true);
+  });
+});
+
+describe("OBJ-14 昼夜", () => {
+  it("昼は 0、夜は 1、夕方と明け方は2時間かけて変わる", () => {
+    expect(nightLevel(12)).toBe(0);
+    expect(nightLevel(17)).toBe(0);
+    expect(nightLevel(18)).toBe(0.5);
+    expect(nightLevel(19)).toBe(1);
+    expect(nightLevel(0)).toBe(1);
+    expect(nightLevel(6)).toBe(0.5);
+    expect(nightLevel(7)).toBe(0);
+    expect(nightLevel(24 + 18)).toBe(0.5);
+  });
+
+  it("灯る窓の割合は人口に比例し、0.2〜1 に収まる", () => {
+    expect(lightRatio(0)).toBeCloseTo(0.2);
+    expect(lightRatio(0.5)).toBeCloseTo(0.6);
+    expect(lightRatio(1)).toBe(1);
+    expect(lightRatio(3)).toBe(1);
+  });
+
+  it("タイムゾーンの時刻", () => {
+    // 2026-10-23 12:30 UTC は東京で 21:30
+    expect(hourIn("Asia/Tokyo", Date.UTC(2026, 9, 23, 12, 30))).toBe(21.5);
+    expect(hourIn("UTC", Date.UTC(2026, 9, 23, 0, 15))).toBe(0.25);
+  });
+
+  it("時刻がなければ昼のまま", () => {
+    const { overlay } = cityToIso({ buildings: [], zones: defaultZones(), devLevel: 6, bankLevel: 1 });
+    expect(overlay.night).toBe(0);
+    expect(cityToIso({ buildings: [], zones: defaultZones(), devLevel: 6, bankLevel: 1, hour: 22 }).overlay.night).toBe(1);
   });
 });

@@ -33,6 +33,33 @@ export interface CityInput {
   bankLevel: number;
   highlights?: Set<string>;
   showZones?: boolean;
+  /** その土地の時刻（0〜24 時）。省略すると昼（OBJ-14） */
+  hour?: number;
+  /** 住宅の埋まり具合（人口 ÷ 住宅の定員）。夜に灯る窓の割合に使う */
+  occupancy?: number;
+}
+
+/**
+ * 夜の暗さ（0 = 昼、1 = 夜）。夕方 17〜19 時に暗くなり、明け方 5〜7 時に明るくなる。
+ */
+export function nightLevel(hour: number): number {
+  const h = ((hour % 24) + 24) % 24;
+  if (h >= 7 && h < 17) return 0;
+  if (h >= 17 && h < 19) return (h - 17) / 2;
+  if (h >= 5 && h < 7) return 1 - (h - 5) / 2;
+  return 1;
+}
+
+/** 灯る窓の割合：人口に比例させる（住民がいなくても街灯代わりに少しは灯す） */
+export function lightRatio(occupancy: number | undefined): number {
+  return Math.max(0, Math.min(1, 0.2 + 0.8 * (occupancy ?? 1)));
+}
+
+/** タイムゾーンでの時刻（0〜24 時、分は小数） */
+export function hourIn(timeZone: string | undefined, at = Date.now()): number {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", minute: "numeric", hourCycle: "h23" }).formatToParts(at);
+  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? 0);
+  return get("hour") + get("minute") / 60;
 }
 
 const STATUE_RANKS = ["bronze", "silver", "gold"];
@@ -99,6 +126,8 @@ export function cityToIso(input: CityInput): { map: IsoMap; overlay: IsoOverlay 
       noAuto: input.noAuto,
       jobs: input.jobs?.map((j) => ({ x: j.x, y: j.y, startedAt: j.startedAt, finishAt: j.finishAt })),
       highlights: input.highlights ? [...input.highlights] : undefined,
+      night: input.hour === undefined ? 0 : nightLevel(input.hour),
+      lights: lightRatio(input.occupancy),
     },
   };
 }

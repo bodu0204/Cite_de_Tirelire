@@ -10,7 +10,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { balance, findImages, generate, getTiles, imageParam, stripImages, waitJob } from "./pixellab";
-import { readPng } from "./png";
+import { readPng, writePng } from "./png";
 
 interface SpriteDef {
   key: string;
@@ -25,6 +25,8 @@ interface SpriteDef {
   styled?: boolean;
   /** 幅と高さ（ドット）。heightTiles より優先する */
   size?: [number, number];
+  /** 動きの1コマ目の上に足す透明な行の数（煙など、上へはみ出す動き） */
+  padTop?: number;
 }
 
 interface Manifest {
@@ -51,6 +53,14 @@ export function loadManifest(): Manifest {
 }
 
 /** 端点ごとに送る内容を組み立てる */
+/** 絵の上に透明な行を足す */
+function padTop(buf: Buffer, rows: number): Buffer {
+  const p = readPng(buf);
+  const out = new Uint8Array(p.width * (p.height + rows) * 4);
+  out.set(p.rgba, p.width * rows * 4);
+  return writePng(p.width, p.height + rows, out);
+}
+
 /** generate-image-v2 の ReferenceImage（画像と大きさ） */
 function referenceImage(tw: number, key: string, usage?: string) {
   const file = path.join(SELECTED, String(tw), `${key}.png`);
@@ -65,7 +75,13 @@ export function buildBody(def: SpriteDef, style: string, tw: number, styleKey?: 
   const [width, height] = def.size ?? [tw, Math.round(tw * def.heightTiles)];
   const description = `${def.description}. ${style}`;
   const body: Record<string, unknown> = { description };
-  if (def.endpoint === "create-isometric-tile") {
+  if (def.endpoint === "animate-with-text-v3") {
+    // 動き（OBJ-12）：選んだ絵を1コマ目にして、動作だけを文章で伝える（画風の文は付けない）
+    delete body.description;
+    body.action = def.description;
+    body.frame_count = 8;
+    body.no_background = true;
+  } else if (def.endpoint === "create-isometric-tile") {
     body.image_size = { width, height: width };
     body.isometric_tile_size = tw;
   } else if (def.endpoint === "create-tiles-pro") {
@@ -88,7 +104,12 @@ export function buildBody(def: SpriteDef, style: string, tw: number, styleKey?: 
   for (const [field, key] of Object.entries(def.refs ?? {})) {
     if (field === "reference_images")
       body[field] = [referenceImage(tw, key, "the previous, smaller stage of the same building line: keep its materials and identity colors, but make this one clearly bigger, taller and more developed")];
-    else body[field] = imageParam(readFileSync(path.join(SELECTED, String(tw), `${key}.png`)));
+    else {
+      let buf: Buffer = readFileSync(path.join(SELECTED, String(tw), `${key}.png`));
+      // 煙などが上へはみ出す動きは、1コマ目の上に透明な余白を足して描く場所を作る
+      if (field === "first_frame" && def.padTop) buf = padTop(buf, def.padTop);
+      body[field] = imageParam(buf);
+    }
   }
   return body;
 }
