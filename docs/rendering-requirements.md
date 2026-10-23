@@ -222,8 +222,9 @@ API は v2（`https://api.pixellab.ai/v2`）を使う。生成は非同期なの
 | 仮の絵（PixelLab の絵が揃うまで同じキーで出す） | 済み | `placeholder.ts`・`textures.ts` |
 | 生成スクリプトと台帳（代表5枚） | 済み。実際の生成はまだ | `scripts/sprites/`（`npm run sprites`） |
 | 確認ページ（全段階の並び、候補から選ぶ） | 済み | `/dev/sprites`（開発環境だけ） |
-| 代表5枚の生成と画風の決定、64×32 と 32×16 の比較 | 未着手（PixelLab へ接続でき次第） | |
-| NF-01 の実機での確認（iPhone 12・Pixel 6 相当） | 未着手（人の作業） | `/dev/iso` を実機で開く |
+| 代表5枚の生成と、64×32 と 32×16 の比較 | 建物3種は 64・32 とも生成済み。草と道路は生成済みだが、画像の取得待ち（下記） | `art/candidates/`（Git に入れない） |
+| 画風の決定 | 建物を64pxで仮に選んだ。人が確認ページで決める | `art/sprites/64/`、`/dev/iso` の「見本」 |
+| NF-01 の実機での確認 | 済み（2026-10-23）。パン中の最低 56fps（128×128、人と車300） | |
 
 生成の手順：
 
@@ -232,7 +233,14 @@ API は v2（`https://api.pixellab.ai/v2`）を使う。生成は非同期なの
 3. `npm run sprites -- --tw 64 --stage M0` で候補を作る。`--tw 32` でも作って比べる
 4. `/dev/sprites` で候補を選ぶ。選んだ絵は `art/sprites/<tw>/<キー>.png` に入り、Git で管理する（候補の `art/candidates/` は入れない）
 
-費用の目安：`generate-image-v2` などの Pro の端点は、1回 10 generations（16〜256px）。1回で 64px なら16候補、86〜170px なら4候補が出る。実際の消費は返答の `usage` で確かめる。
+費用の目安：`generate-image-v2`・`create-tiles-pro` は、1回 10 generations（16〜256px。クレジット払いなら約 $0.09）。1回で出る候補は絵の長い辺で決まり、64px なら16枚、65〜84px なら9枚、86〜170px なら4枚。実際の消費は返答の `usage` で確かめる。
+
+M0 で分かったこと（2026-10-23）：
+
+- **生成は `status: completed` まで待つ。** 仕上げ中（`processing`）の返答にも途中の画像が入っている。
+- **建物は `generate-image-v2` でよい。** 64px なら窓・扉・屋根窓まで描き分けられる。32px は屋根の形が潰れ、段階の差を出しにくい（64×32 を推す理由）。プロンプトで「土台なし」と書かないと、建物ごとに土や芝の板が付く。輪郭は黒になりやすい（ART-03 の selective outline は後処理か `style_image` で合わせる）。
+- **地面と道路は `create-tiles-pro` で作る。** `generate-image-v2` の草や道路は、ひし形が枠いっぱいにならず（64px の枠に幅46px など）、並べると隙間が出る（ART-08）。道路は向きの指示にも従わない。`create-tiles-pro` は正確なタイルの形で作り、`tile_feature: "roads"` ならつながり方の規則（`tile_rules`。ビットは北1・東2・南4・西8で、このリポジトリの `roadMask` と同じ）も返す。
+- **`create-tiles-pro` の画像は `backblaze.pixellab.ai` から配られる。** API の `api.pixellab.ai` とは別に、ネットワークの許可が要る。生成は済んでいれば `npm run sprites -- refetch <候補のフォルダ>` で追加の課金なしに取り直せる（各フォルダの `job.json` にジョブの ID を残している）。
 
 ## 9. 他の文書との関係
 

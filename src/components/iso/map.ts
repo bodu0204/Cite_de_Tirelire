@@ -78,3 +78,27 @@ export function dummyMap(size: number, seed = 1): IsoMap {
   }
   return { width: size, height: size, road, locked, objects };
 }
+
+/**
+ * 画風の見本（§5.2「草の地面に建物を並べた街の見本」）。M0 の代表の絵（木造住宅・市場・工場・舗装道路）だけで作る。
+ */
+export function sampleMap(): IsoMap {
+  const size = 12;
+  const road = new Uint8Array(size * size);
+  const locked = new Uint8Array(size * size);
+  const objects: IsoObject[] = [];
+  const kinds = ["building/housing/1", "building/commerce/2", "building/factory/1"];
+  for (let y = 0; y < size; y++)
+    for (let x = 0; x < size; x++) {
+      const i = y * size + x;
+      if (x === 5 || y === 6) {
+        road[i] = 2;
+        continue;
+      }
+      // 左上は住宅、右上は市場、下は工場。ところどころ空き地を残す
+      if (hash2(x, y, 3) % 5 === 0) continue;
+      const k = y < 6 ? (x < 5 ? kinds[0] : kinds[1]) : kinds[2];
+      objects.push({ id: `${x},${y}`, x, y, key: k });
+    }
+  return { width: size, height: size, road, locked, objects };
+}

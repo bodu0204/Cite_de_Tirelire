@@ -1,22 +1,27 @@
 {
-  "$comment": "絵の台帳（docs/rendering-requirements.md §4.1 の2）。heightTiles は基準タイルの幅を1とした絵の高さ。body はそのまま API に送り、refs は art/sprites/<tw>/<キー>.png を参照画像として差し込む。",
+  "$comment": "絵の台帳（docs/rendering-requirements.md §4.1 の2）。create-tiles-pro は1回で組（草の4種、道路のつながり方18通り）を作るので、キーは組の名前にする。heightTiles は基準タイルの幅を1とした絵の高さ。body はそのまま API に送り、refs は art/sprites/<tw>/<キー>.png を参照画像として差し込む。",
   "style": "isometric pixel art in the style of a cozy city-building game, 2:1 dimetric projection, crisp single-pixel lines, light from the top-left so the right-facing wall is darker, selective outline (outline colors follow the face colors, no black outline), limited palette, no text, no letters, transparent background",
   "sprites": [
     {
-      "key": "ground/grass/0",
+      "key": "ground/grass",
       "stage": "M0",
-      "endpoint": "generate-image-v2",
+      "endpoint": "create-tiles-pro",
       "heightTiles": 0.5,
-      "description": "flat isometric grass ground tile seen from above, a single 2:1 diamond that fills the whole canvas edge to edge, short green grass with a few lighter blades, calm even color, no outline, no border line along the edges, no side faces, no thickness, tiles seamlessly with copies of itself",
-      "body": {}
+      "description": "1). short green grass 2). green grass with a few tiny white and yellow flowers 3). green grass with small clover patches 4). slightly darker green grass with a few longer blades. Calm, even colors so that tiles repeat seamlessly; no rocks, no paths, no objects",
+      "body": {
+        "tile_view": "high top-down"
+      }
     },
     {
-      "key": "road/1/5",
+      "key": "road/1",
       "stage": "M0",
-      "endpoint": "generate-image-v2",
+      "endpoint": "create-tiles-pro",
       "heightTiles": 0.5,
-      "description": "flat isometric paved asphalt road tile, a single 2:1 diamond that fills the whole canvas edge to edge, the road runs from the lower-left edge to the upper-right edge, grey asphalt with a dashed white center line and light grey curbs on both sides, clean surface without cracks or potholes, no outline along the diamond edges, no side faces, no thickness",
-      "body": {}
+      "description": "paved grey asphalt city road with a dashed white center line and light grey curbs, on green grass",
+      "body": {
+        "tile_feature": "roads",
+        "tile_view": "high top-down"
+      }
     },
     {
       "key": "building/housing/1",

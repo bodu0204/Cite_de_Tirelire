@@ -56,12 +56,45 @@ function jobId(res: unknown): string | null {
  * 生成を呼び、非同期なら完了まで待つ。
  * 仕上げ中（status: processing）でも途中の画像が返答に入っているので、画像の有無ではなく status: completed で判断する。
  */
-export async function generate(endpoint: string, body: unknown, opts: { timeoutMs?: number; log?: (s: string) => void } = {}): Promise<unknown> {
+export async function generate(
+  endpoint: string,
+  body: unknown,
+  opts: { timeoutMs?: number; log?: (s: string) => void; onJob?: (ids: { job_id: string; tile_id?: string }) => void } = {},
+): Promise<unknown> {
   const first = await request("POST", `/${endpoint}`, body);
   const id = jobId(first);
   if (!id) return first;
   opts.log?.(`  ジョブ ${id}`);
-  return waitJob(id, opts);
+  const tile = (first as Record<string, unknown>).tile_id;
+  // 課金済みのジョブを後で取り直せるよう、ID を先に知らせる
+  opts.onJob?.({ job_id: id, ...(typeof tile === "string" ? { tile_id: tile } : {}) });
+  const job = await waitJob(id, opts);
+  return typeof tile === "string" ? { job, tiles: await getTiles(tile) } : job;
+}
+
+/**
+ * create-tiles-pro の結果。画像はダウンロード用の URL で返るので、取ってきて base64 にして入れる。
+ * tile_rules（つながり方の規則）もそのまま返す。
+ */
+export async function getTiles(tileId: string): Promise<Record<string, unknown>> {
+  let res: Record<string, unknown> | null = null;
+  for (let i = 0; i < 10 && !res; i++) {
+    try {
+      res = (await request("GET", `/tiles-pro/${tileId}`)) as Record<string, unknown>;
+    } catch (e) {
+      if (!(e instanceof PixelLabError && (e.status === 404 || e.status === 423))) throw e;
+      await sleep(3000);
+    }
+  }
+  if (!res) throw new Error(`タイル ${tileId} を取得できません`);
+  const urls = (res.storage_urls ?? {}) as Record<string, string>;
+  const images: Record<string, string> = {};
+  for (const [name, url] of Object.entries(urls)) {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(`${name} をダウンロードできません（${r.status}）：${new URL(url).host}`);
+    images[name] = Buffer.from(await r.arrayBuffer()).toString("base64");
+  }
+  return { tile_id: tileId, ...res, images };
 }
 
 /** 背景ジョブの完了を待つ。課金済みのジョブを取り直す時にも使う */

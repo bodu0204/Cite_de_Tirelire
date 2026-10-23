@@ -85,6 +85,9 @@ export class IsoStage {
   private wasBusy = false;
   private lastStats = 0;
   private destroyed = false;
+  /** app.init が終わったか（終わる前に destroy されたら、終わった時点で片付ける） */
+  private inited = false;
+  private torn = false;
 
   private constructor(private opts: StageOptions) {
     this.p = iso(opts.tw);
@@ -103,12 +106,16 @@ export class IsoStage {
       background: "#2b3a2a",
       preference: "webgl",
     });
+    s.inited = true;
     if (s.destroyed) {
-      s.app.destroy(true);
+      s.teardown();
       return s;
     }
     if (opts.art) await s.book.load(opts.art).catch((e) => console.warn(e));
-    if (s.destroyed) return s;
+    if (s.destroyed) {
+      s.teardown();
+      return s;
+    }
     host.appendChild(s.app.canvas);
     s.setup(map);
     return s;
@@ -236,13 +243,21 @@ export class IsoStage {
     return { width: this.map.width, height: this.map.height };
   }
 
+  /** 何度呼んでもよい。作成の途中なら、作成が終わった時点で片付ける */
   destroy() {
     this.destroyed = true;
+    if (this.inited) this.teardown();
+  }
+
+  private teardown() {
+    if (this.torn) return;
+    this.torn = true;
     document.removeEventListener("visibilitychange", this.onVisibility);
-    if (!this.app.renderer) return;
-    this.app.canvas.removeEventListener("webglcontextlost", this.onContextLost);
+    this.app.ticker.stop();
     this.app.ticker.remove(this.update);
+    this.app.canvas.removeEventListener("webglcontextlost", this.onContextLost);
     for (const s of this.baked.values()) s.destroy({ texture: true, textureSource: true });
+    this.baked.clear();
     this.book.destroy();
     this.app.destroy(true, { children: true });
   }

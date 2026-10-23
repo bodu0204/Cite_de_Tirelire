@@ -9,7 +9,7 @@
 // 選んだ絵は確認ページ（/dev/sprites）で art/sprites/<tw>/<キー>.png にコピーする。
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { balance, findImages, generate, imageParam, stripImages, waitJob } from "./pixellab";
+import { balance, findImages, generate, getTiles, imageParam, stripImages, waitJob } from "./pixellab";
 
 interface SpriteDef {
   key: string;
@@ -55,6 +55,7 @@ export function buildBody(def: SpriteDef, style: string, tw: number): Record<str
   } else if (def.endpoint === "create-tiles-pro") {
     body.tile_type = "isometric";
     body.tile_size = tw;
+    body.tile_flat_top_px = 2;
   } else if (def.endpoint === "generate-with-style-v2") {
     // 大きさは参照画像から決まる（image_size は送らない）
   } else {
@@ -74,8 +75,10 @@ export function buildBody(def: SpriteDef, style: string, tw: number): Record<str
 /** 結果の画像と、画像を除いた返答を保存する */
 function save(dir: string, res: unknown) {
   for (const f of readdirSync(dir)) if (f.endsWith(".png")) rmSync(path.join(dir, f));
-  const images = findImages(res);
-  images.forEach((png, i) => writeFileSync(path.join(dir, `${String(i).padStart(2, "0")}.png`), png));
+  // create-tiles-pro は tile_0, tile_1… の名前を保つ（tile_rules がその名前で規則を持つため）
+  const named = (res as { tiles?: { images?: Record<string, string> } }).tiles?.images;
+  const images = named ? Object.entries(named).map(([k, b64]) => [k, Buffer.from(b64, "base64")] as const) : findImages(res).map((png, i) => [String(i).padStart(2, "0"), png] as const);
+  for (const [name, png] of images) writeFileSync(path.join(dir, `${name}.png`), png);
   writeFileSync(path.join(dir, "response.json"), JSON.stringify(stripImages(res), null, 2));
   console.log(`  ${images.length} 枚を保存：${path.relative(ROOT, dir)}`);
 }
@@ -89,9 +92,9 @@ async function main() {
   }
   if (args[0] === "refetch") {
     for (const dir of args.slice(1)) {
-      const { id } = JSON.parse(readFileSync(path.join(dir, "response.json"), "utf8")) as { id?: string };
-      if (!id) throw new Error(`${dir}：response.json にジョブの ID がありません`);
-      save(dir, await waitJob(id, { log: console.log }));
+      const { job_id, tile_id } = JSON.parse(readFileSync(path.join(dir, "job.json"), "utf8")) as { job_id: string; tile_id?: string };
+      const job = await waitJob(job_id, { log: console.log });
+      save(dir, tile_id ? { job, tiles: await getTiles(tile_id) } : job);
     }
     return;
   }
@@ -122,7 +125,8 @@ async function main() {
     mkdirSync(dir, { recursive: true });
     writeFileSync(path.join(dir, "request.json"), JSON.stringify({ endpoint: def.endpoint, body: stripImages(body) }, null, 2));
     try {
-      save(dir, await generate(def.endpoint, body, { log: console.log }));
+      const onJob = (ids: object) => writeFileSync(path.join(dir, "job.json"), JSON.stringify(ids, null, 2));
+      save(dir, await generate(def.endpoint, body, { log: console.log, onJob }));
     } catch (e) {
       writeFileSync(path.join(dir, "error.txt"), String(e instanceof Error ? e.message : e));
       console.error(`  失敗：${e instanceof Error ? e.message : e}`);

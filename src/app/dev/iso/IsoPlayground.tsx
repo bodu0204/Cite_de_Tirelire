@@ -3,9 +3,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { IsoCity } from "@/components/iso/IsoCity";
 import type { IsoStage } from "@/components/iso/IsoStage";
-import { dummyMap } from "@/components/iso/map";
+import { dummyMap, sampleMap } from "@/components/iso/map";
 
-const SIZES = [10, 32, 128];
+/** 0 は画風の見本（sampleMap） */
+const SIZES = [0, 10, 32, 128];
 const AGENTS = [0, 100, 300];
 
 /** 128×128 のダミーマップで、カメラ・画面外の省略・人と車の性能を確かめる（RND-13・NF-01） */
@@ -19,7 +20,7 @@ export function IsoPlayground() {
   const [selected, setSelected] = useState<{ x: number; y: number } | null>(null);
   const [stats, setStats] = useState({ fps: 0, panFps: 0, panMinFps: 0, sprites: 0, chunks: 0 });
   const stage = useRef<IsoStage | null>(null);
-  const map = useMemo(() => dummyMap(size), [size]);
+  const map = useMemo(() => (size ? dummyMap(size) : sampleMap()), [size]);
 
   // 確認ページで選んだ絵（art/sprites/<tw>/）があれば、仮の絵の代わりに使う
   useEffect(() => {
@@ -39,7 +40,7 @@ export function IsoPlayground() {
       <h1 className="text-lg font-bold">M0 試作：アイソメトリックの描画</h1>
       <div className="flex flex-wrap gap-2 text-sm">
         <Choice label="タイル" value={tw} options={[64, 32]} format={(v) => `${v}×${v / 2}`} onChange={setTw} />
-        <Choice label="マップ" value={size} options={SIZES} format={(v) => `${v}×${v}`} onChange={setSize} />
+        <Choice label="マップ" value={size} options={SIZES} format={(v) => (v ? `${v}×${v}` : "見本")} onChange={setSize} />
         <Choice label="人と車" value={agents} options={AGENTS} format={String} onChange={setAgents} />
         <label className="flex items-center gap-1">
           <input type="checkbox" checked={fixed} onChange={(e) => setFixed(e.target.checked)} />
@@ -70,7 +71,7 @@ export function IsoPlayground() {
         onSelect={setSelected}
         onStats={setStats}
         onReady={(s) => (stage.current = s)}
-        label={`検証用のダミーマップ ${size}×${size}`}
+        label={size ? `検証用のダミーマップ ${size}×${size}` : "画風の見本の街"}
       />}
       <p className="text-xs text-muted">
         選んだ絵がないところは M0 用の仮の絵で描きます。草はどの種類も草の絵1枚、東西の道路は南北の道路の反転で代用し、交差点などは仮の絵のままです。
