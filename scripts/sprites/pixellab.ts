@@ -53,32 +53,37 @@ function jobId(res: unknown): string | null {
 }
 
 /**
- * 生成を呼び、非同期なら結果が出るまで待つ。
- * 完了は status の言葉ではなく、画像が入っているかで判断する（status の言葉は端点ごとに違う）。
+ * 生成を呼び、非同期なら完了まで待つ。
+ * 仕上げ中（status: processing）でも途中の画像が返答に入っているので、画像の有無ではなく status: completed で判断する。
  */
 export async function generate(endpoint: string, body: unknown, opts: { timeoutMs?: number; log?: (s: string) => void } = {}): Promise<unknown> {
   const first = await request("POST", `/${endpoint}`, body);
   const id = jobId(first);
-  if (!id || findImages(first).length) return first;
+  if (!id) return first;
+  opts.log?.(`  ジョブ ${id}`);
+  return waitJob(id, opts);
+}
+
+/** 背景ジョブの完了を待つ。課金済みのジョブを取り直す時にも使う */
+export async function waitJob(id: string, opts: { timeoutMs?: number; log?: (s: string) => void } = {}): Promise<unknown> {
   const deadline = Date.now() + (opts.timeoutMs ?? 10 * 60_000);
   let wait = 3000;
   for (;;) {
-    await sleep(wait);
-    wait = Math.min(15_000, Math.round(wait * 1.5));
-    let job: unknown;
+    let job: unknown = null;
     try {
       job = await request("GET", `/background-jobs/${id}`);
     } catch (e) {
       // 作成直後は 404/423 が返ることがある
-      if (e instanceof PixelLabError && (e.status === 404 || e.status === 423)) continue;
-      throw e;
+      if (!(e instanceof PixelLabError && (e.status === 404 || e.status === 423))) throw e;
     }
-    const j = job as Record<string, unknown>;
-    if (findImages(job).length) return job;
+    const j = (job ?? {}) as Record<string, unknown>;
+    if (j.status === "completed") return job;
     if (j.status === "failed") throw new PixelLabError(500, JSON.stringify(stripImages(job)));
     const last = j.last_response as Record<string, unknown> | undefined;
-    opts.log?.(`  待機中 ${id} status=${String(j.status)}${last?.queue_position != null ? ` 順番=${last.queue_position}` : ""}`);
-    if (Date.now() > deadline) throw new Error(`時間切れ：ジョブ ${id} はまだ終わっていません。課金済みなので再送せず、後で GET /background-jobs/${id} を確かめてください`);
+    opts.log?.(`  待機中 ${id} status=${String(j.status)}${last?.action ? ` ${last.action}` : ""}${last?.queue_position != null ? ` 順番=${last.queue_position}` : ""}`);
+    if (Date.now() > deadline) throw new Error(`時間切れ：ジョブ ${id} はまだ終わっていません。課金済みなので再送せず、後で npm run sprites -- refetch で取り直してください`);
+    await sleep(wait);
+    wait = Math.min(10_000, Math.round(wait * 1.5));
   }
 }
 
@@ -98,7 +103,7 @@ export function findImages(v: unknown, out: Buffer[] = []): Buffer[] {
 
 /** 記録用に、返答から画像の中身を除く */
 export function stripImages(v: unknown): unknown {
-  if (typeof v === "string") return B64_PNG.test(v) ? `<png ${v.length} chars>` : v;
+  if (typeof v === "string") return B64_PNG.test(v) ? `<png ${v.length} chars>` : v.length > 1000 ? `<${v.length} chars>` : v;
   if (Array.isArray(v)) return v.map(stripImages);
   if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, stripImages(x)]));
   return v;

@@ -5,17 +5,17 @@
     {
       "key": "ground/grass/0",
       "stage": "M0",
-      "endpoint": "create-isometric-tile",
+      "endpoint": "generate-image-v2",
       "heightTiles": 0.5,
-      "description": "flat isometric grass ground tile, short bright green grass with a few lighter blades, seamless edges",
-      "body": { "isometric_tile_shape": "thin tile" }
+      "description": "flat isometric grass ground tile seen from above, a single 2:1 diamond that fills the whole canvas edge to edge, short green grass with a few lighter blades, calm even color, no outline, no border line along the edges, no side faces, no thickness, tiles seamlessly with copies of itself",
+      "body": {}
     },
     {
-      "key": "road/1/10",
+      "key": "road/1/5",
       "stage": "M0",
       "endpoint": "generate-image-v2",
       "heightTiles": 0.5,
-      "description": "flat isometric paved asphalt road tile running from the upper-left edge to the lower-right edge, grey asphalt with a dashed white center line, curbs on both sides, the diamond fills the whole canvas",
+      "description": "flat isometric paved asphalt road tile, a single 2:1 diamond that fills the whole canvas edge to edge, the road runs from the lower-left edge to the upper-right edge, grey asphalt with a dashed white center line and light grey curbs on both sides, clean surface without cracks or potholes, no outline along the diamond edges, no side faces, no thickness",
       "body": {}
     },
     {
@@ -23,7 +23,7 @@
       "stage": "M0",
       "endpoint": "generate-image-v2",
       "heightTiles": 1.25,
-      "description": "small two-storey wooden house standing on one isometric ground tile, red pitched roof, cream wooden walls, small windows and a door on the left face, building footprint fits inside the bottom diamond",
+      "description": "small two-storey wooden house, red pitched roof, cream wooden walls, small windows and a door on the left face, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
       "body": {}
     },
     {
@@ -31,7 +31,7 @@
       "stage": "M0",
       "endpoint": "generate-image-v2",
       "heightTiles": 1.25,
-      "description": "small covered market hall standing on one isometric ground tile, blue striped awnings over open stalls with fruit crates, light stone walls, building footprint fits inside the bottom diamond",
+      "description": "small covered market hall, blue and white striped awnings over open stalls with fruit crates, light stone walls, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
       "body": {}
     },
     {
@@ -39,7 +39,7 @@
       "stage": "M0",
       "endpoint": "generate-image-v2",
       "heightTiles": 1.5,
-      "description": "small brick factory standing on one isometric ground tile, grey saw-tooth roof with yellow trim, one tall chimney, loading door on the left face, building footprint fits inside the bottom diamond",
+      "description": "small brick factory, grey saw-tooth roof with yellow trim, one tall chimney, loading door on the left face, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
       "body": {}
     }
   ]

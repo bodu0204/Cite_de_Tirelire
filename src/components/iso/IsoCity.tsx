@@ -10,6 +10,8 @@ type Props = {
   map: IsoMap;
   tw?: number;
   agents?: number;
+  /** 選んだ絵（StageOptions.art） */
+  art?: StageOptions["art"];
   /** false ならカメラ固定（CAM-09） */
   interactive?: boolean;
   /** 最後に見ていた位置と倍率を覚えておくキー（CAM-07）。省略すると覚えない */
@@ -50,7 +52,7 @@ function hasWebGL(): boolean {
   }
 }
 
-export function IsoCity({ map, tw = 64, agents = 0, interactive = true, storageKey, selected, onSelect, onStats, onReady, label, className }: Props) {
+export function IsoCity({ map, tw = 64, art, agents = 0, interactive = true, storageKey, selected, onSelect, onStats, onReady, label, className }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const stage = useRef<IsoStage | null>(null);
   const [failed, setFailed] = useState<null | "nowebgl" | "lost">(null);
@@ -72,6 +74,7 @@ export function IsoCity({ map, tw = 64, agents = 0, interactive = true, storageK
       .then(({ IsoStage }) =>
         IsoStage.create(el, map, {
           tw,
+          art,
           agents,
           interactive,
           reducedMotion,
@@ -107,7 +110,7 @@ export function IsoCity({ map, tw = 64, agents = 0, interactive = true, storageK
       stage.current = null;
     };
     // 盤面の入れ替えは下の effect で行う。ここは作り直しが必要な設定だけ
-  }, [tw, agents, interactive, storageKey, generation]);
+  }, [tw, art, agents, interactive, storageKey, generation]);
 
   useEffect(() => {
     stage.current?.setMap(map);

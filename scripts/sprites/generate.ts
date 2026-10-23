@@ -3,12 +3,13 @@
 //   npx tsx scripts/sprites/generate.ts balance                      残高を見る
 //   npx tsx scripts/sprites/generate.ts --tw 64 --dry-run            送る内容だけ表示する（課金なし）
 //   npx tsx scripts/sprites/generate.ts --tw 64 [--stage M0] [キー…]  候補を作る
+//   npx tsx scripts/sprites/generate.ts refetch <候補のフォルダ…>       課金済みのジョブの結果を取り直す（追加の課金なし）
 //
 // 候補は art/candidates/<tw>/<キー>/<実行時刻>/ に保存する（Git には入れない）。
 // 選んだ絵は確認ページ（/dev/sprites）で art/sprites/<tw>/<キー>.png にコピーする。
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { balance, findImages, generate, imageParam, stripImages } from "./pixellab";
+import { balance, findImages, generate, imageParam, stripImages, waitJob } from "./pixellab";
 
 interface SpriteDef {
   key: string;
@@ -70,11 +71,28 @@ export function buildBody(def: SpriteDef, style: string, tw: number): Record<str
   return body;
 }
 
+/** 結果の画像と、画像を除いた返答を保存する */
+function save(dir: string, res: unknown) {
+  for (const f of readdirSync(dir)) if (f.endsWith(".png")) rmSync(path.join(dir, f));
+  const images = findImages(res);
+  images.forEach((png, i) => writeFileSync(path.join(dir, `${String(i).padStart(2, "0")}.png`), png));
+  writeFileSync(path.join(dir, "response.json"), JSON.stringify(stripImages(res), null, 2));
+  console.log(`  ${images.length} 枚を保存：${path.relative(ROOT, dir)}`);
+}
+
 async function main() {
   loadEnv();
   const args = process.argv.slice(2);
   if (args[0] === "balance") {
     console.log(JSON.stringify(await balance(), null, 2));
+    return;
+  }
+  if (args[0] === "refetch") {
+    for (const dir of args.slice(1)) {
+      const { id } = JSON.parse(readFileSync(path.join(dir, "response.json"), "utf8")) as { id?: string };
+      if (!id) throw new Error(`${dir}：response.json にジョブの ID がありません`);
+      save(dir, await waitJob(id, { log: console.log }));
+    }
     return;
   }
   const opt = (name: string) => {
@@ -104,11 +122,7 @@ async function main() {
     mkdirSync(dir, { recursive: true });
     writeFileSync(path.join(dir, "request.json"), JSON.stringify({ endpoint: def.endpoint, body: stripImages(body) }, null, 2));
     try {
-      const res = await generate(def.endpoint, body, { log: console.log });
-      const images = findImages(res);
-      images.forEach((png, i) => writeFileSync(path.join(dir, `${String(i).padStart(2, "0")}.png`), png));
-      writeFileSync(path.join(dir, "response.json"), JSON.stringify(stripImages(res), null, 2));
-      console.log(`  ${images.length} 枚を保存：${path.relative(ROOT, dir)}`);
+      save(dir, await generate(def.endpoint, body, { log: console.log }));
     } catch (e) {
       writeFileSync(path.join(dir, "error.txt"), String(e instanceof Error ? e.message : e));
       console.error(`  失敗：${e instanceof Error ? e.message : e}`);

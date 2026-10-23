@@ -20,11 +20,13 @@ import {
 import { type ChunkId, CHUNK, chunkKey, chunkRect, visibleChunks } from "./chunks";
 import { type IsoMap, groundKey } from "./map";
 import { type Iso, depth, iso, mapBounds, toScreen, toTile } from "./projection";
-import { type Entry, TextureBook } from "./textures";
+import { type ArtSource, type Entry, TextureBook } from "./textures";
 
 export interface StageOptions {
   /** 基準タイルの幅（64 か 32。§10 の M0 で比べる） */
   tw: number;
+  /** 選んだ絵（なければ仮の絵だけで描く） */
+  art?: ArtSource;
   /** 人と車の数（OBJ-11） */
   agents?: number;
   /** false ならカメラを固定し、街全体を収める（CAM-09） */
@@ -105,6 +107,8 @@ export class IsoStage {
       s.app.destroy(true);
       return s;
     }
+    if (opts.art) await s.book.load(opts.art).catch((e) => console.warn(e));
+    if (s.destroyed) return s;
     host.appendChild(s.app.canvas);
     s.setup(map);
     return s;

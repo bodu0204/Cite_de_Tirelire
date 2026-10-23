@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { IsoCity } from "@/components/iso/IsoCity";
 import type { IsoStage } from "@/components/iso/IsoStage";
 import { dummyMap } from "@/components/iso/map";
@@ -14,10 +14,25 @@ export function IsoPlayground() {
   const [size, setSize] = useState(128);
   const [agents, setAgents] = useState(300);
   const [fixed, setFixed] = useState(false);
+  const [useArt, setUseArt] = useState(true);
+  const [artKeys, setArtKeys] = useState<string[] | null>(null);
   const [selected, setSelected] = useState<{ x: number; y: number } | null>(null);
   const [stats, setStats] = useState({ fps: 0, panFps: 0, panMinFps: 0, sprites: 0, chunks: 0 });
   const stage = useRef<IsoStage | null>(null);
   const map = useMemo(() => dummyMap(size), [size]);
+
+  // 確認ページで選んだ絵（art/sprites/<tw>/）があれば、仮の絵の代わりに使う
+  useEffect(() => {
+    setArtKeys(null);
+    fetch(`/dev/sprites/selected?tw=${tw}`)
+      .then((r) => r.json())
+      .then((j: { keys: string[] }) => setArtKeys(j.keys))
+      .catch(() => setArtKeys([]));
+  }, [tw]);
+  const art = useMemo(
+    () => (useArt && artKeys?.length ? { keys: artKeys, url: (k: string) => `/dev/sprites/file/sprites/${tw}/${k}.png` } : undefined),
+    [useArt, artKeys, tw],
+  );
 
   return (
     <main className="mx-auto flex h-dvh max-w-3xl flex-col gap-2 p-2">
@@ -30,6 +45,10 @@ export function IsoPlayground() {
           <input type="checkbox" checked={fixed} onChange={(e) => setFixed(e.target.checked)} />
           カメラ固定（全体表示）
         </label>
+        <label className="flex items-center gap-1">
+          <input type="checkbox" checked={useArt} onChange={(e) => setUseArt(e.target.checked)} />
+          選んだ絵を使う（{artKeys?.length ?? "…"}枚）
+        </label>
         <button type="button" className="underline" onClick={() => stage.current?.focusTile(Math.floor(size / 2), Math.floor(size / 2))}>
           中心へ飛ぶ
         </button>
@@ -38,8 +57,9 @@ export function IsoPlayground() {
         {stats.fps} fps・パン中（直近5秒）平均 {stats.panFps || "—"}・最低 {stats.panMinFps || "—"}・描画中の建物と人 {stats.sprites}・地面のチャンク {stats.chunks}
         {selected && ` ・選択 (${selected.x}, ${selected.y})`}
       </p>
-      <IsoCity
-        key={`${tw}-${size}-${agents}-${fixed}`}
+      {artKeys && <IsoCity
+        key={`${tw}-${size}-${agents}-${fixed}-${art ? art.keys.join() : "none"}`}
+        art={art}
         className="min-h-0 flex-1"
         map={map}
         tw={tw}
@@ -51,9 +71,9 @@ export function IsoPlayground() {
         onStats={setStats}
         onReady={(s) => (stage.current = s)}
         label={`検証用のダミーマップ ${size}×${size}`}
-      />
+      />}
       <p className="text-xs text-muted">
-        絵は M0 用の仮の絵です。PixelLab で作った絵が揃ったら同じキーで差し替わります。
+        選んだ絵がないところは M0 用の仮の絵で描きます。草はどの種類も草の絵1枚、東西の道路は南北の道路の反転で代用し、交差点などは仮の絵のままです。
       </p>
     </main>
   );
