@@ -42,9 +42,12 @@ export function Lineup({ selected }: { selected: Record<string, string[]> }) {
   );
 }
 
-/** 1ドット＝scale 物理ピクセルで見せる（devicePixelRatio で割る） */
+/**
+ * 1ドット＝scale 物理ピクセルで見せる（devicePixelRatio で割る）。
+ * サーバーには devicePixelRatio がないので、表示後（effect やイベントの中）でだけ呼ぶ。
+ */
 function pixelSize(w: number, h: number, scale: number) {
-  const dpr = typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
+  const dpr = window.devicePixelRatio || 1;
   return { width: (w * scale) / dpr, height: (h * scale) / dpr };
 }
 
@@ -64,7 +67,8 @@ function PixelImage({ src, scale, title }: { src: string; scale: number; title: 
 
 function Placeholder({ line, tier, tw, scale, title }: { line: (typeof BUILDING_LINES)[number]; tier: number; tw: number; scale: number; title: string }) {
   const ref = useRef<HTMLCanvasElement>(null);
-  const [size, setSize] = useState({ w: tw, h: tw });
+  // 大きさは表示後に決める（サーバーとブラウザで最初の描画を揃えるため）
+  const [size, setSize] = useState<{ width: number; height: number }>();
   useEffect(() => {
     const art = drawBuildingArt(line, tier, tw);
     const c = ref.current;
@@ -72,9 +76,9 @@ function Placeholder({ line, tier, tw, scale, title }: { line: (typeof BUILDING_
     c.width = art.canvas.width;
     c.height = art.canvas.height;
     c.getContext("2d")!.drawImage(art.canvas, 0, 0);
-    setSize({ w: art.canvas.width, h: art.canvas.height });
-  }, [line, tier, tw]);
-  return <canvas ref={ref} title={`${title}（仮）`} className="pixelated" style={pixelSize(size.w, size.h, scale)} />;
+    setSize(pixelSize(art.canvas.width, art.canvas.height, scale));
+  }, [line, tier, tw, scale]);
+  return <canvas ref={ref} title={`${title}（仮）`} className="pixelated" style={size} />;
 }
 
 /** 生成の候補を並べ、1つを選ぶ（§4.1 の4） */
