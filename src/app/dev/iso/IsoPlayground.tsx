@@ -15,7 +15,7 @@ export function IsoPlayground() {
   const [agents, setAgents] = useState(300);
   const [fixed, setFixed] = useState(false);
   const [selected, setSelected] = useState<{ x: number; y: number } | null>(null);
-  const [stats, setStats] = useState({ fps: 0, minFps: 0, sprites: 0, chunks: 0 });
+  const [stats, setStats] = useState({ fps: 0, panFps: 0, panMinFps: 0, sprites: 0, chunks: 0 });
   const stage = useRef<IsoStage | null>(null);
   const map = useMemo(() => dummyMap(size), [size]);
 
@@ -35,7 +35,7 @@ export function IsoPlayground() {
         </button>
       </div>
       <p className="num text-xs">
-        {stats.fps} fps（直近の最低 {stats.minFps}）・描画中の建物と人 {stats.sprites}・地面のチャンク {stats.chunks}
+        {stats.fps} fps・パン中（直近5秒）平均 {stats.panFps || "—"}・最低 {stats.panMinFps || "—"}・描画中の建物と人 {stats.sprites}・地面のチャンク {stats.chunks}
         {selected && ` ・選択 (${selected.x}, ${selected.y})`}
       </p>
       <IsoCity

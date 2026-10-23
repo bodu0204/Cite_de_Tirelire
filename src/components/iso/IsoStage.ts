@@ -33,7 +33,8 @@ export interface StageOptions {
   camera?: Camera | null;
   onSelect?: (tile: { x: number; y: number }) => void;
   onCamera?: (cam: Camera) => void;
-  onStats?: (s: { fps: number; minFps: number; sprites: number; chunks: number }) => void;
+  /** panFps・panMinFps は直近5秒の、動かしていた間の平均と最低（0 なら動かしていない） */
+  onStats?: (s: { fps: number; panFps: number; panMinFps: number; sprites: number; chunks: number }) => void;
   onContextLost?: () => void;
 }
 
@@ -64,6 +65,7 @@ export class IsoStage {
   private chunkObjects = new Map<string, Placed[]>();
   private baked = new Map<string, Sprite>();
   private shown = new Set<string>();
+  private bakeQueue: ChunkId[] = [];
   private visibleObjects: Placed[] = [];
   private agents: Agent[] = [];
   private agentSprites: Sprite[] = [];
@@ -77,7 +79,8 @@ export class IsoStage {
   private gesture: { startX: number; startY: number; t: number; moved: boolean; pinchDist?: number; pinchZoom?: number } | null = null;
   private focus: { from: Camera; to: Camera; t0: number; ms: number } | null = null;
   private lastMove = { x: 0, y: 0, t: 0 };
-  private fpsWindow: number[] = [];
+  private panFrames: { t: number; dt: number }[] = [];
+  private wasBusy = false;
   private lastStats = 0;
   private destroyed = false;
 
@@ -161,6 +164,9 @@ export class IsoStage {
     for (const list of this.chunkObjects.values()) for (const o of list) o.sprite.destroy();
     this.chunkObjects.clear();
     this.shown.clear();
+    this.bakeQueue = [];
+    this.objLayer.removeChildren();
+    this.visibleObjects = [];
     for (const o of map.objects) {
       const k = chunkKey({ cx: Math.floor(o.x / CHUNK), cy: Math.floor(o.y / CHUNK) });
       const entry = this.book.get(o.key);
@@ -181,6 +187,7 @@ export class IsoStage {
       s.anchor.set(e.ax / e.w, e.ay / e.h);
       return s;
     });
+    if (this.agentSprites.length) this.objLayer.addChild(...this.agentSprites);
     this.camDirty = true;
   }
 
@@ -272,8 +279,9 @@ export class IsoStage {
     const draw = visibleChunks(this.p, r, this.map.width, this.map.height, tall, 0);
     const drawKeys = new Set(draw.map(chunkKey));
 
-    // 余白の分は先に焼いておき、描くのは見えている分だけ
-    for (const c of keep) this.bake(c);
+    // 見えている分はすぐ焼く。余白の分は1フレームに1つずつ焼き、パン中の引っかかりを防ぐ（NF-01）
+    for (const c of draw) this.bake(c);
+    this.bakeQueue = keep.filter((c) => !this.baked.has(chunkKey(c)));
     for (const [k, s] of this.baked) s.visible = drawKeys.has(k);
     if (this.baked.size > BAKE_KEEP) {
       const keepKeys = new Set(keep.map(chunkKey));
@@ -284,14 +292,18 @@ export class IsoStage {
         }
     }
 
-    const same = drawKeys.size === this.shown.size && [...drawKeys].every((k) => this.shown.has(k));
-    if (same) return;
+    // 増えたチャンク・減ったチャンクの建物だけを出し入れする
+    const removed = [...this.shown].filter((k) => !drawKeys.has(k));
+    const added = [...drawKeys].filter((k) => !this.shown.has(k));
+    if (!removed.length && !added.length) return;
     this.shown = drawKeys;
-    this.objLayer.removeChildren();
+    for (const k of removed) for (const o of this.chunkObjects.get(k) ?? []) this.objLayer.removeChild(o.sprite);
+    for (const k of added) {
+      const list = this.chunkObjects.get(k);
+      if (list?.length) this.objLayer.addChild(...list.map((o) => o.sprite));
+    }
     this.visibleObjects = [];
     for (const k of drawKeys) for (const o of this.chunkObjects.get(k) ?? []) this.visibleObjects.push(o);
-    if (this.visibleObjects.length) this.objLayer.addChild(...this.visibleObjects.map((o) => o.sprite));
-    if (this.agentSprites.length) this.objLayer.addChild(...this.agentSprites);
   }
 
   private bake(c: ChunkId) {
@@ -314,6 +326,8 @@ export class IsoStage {
     tmp.destroy({ children: true });
     const sprite = new Sprite(rt);
     sprite.position.set(r.minX, r.minY);
+    // 余白として先に焼いた分は、見えるようになるまで描かない
+    sprite.visible = this.shown.has(k);
     this.groundLayer.addChild(sprite);
     this.baked.set(k, sprite);
   }
@@ -351,13 +365,14 @@ export class IsoStage {
         if (!on) continue;
         // 道の左側を歩く（向きで少しずらす）
         sp.position.set(Math.round(s.sx + a.dy * 6 * (this.p.tw / 64)), Math.round(s.sy - a.dx * 3 * (this.p.tw / 64)));
-        sp.zIndex = depth(a.x, a.y) + 0.5;
+        // 並べ替えはマス単位で足りる。値が変わった時だけ並べ替えが起きるよう、マスに丸める
+        sp.zIndex = depth(Math.round(a.x), Math.round(a.y)) + 0.5;
       }
     } else if (this.agents.length && this.camDirty) {
       for (let i = 0; i < this.agents.length; i++) {
         const s = toScreen(this.p, this.agents[i].x, this.agents[i].y);
         this.agentSprites[i].position.set(Math.round(s.sx), Math.round(s.sy));
-        this.agentSprites[i].zIndex = depth(this.agents[i].x, this.agents[i].y) + 0.5;
+        this.agentSprites[i].zIndex = depth(Math.round(this.agents[i].x), Math.round(this.agents[i].y)) + 0.5;
       }
     }
 
@@ -367,24 +382,30 @@ export class IsoStage {
       this.camDirty = false;
       this.applyCamera();
     }
+    if (this.bakeQueue.length) this.bake(this.bakeQueue.shift()!);
 
     // 動きがない時は描画回数を下げる（NF-02）
     const busy = this.pointers.size > 0 || !!this.focus || Math.abs(this.vel.x) > 0.01 || Math.abs(this.vel.y) > 0.01 || now < this.highlightUntil;
     this.app.ticker.maxFPS = busy ? 0 : this.agents.length && !this.opts.reducedMotion ? 30 : 10;
 
-    this.stats(now);
+    this.stats(now, busy, dt);
   };
 
-  private stats(now: number) {
+  /** fps の表示。NF-01 は「パン中」の値なので、動かしている間のフレーム間隔を別に集める */
+  private stats(now: number, busy: boolean, dt: number) {
     if (!this.opts.onStats) return;
-    this.fpsWindow.push(this.app.ticker.FPS);
+    // 動き始めの1フレームは、止まっていた間（30fps 以下に抑えていた間）の間隔なので数えない
+    if (busy && this.wasBusy) this.panFrames.push({ t: now, dt });
+    this.wasBusy = busy;
+    this.panFrames = this.panFrames.filter((f) => now - f.t < 5000);
     if (now - this.lastStats < 500) return;
     this.lastStats = now;
-    const recent = this.fpsWindow.slice(-120);
-    this.fpsWindow = recent;
+    const worst = this.panFrames.reduce((m, f) => Math.max(m, f.dt), 0);
+    const avg = this.panFrames.length ? this.panFrames.reduce((m, f) => m + f.dt, 0) / this.panFrames.length : 0;
     this.opts.onStats({
       fps: Math.round(this.app.ticker.FPS),
-      minFps: Math.round(Math.min(...recent)),
+      panFps: avg ? Math.round(1000 / avg) : 0,
+      panMinFps: worst ? Math.round(1000 / worst) : 0,
       sprites: this.visibleObjects.length + this.agentSprites.filter((s) => s.visible).length,
       chunks: [...this.baked.values()].filter((s) => s.visible).length,
     });
