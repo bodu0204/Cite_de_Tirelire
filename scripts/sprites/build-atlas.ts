@@ -3,6 +3,7 @@
 //
 //   npx tsx scripts/sprites/build-atlas.ts           チェックして書き出す
 //   npx tsx scripts/sprites/build-atlas.ts --check   チェックだけ
+//   npx tsx scripts/sprites/build-atlas.ts --allow-missing   絵の抜け（LINT-01）は警告にして書き出す（開発中。足りない絵は仮の絵で描く）
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -149,23 +150,31 @@ function pack(sprites: Sprite[]) {
 
 function main() {
   const checkOnly = process.argv.includes("--check");
+  const allowMissing = process.argv.includes("--allow-missing");
   const palette = new Set((JSON.parse(readFileSync(PALETTE_FILE, "utf8")).colors as string[]).map((c) => c.toLowerCase()));
   const anchorsFile = path.join(SRC, "anchors.json");
   const anchors: Record<string, [number, number]> = existsSync(anchorsFile) ? JSON.parse(readFileSync(anchorsFile, "utf8")) : {};
   const sprites = new Map<string, Sprite>();
   for (const key of walk(SRC)) {
     const png = readPng(readFileSync(path.join(SRC, `${key}.png`)));
-    // 基準点：タイルは anchors.json、ほかは「横の中央・下端から th/2 上」（小物は下端）
-    const [ax, ay] = anchors[key] ?? (onTile(key) ? [png.width / 2, png.height - TW / 4] : [png.width / 2, png.height - 1]);
+    // 基準点：タイルは anchors.json。建物などは「横の中央・足元のひし形の中心」＝不透明な画素の一番下（ひし形の
+    // 下の頂点）から th/2 上（生成した絵は下に余白が残ることがあるため、画像から求める）。小物は一番下
+    const bottom = opaqueRows(png)[1];
+    const [ax, ay] = anchors[key] ?? (onTile(key) ? [png.width / 2, bottom - (TW / 4 - 1)] : [png.width / 2, bottom]);
     sprites.set(key, { key, png, ax, ay });
   }
-  const errors = lint(sprites, palette);
+  let errors = lint(sprites, palette);
+  if (allowMissing) {
+    const missing = errors.filter((e) => e.startsWith("LINT-01"));
+    if (missing.length) console.warn(`LINT-01：絵が ${missing.length} 枚足りません（仮の絵で描きます）`);
+    errors = errors.filter((e) => !e.startsWith("LINT-01"));
+  }
   if (errors.length) {
     console.error(errors.join("\n"));
     console.error(`\nLINT：${errors.length} 件。アトラスは書き出していません`);
     process.exit(1);
   }
-  console.log(`LINT：${sprites.size} 枚すべて合格`);
+  console.log(`LINT：${sprites.size} 枚${allowMissing ? "（抜けを除き）" : "すべて"}合格`);
   if (checkOnly) return;
 
   const atlases = pack([...sprites.values()]);

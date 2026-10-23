@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "predev": "tsx scripts/sprites/build-atlas.ts || echo 'アトラスを作れませんでした。足りない絵は仮の絵で描きます'",
+    "predev": "tsx scripts/sprites/build-atlas.ts --allow-missing || echo 'アトラスを作れませんでした。仮の絵で描きます'",
     "dev": "next dev",
     "prebuild": "tsx scripts/sprites/build-atlas.ts",
     "build": "next build",

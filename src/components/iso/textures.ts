@@ -23,7 +23,9 @@ export class TextureBook extends ArtBook {
     let e = this.cache.get(key);
     if (!e) {
       const art = this.art(key);
-      const texture = Texture.from(art.canvas);
+      // canvas はアトラスの読み込み結果として描画をまたいで使い回すので、PixiJS の内部の記憶を使わない
+      // （使うと、作り直す前の描画が破棄したテクスチャを受け取ってしまう）
+      const texture = Texture.from(art.canvas, true);
       texture.source.scaleMode = "nearest";
       e = { texture, ax: art.ax, ay: art.ay, w: art.canvas.width, h: art.canvas.height, mask: alphaMask(art) };
       this.cache.set(key, e);

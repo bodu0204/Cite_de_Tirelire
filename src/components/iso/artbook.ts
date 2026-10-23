@@ -55,6 +55,13 @@ function mirror(a: Art): Art {
   return { canvas: c, ax: c.width - a.ax, ay: a.ay };
 }
 
+/** 不透明な画素の一番下の行（建物の足元のひし形の下の頂点） */
+function opaqueBottom(c: HTMLCanvasElement): number {
+  const d = c.getContext("2d")!.getImageData(0, 0, c.width, c.height).data;
+  for (let y = c.height - 1; y >= 0; y--) for (let x = 0; x < c.width; x++) if (d[(y * c.width + x) * 4 + 3] > 127) return y;
+  return c.height - 1;
+}
+
 export class ArtBook {
   protected loaded = new Map<string, Art>();
 
@@ -94,8 +101,8 @@ export class ArtBook {
   }
 
   /**
-   * 選んだ絵を読み込む。基準点は anchors にあればそれを、なければ「下端から th/2 上、横の中央」とみなす
-   * （建物の M0 の仮の決め方。後処理で基準点を決める §4.1 の5 ができたら、アトラスの JSON から読む）。
+   * 開発用に、選んだ絵をそのまま読み込む。基準点は anchors にあればそれを、なければ build-atlas.ts と同じく
+   * 「横の中央・不透明な画素の一番下から th/2 上」とする（本番はアトラスの JSON の anchor を使う）。
    */
   async load(src: ArtSource) {
     await Promise.all(
@@ -105,7 +112,7 @@ export class ArtBook {
         c.width = img.naturalWidth;
         c.height = img.naturalHeight;
         c.getContext("2d")!.drawImage(img, 0, 0);
-        const [ax, ay] = src.anchors?.[key] ?? [c.width / 2, c.height - this.tw / 4];
+        const [ax, ay] = src.anchors?.[key] ?? [c.width / 2, opaqueBottom(c) - (this.tw / 4 - 1)];
         this.loaded.set(key, { canvas: c, ax, ay });
       }),
     );

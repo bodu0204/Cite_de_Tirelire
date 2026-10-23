@@ -229,8 +229,8 @@
       "key": "building/commerce/1",
       "stage": "M1-t1",
       "endpoint": "generate-image-v2",
-      "heightTiles": 1.25,
-      "description": "small retail shop with a blue awning, big shop window and a sign with a simple icon, no letters, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "heightTiles": 1.0,
+      "description": "small one-storey retail shop, low and compact, with a blue awning, big shop window and a sign with a simple icon, no letters, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
       "body": {},
       "styled": true,
       "refs": {

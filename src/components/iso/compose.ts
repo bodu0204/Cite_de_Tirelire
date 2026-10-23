@@ -22,11 +22,11 @@ function copy(a: Art): [HTMLCanvasElement, CanvasRenderingContext2D] {
 
 /** 建物Lv の小物を置く位置（基準点からのずれ。64px タイル基準）。Lv2 から順に1つずつ増える */
 const PROP_SPOTS: [number, number][] = [
-  [-20, 9], // Lv2 植木鉢
-  [17, 9], // Lv3 ベンチ
-  [-27, 3], // Lv4 街灯
-  [26, 3], // Lv5 旗
-  [-2, 13], // Lv6 車
+  [-21, 10], // Lv2 植木鉢
+  [25, 5], // Lv3 街灯
+  [-27, 4], // Lv4 旗
+  [13, 13], // Lv5 ベンチ
+  [-6, 15], // Lv6 車
 ];
 
 export function withLevel(base: Art, level: number, props: (Art | null)[], tw: number): Art {

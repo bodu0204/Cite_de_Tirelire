@@ -70,11 +70,37 @@ export function toPalette(png: Png, pal: RGB[]) {
   }
 }
 
-export function finish(buf: Buffer): { png: Png; outline: number } {
+/** 不透明な画素を囲む最小の矩形に切り詰める（小物。地面のひし形に乗らないので幅の決まりがない） */
+export function crop(png: Png): Png {
+  const { width: w, height: h, rgba } = png;
+  let x0 = w;
+  let y0 = h;
+  let x1 = -1;
+  let y1 = -1;
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++)
+      if (rgba[(y * w + x) * 4 + 3]) {
+        x0 = Math.min(x0, x);
+        y0 = Math.min(y0, y);
+        x1 = Math.max(x1, x);
+        y1 = Math.max(y1, y);
+      }
+  if (x1 < 0) return png;
+  const cw = x1 - x0 + 1;
+  const ch = y1 - y0 + 1;
+  const out = new Uint8Array(cw * ch * 4);
+  for (let y = 0; y < ch; y++) out.set(rgba.subarray(((y0 + y) * w + x0) * 4, ((y0 + y) * w + x1 + 1) * 4), y * cw * 4);
+  const alpha = new Uint8Array(cw * ch);
+  for (let i = 0; i < alpha.length; i++) alpha[i] = out[i * 4 + 3];
+  return { width: cw, height: ch, rgba: out, alpha };
+}
+
+export function finish(buf: Buffer, key = ""): { png: Png; outline: number } {
   const pal = loadPalette();
-  const png = readPng(buf);
+  let png = readPng(buf);
   toPalette(png, pal);
   const outline = selectiveOutline(png, pal);
+  if (key.startsWith("props/")) png = crop(png);
   return { png, outline };
 }
 
@@ -83,7 +109,7 @@ function main() {
   const jobs: [string, string][] = args[0] === "--redo" ? args.slice(1).map((k) => [path.join(OUT, `${k}.png`), k]) : [[args[0], args[1]]];
   for (const [from, key] of jobs) {
     if (!from || !key) throw new Error("使い方はファイル先頭のコメントを見てください");
-    const { png, outline } = finish(readFileSync(from));
+    const { png, outline } = finish(readFileSync(from), key);
     const to = path.join(OUT, `${key}.png`);
     mkdirSync(path.dirname(to), { recursive: true });
     writeFileSync(to, writePng(png.width, png.height, png.rgba));
