@@ -52,17 +52,15 @@ function pixelSize(w: number, h: number, scale: number) {
 }
 
 function PixelImage({ src, scale, title }: { src: string; scale: number; title: string }) {
+  const ref = useRef<HTMLImageElement>(null);
   const [size, setSize] = useState<{ width: number; height: number }>();
-  return (
-    <img
-      src={src}
-      alt={title}
-      title={title}
-      className="pixelated"
-      style={size}
-      onLoad={(e) => setSize(pixelSize(e.currentTarget.naturalWidth, e.currentTarget.naturalHeight, scale))}
-    />
-  );
+  const measure = () => {
+    const img = ref.current;
+    if (img?.naturalWidth) setSize(pixelSize(img.naturalWidth, img.naturalHeight, scale));
+  };
+  // React が読み込みを見張る前に読み終わっていることがあるので、表示後にも大きさを確かめる
+  useEffect(measure, [src, scale]);
+  return <img ref={ref} src={src} alt={title} title={title} className="pixelated" style={size} onLoad={measure} />;
 }
 
 function Placeholder({ line, tier, tw, scale, title }: { line: (typeof BUILDING_LINES)[number]; tier: number; tw: number; scale: number; title: string }) {

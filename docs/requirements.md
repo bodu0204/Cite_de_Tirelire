@@ -434,7 +434,7 @@
 
 v1.0 第10章を踏襲する（レスポンシブ・PWA・HTTPS・ユーザー単位のアクセス制御・データ削除・WCAG 2.2 AA目標）。MVPはオンライン操作が基本で、オフライン時はキャッシュ済み画面の閲覧と通信状態の通知のみ。
 
-技術構成（確定）：Next.js（App Router）+ React + TypeScript / Tailwind CSS / 街の描画は Canvas 2D（PixiJS は演出強化時に検討）/ PostgreSQL + Prisma / 認証はメール＋パスワードのセッション方式（Auth.js 等への置き換えを妨げない構造）。
+技術構成（確定）：Next.js（App Router）+ React + TypeScript / Tailwind CSS / 街の描画は PixiJS（WebGL）のアイソメトリック描画（2026-10-23 に Canvas 2D から置き換え。詳細は [rendering-requirements.md](rendering-requirements.md)）/ PostgreSQL + Prisma / 認証はメール＋パスワードのセッション方式（Auth.js 等への置き換えを妨げない構造）。
 
 ---
 
