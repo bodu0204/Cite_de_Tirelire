@@ -80,7 +80,7 @@ function AmountEditor({ row, onDone }: { row: Row; onDone: () => void }) {
         <input inputMode="numeric" autoFocus value={amount} onChange={(e) => setAmount(digits(e.target.value))} />
       </Field>
       {quote && (quote.canceled ?? 0) > 0 && <p className="num text-xs text-muted">予約中の振り分けを {fmt(quote.canceled!)} 取りやめます。</p>}
-      {quote && (quote.cutMining ?? 0) > 0 && <p className="num text-xs text-muted">当期の残りの採掘を {fmt(quote.cutMining!)}G 減らします。</p>}
+      {quote && (quote.cutMining ?? 0) > 0 && <p className="num text-xs text-muted">当期の残りの配当を {fmt(quote.cutMining!)}G 減らします。</p>}
       {quote?.surplus && <ResolutionPreview r={quote.surplus} />}
       {quote?.shortfall && <ResolutionPreview r={quote.shortfall} />}
       <Button type="submit" className="w-full" disabled={busy || amount === "" || n === row.item.amount}>

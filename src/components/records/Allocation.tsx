@@ -163,7 +163,7 @@ export function AllocationEditor({
                   <select aria-label="どう" className="w-auto" value={r.how} onChange={(e) => update(i, { how: e.target.value as AllocationRow["how"] })}>
                     <option value="lump">{HOW_LABELS.lump}（開始日）</option>
                     <option value="daily">{HOW_LABELS.daily}</option>
-                    {r.currency === "GOLD" && <option value="minute">{HOW_LABELS.minute}（採掘に上乗せ）</option>}
+                    {r.currency === "GOLD" && <option value="minute">{HOW_LABELS.minute}（配当に上乗せ）</option>}
                   </select>
                 </>
               )}
@@ -213,7 +213,7 @@ export function AllocationEditor({
         </span>
       </div>
       {quote?.saving && <ResolutionPreview r={quote.saving} title="即時貯蓄の見込み（債券 → おまかせ交換）" />}
-      <p className="text-xs text-muted">先の日付・期間の分は予約され、その日が来たら入ります。期間で均等（毎分）の金貨は採掘に上乗せされます（債券化率もかかります）。</p>
+      <p className="text-xs text-muted">先の日付・期間の分は予約され、その日が来たら入ります。期間で均等（毎分）の金貨は配当に上乗せされます（債券化率もかかります）。</p>
     </div>
   );
 }

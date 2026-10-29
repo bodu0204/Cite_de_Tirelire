@@ -72,7 +72,8 @@ export function Field({ label, children, hint }: { label: string; children: Reac
   );
 }
 
-export function Tabs<T extends string>({ value, onChange, items }: { value: T; onChange: (v: T) => void; items: { value: T; label: string }[] }) {
+/** note はラベルの横に添える小さな補足（例：「貯金」） */
+export function Tabs<T extends string>({ value, onChange, items }: { value: T; onChange: (v: T) => void; items: { value: T; label: string; note?: string }[] }) {
   return (
     <div role="tablist" className="flex gap-1 rounded-lg border border-line bg-surface-2 p-1">
       {items.map((it) => (
@@ -85,6 +86,7 @@ export function Tabs<T extends string>({ value, onChange, items }: { value: T; o
           className={`min-h-9 flex-1 whitespace-nowrap rounded-md px-1.5 text-sm ${value === it.value ? "bg-surface font-semibold shadow-sm" : "text-muted"}`}
         >
           {it.label}
+          {it.note && <span className="ml-1 rounded bg-gold-soft px-1 py-0.5 align-middle text-[10px] font-semibold text-ink">{it.note}</span>}
         </button>
       ))}
     </div>

@@ -7,12 +7,12 @@ import { fmt } from "@/lib/api";
 import { useGame } from "./GameProvider";
 import { BondIcon, Coin, CustomIcon } from "./ui";
 
-const NAV = [
+const NAV: { href: string; label: string; short?: string; icon: ReactNode }[] = [
   { href: "/", label: "街", icon: "🏘" },
-  { href: "/records", label: "銀鉱・記録", short: "記録", icon: "⛏" },
-  { href: "/gold", label: "金鉱", icon: "✦" },
-  { href: "/bank", label: "銀行", icon: "🏦" },
-  { href: "/exchange", label: "資源交換", short: "交換", icon: "⇄" },
+  { href: "/records", label: "収支記録", short: "記録", icon: <Coin kind="silver" size={18} /> },
+  { href: "/gold", label: "配当資金", short: "配当", icon: <Coin kind="gold" size={18} /> },
+  { href: "/bank", label: "貯金状況", short: "貯金", icon: "🏦" },
+  { href: "/exchange", label: "貯金・資源交換", short: "交換", icon: "⇄" },
   { href: "/currencies", label: "通貨", icon: "🪙" },
   { href: "/wishes", label: "ほしい物", icon: "🗿" },
   { href: "/subscriptions", label: "サブスク", icon: "🌳" },

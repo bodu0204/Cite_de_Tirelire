@@ -57,9 +57,9 @@ export function describeEvent(e: DescribableEvent): string {
     case "BANK_LEVEL":
       return (p.level as number) >= 6 ? "銀行が完成しました！" : `銀行がLv${p.level}になりました`;
     case "GOLD_MINE_LEVEL":
-      return `金鉱がLv${p.level}になりました`;
+      return `銀行の配当Lvが${p.level}になりました`;
     case "SILVER_MINE_LEVEL":
-      return `銀鉱がLv${p.level}になりました`;
+      return `銀行の記録Lvが${p.level}になりました`;
     case "PARK_OPENED":
       return `${p.name}の公園が開園しました`;
     case "PARK_CLOSED":

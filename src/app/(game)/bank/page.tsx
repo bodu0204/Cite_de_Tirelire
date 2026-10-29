@@ -4,6 +4,7 @@ import { useSeasonView } from "@/components/GameProvider";
 import { SavingsGauge, TechGauge, WishSavingsGauge } from "@/components/home/Gauges";
 import { Card, LinkButton, Stat } from "@/components/ui";
 import { BANK_LEVEL_THRESHOLDS } from "@/game/config";
+import { goldMineBonus, silverMineBonus } from "@/game/levels";
 import { fmt, formatDate, yen } from "@/lib/api";
 
 /** 貯金の推移（純増額の折れ線） */
@@ -43,8 +44,10 @@ export default function BankPage() {
   return (
     <div className="mx-auto max-w-2xl space-y-4">
       <div>
-        <h1 className="font-pixel text-2xl">銀行</h1>
-        <p className="mt-1 text-sm text-muted">現実の貯金目標を表す施設です。達成率に応じて成長し、金貨・銀貨から資源への交換効率が上がります。</p>
+        <h1 className="font-pixel text-2xl">貯金状況</h1>
+        <p className="mt-1 text-sm text-muted">
+          街の中心の銀行は、現実の貯金目標を表す施設です。達成率に応じて成長し、金貨・銀貨から資源への交換効率が上がります。金貨の配当と、記録の報酬の銀貨も銀行から受け取ります。
+        </p>
       </div>
       <Card>
         <div className="space-y-4">
@@ -76,6 +79,23 @@ export default function BankPage() {
         <Stat label="銀行" value={s.bankLevel >= 6 ? "完成" : `Lv${s.bankLevel}`} sub={nextBank !== null ? `次は達成率${nextBank}%` : undefined} />
         <Stat label="交換ボーナス" value={`+${Math.round(s.bankBonus * 100)}%`} sub="金貨・銀貨とも" />
       </div>
+      <Card title="銀行のレベル">
+        <dl className="num grid grid-cols-[1fr_auto] gap-x-3 gap-y-1 text-sm">
+          <dt className="text-muted">銀行 Lv（貯金の達成率）</dt>
+          <dd className="text-right">
+            {s.bankLevel >= 6 ? "完成" : `Lv${s.bankLevel}`} ・ 金貨・銀貨 +{Math.round(s.bankBonus * 100)}%
+          </dd>
+          <dt className="text-muted">配当 Lv（受け取った金貨）</dt>
+          <dd className="text-right">
+            Lv{v.mine.level} ・ 金貨 +{Math.round(goldMineBonus(v.mine.level) * 100)}%
+          </dd>
+          <dt className="text-muted">記録 Lv（有効な記録）</dt>
+          <dd className="text-right">
+            Lv{v.silverMine.level} ・ 銀貨 +{Math.round(silverMineBonus(v.silverMine.level) * 100)}%
+          </dd>
+        </dl>
+        <p className="mt-2 text-xs text-muted">交換効率のボーナスは足し合わせて効きます。配当Lvは配当資金、記録Lvは収支記録の画面で進み具合を確かめられます。</p>
+      </Card>
       <Card title="貯金管理（別口座への出し入れ）の推移">
         <SavingsChart points={points} goal={s.goal} />
         <p className="mt-2 text-xs text-muted">

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { INITIAL_PLOTS } from "@/game/config";
 import { tileIndex } from "@/components/iso/map";
-import { LOCKED_BAND, MAX_CARS, MAX_PEOPLE, agentCounts, buildingKey, cityToIso, goldStage, hourIn, lightRatio, nightLevel, troubleIcons } from "../toIso";
+import { LOCKED_BAND, MAX_CARS, MAX_PEOPLE, agentCounts, buildingKey, cityToIso, goldStage, hourIn, lightRatio, nightLevel, troubleIcons, type CityBuilding } from "../toIso";
 
 const b = (over: Partial<Parameters<typeof buildingKey>[0]>) => ({ id: "b", tier: 0, level: 1, x: 4, y: 4, ...over });
 
@@ -18,7 +18,6 @@ describe("建物の絵のキー", () => {
     expect(buildingKey(b({ special: "park", tier: 2, closed: true }), 1)).toBe("special/park/2@closed");
     expect(buildingKey(b({ special: "statue", tier: 2, level: 3 }), 1)).toBe("special/statue/gold@stage3");
     expect(buildingKey(b({ special: "statue", tier: 1, level: 5 }), 1)).toBe("special/statue/silver");
-    expect(buildingKey(b({ special: "gold_mine", level: 2 }), 1)).toBe("special/gold_mine@lv2");
   });
 });
 
@@ -189,13 +188,19 @@ describe("M3 にぎわい", () => {
     expect(goldStage(5, 0)).toBe(3);
   });
 
-  it("A4 金鉱の前に金貨の山を置く", () => {
+  it("A4 銀行の前（手前の角のマス）に金貨の山を置く", () => {
     const zones = {};
-    const mine = { id: "m", special: "gold_mine" as const, tier: 0, level: 1, x: 3, y: 3 };
-    const { map } = cityToIso({ plots: INITIAL_PLOTS, buildings: [mine], zones, bankLevel: 1, gold: { uncollected: 120, ratePerMinute: 1 } });
-    expect(map.objects.find((o) => o.id === "gold")).toMatchObject({ x: 3, y: 3, key: "props/gold/2" });
-    const none = cityToIso({ plots: INITIAL_PLOTS, buildings: [mine], zones, bankLevel: 1, gold: { uncollected: 0, ratePerMinute: 1 } });
+    const bank = { id: "bank", special: "bank" as const, tier: 0, level: 1, x: -1, y: -1 };
+    const { map } = cityToIso({ plots: INITIAL_PLOTS, buildings: [bank], zones, bankLevel: 1, gold: { uncollected: 120, ratePerMinute: 1 } });
+    expect(map.objects.find((o) => o.id === "gold")).toMatchObject({ x: 1, y: 1, key: "props/gold/2" });
+    const none = cityToIso({ plots: INITIAL_PLOTS, buildings: [bank], zones, bankLevel: 1, gold: { uncollected: 0, ratePerMinute: 1 } });
     expect(none.map.objects.find((o) => o.id === "gold")).toBeUndefined();
+  });
+
+  it("以前の街の金鉱・銀鉱は描かない", () => {
+    const legacy = { id: "gold_mine", special: "gold_mine", tier: 0, level: 1, x: 3, y: -2 } as unknown as CityBuilding;
+    const { map } = cityToIso({ plots: INITIAL_PLOTS, buildings: [legacy], zones: {}, bankLevel: 1 });
+    expect(map.objects.find((o) => o.id === "gold_mine")).toBeUndefined();
   });
 
   it("A3 困りごと：足りない割合だけ、その資源を使う建物に出す", () => {

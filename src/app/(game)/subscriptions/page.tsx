@@ -100,7 +100,7 @@ export default function SubscriptionsPage() {
     <div className="mx-auto max-w-2xl space-y-4">
       <div>
         <h1 className="font-pixel text-2xl">サブスク</h1>
-        <p className="mt-1 text-sm text-muted">契約中のサブスクは街の公園になり、周りの幸福度を少し上げます。月額は金鉱の採掘量から差し引かれます。</p>
+        <p className="mt-1 text-sm text-muted">契約中のサブスクは街の公園になり、周りの幸福度を少し上げます。月額は金貨の配当額から差し引かれます。</p>
       </div>
       <Card>
         <div className="flex items-baseline justify-between">
@@ -109,7 +109,7 @@ export default function SubscriptionsPage() {
         </div>
         {budget > 0 && (
           <p className="mt-1 text-xs text-muted">
-            金鉱の採掘は月 {yen(v?.mine.breakdown.net ?? Math.max(0, budget - total))}（自由予算 {yen(budget)} − サブスク{v && v.mine.breakdown.custom > 0 && ` − ユーザ通貨 ${yen(v.mine.breakdown.custom)}`}）。サブスクがなければ月 {yen(total)} 分多く金貨を採掘できます。
+            金貨の配当は月 {yen(v?.mine.breakdown.net ?? Math.max(0, budget - total))}（自由予算 {yen(budget)} − サブスク{v && v.mine.breakdown.custom > 0 && ` − ユーザ通貨 ${yen(v.mine.breakdown.custom)}`}）。サブスクがなければ月 {yen(total)} 分多く金貨が配当されます。
           </p>
         )}
       </Card>

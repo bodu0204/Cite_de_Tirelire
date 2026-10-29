@@ -184,7 +184,7 @@ export default function HomePage() {
 
         <div className="grid grid-cols-2 gap-2">
           <LinkButton href="/records" variant="primary" className="min-h-14 text-base">
-            ⛏ 銀鉱に記録
+            <Coin kind="silver" size={18} /> 収支を記録
           </LinkButton>
           <Button
             variant="gold"
@@ -192,10 +192,10 @@ export default function HomePage() {
             disabled={busy || uncollected < 1}
             onClick={async () => {
               const r = await act<{ collected: number }>("/api/mine/collect");
-              if (r) toast(`金貨 ${fmt(r.collected)}G を回収しました`, "reward");
+              if (r) toast(`金貨 ${fmt(r.collected)}G を受け取りました`, "reward");
             }}
           >
-            <Coin kind="gold" size={18} /> {fmt(uncollected)}G 回収
+            <Coin kind="gold" size={18} /> {fmt(uncollected)}G 受け取る
           </Button>
         </div>
 

@@ -54,8 +54,6 @@ export function createCity(startAt: number, preset: CityPolicy["preset"] = "bala
   });
   const buildings: Building[] = [
     b("bank", -1, -1, { special: "bank", locked: true }),
-    b("gold_mine", 3, -2, { special: "gold_mine", locked: true }),
-    b("silver_mine", -2, 3, { special: "silver_mine", locked: true }),
     b("b1", -5, -2, { line: "housing" }),
     b("b2", -2, -5, { line: "housing" }),
     b("b3", -5, 0, { line: "farm" }),
@@ -83,8 +81,8 @@ export function createCity(startAt: number, preset: CityPolicy["preset"] = "bala
     policy: { preset, priorities: [...priorities], autoEnabled: true },
     techLevel: 1,
     bankLevel: 1,
-    // b1, b2, … の次（銀行・金鉱・銀鉱は名前の ID）
-    nextId: buildings.length - 3 + 1,
+    // b1, b2, … の次（銀行は名前の ID）
+    nextId: buildings.length - 1 + 1,
     flags: { foodShort: false, powerShort: false },
   };
 }

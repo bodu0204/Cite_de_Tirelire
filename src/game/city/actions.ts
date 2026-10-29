@@ -148,7 +148,7 @@ export function moveBuilding(s: CityState, id: string, x: number, y: number, now
 
 export function demolish(s: CityState, id: string, now: number, events: CityEvent[]): void {
   const b = requireBuilding(s, id);
-  if (b.special === "bank" || b.special === "gold_mine" || b.special === "silver_mine") fail("special", "この施設は撤去できません");
+  if (b.special === "bank") fail("special", "この施設は撤去できません");
   if (b.special === "statue") fail("special", "像はほしい物リストから管理します");
   if (b.special === "park" && !b.closed) fail("special", "契約中のサブスクの公園は撤去できません");
   requireIdle(s, b);

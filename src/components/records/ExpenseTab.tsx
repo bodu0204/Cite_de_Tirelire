@@ -55,7 +55,7 @@ export function PaymentLine({ rows }: { rows: PaymentRow[] }) {
 /** 記録前の支払い内訳（確定前に債券・手数料が見える） */
 function QuoteView({ q }: { q: Quote }) {
   const v = useSeasonView();
-  if (!q.settleable) return <p className="rounded-lg bg-surface-2 px-3 py-2 text-xs text-muted">この支出は金鉱の精算対象外です（当期以外の日付・シーズン外）。</p>;
+  if (!q.settleable) return <p className="rounded-lg bg-surface-2 px-3 py-2 text-xs text-muted">この支出は金貨の精算対象外です（当期以外の日付・シーズン外）。</p>;
   const p = q.payment;
   const cur = (id: string) => v?.currencies.custom.find((c) => c.id === id);
   return (
@@ -75,7 +75,7 @@ function QuoteView({ q }: { q: Quote }) {
           <>
             <dt className="flex items-center gap-1">
               <Coin kind="gold" />
-              金貨（未回収→所持）
+              金貨（未受取→所持）
             </dt>
             <dd className="text-right">{fmt(p.gold)}G</dd>
           </>
@@ -97,7 +97,7 @@ function QuoteView({ q }: { q: Quote }) {
       {q.after && p.bond > 0 && (
         <p className="mt-1 text-xs">
           記録後の債券は <span className={`num font-semibold ${q.after.bond < 0 ? "text-danger" : ""}`}>{fmt(q.after.bond)}</span>
-          {q.after.bond < 0 && "。0に戻るまで採掘の20%以上が債券に回ります（発展速度は変わりません）"}
+          {q.after.bond < 0 && "。0に戻るまで配当の20%以上が債券に回ります（発展速度は変わりません）"}
         </p>
       )}
     </div>
@@ -305,7 +305,7 @@ function BaseRows({ onDone, tz }: { onDone: () => void; tz: string }) {
         </Button>
       )}
       <p className="text-xs text-muted">
-        サブスクの登録額はすでに採掘から差し引かれているので精算しません。登録額・価格より安ければ＋差分（債券 → おまかせ交換）、高ければ−差分（債券から）として解消します。ほしい物は積立が全額貯まったものだけが並び、積立金貨から価格を精算します。
+        サブスクの登録額はすでに配当から差し引かれているので精算しません。登録額・価格より安ければ＋差分（債券 → おまかせ交換）、高ければ−差分（債券から）として解消します。ほしい物は積立が全額貯まったものだけが並び、積立金貨から価格を精算します。
       </p>
     </div>
   );

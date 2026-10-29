@@ -4,11 +4,11 @@ import { DAY, HOUR, TICK_MS } from "../config";
 import { demolish, expandQuote, manualBuild, manualExpand, manualUpgrade, moveBuilding, rushJob, setPolicy, syncParks, syncStatues } from "../city/actions";
 import { computeMetrics } from "../city/economy";
 import { createCity } from "../city/init";
-import { buildingSize, connected, expandablePlots, expansionError, findSite, footprint, isPlaced, isPlannedRoad, isTileUnlocked, occupancy, placementFor, plotCross, plotLimit, roadNetwork, tileKey } from "../city/layout";
+import { buildingSize, connected, dropLegacyMines, expandablePlots, expansionError, findSite, footprint, isPlaced, isPlannedRoad, isTileUnlocked, occupancy, placementFor, plotCross, plotLimit, roadNetwork, tileKey } from "../city/layout";
 import { applyTechLevel, simulate } from "../city/sim";
 import { devLevel } from "../levels";
 import { createReplay } from "../replay";
-import { snapBuilding, type CityEvent, type CityState } from "../types";
+import { snapBuilding, type Building, type CityEvent, type CityState } from "../types";
 
 const T0 = Date.UTC(2026, 9, 1, 0, 0, 0);
 
@@ -229,8 +229,21 @@ describe("建物の大きさ（docs/map-layout-redesign.md §4）", () => {
     expect(buildingSize({ special: "park", tier: 3 })).toBe(3);
     expect(buildingSize({ special: "park", tier: 2 })).toBe(2);
     expect(buildingSize({ line: "rail", tier: 0 })).toBe(2);
-    expect(buildingSize({ special: "gold_mine", tier: 0 })).toBe(2);
     expect(buildingSize({ line: "housing", tier: 5 })).toBe(2);
+  });
+
+  it("以前の街の金鉱・銀鉱は取り除き、敷地を最初の土地用途に戻す", () => {
+    const s = createCity(T0);
+    const mine = (id: string, x: number, y: number) => ({ ...s.buildings[0], id, special: id, x, y }) as unknown as Building;
+    s.buildings.push(mine("gold_mine", 3, -2), mine("silver_mine", -2, 3));
+    s.zones["3,-2"] = "special";
+    s.zones["-2,3"] = "special";
+    expect(dropLegacyMines(s)).toBe(true);
+    expect(s.buildings.some((b) => (b.special as string)?.endsWith("_mine"))).toBe(false);
+    expect(s.zones["3,-2"]).toBe("commercial");
+    expect(s.zones["-2,3"]).toBe("agricultural");
+    expect(s.zones["0,0"]).toBe("special");
+    expect(dropLegacyMines(s)).toBe(false);
   });
 
   it("初期の街：銀行は原点を中心にした3×3。建物の占有範囲は重ならない", () => {
@@ -336,7 +349,7 @@ describe("道路網（docs/map-layout-redesign.md §5）", () => {
 
   it("銀行とのつながりを切る道路は撤去・移動できない。行き止まりの道路は撤去できる", () => {
     const s = createCity(T0);
-    // 銀行の東の (2, 0) は、金鉱・製材所の脇を通る道
+    // 銀行の東の (2, 0) は、製材所の脇を通る道
     const east = s.buildings.find((b) => b.line === "road" && b.x === 2 && b.y === -3)!;
     expect(() => demolish(s, east.id, T0, [])).toThrow(/つながらなくなります/);
     expect(() => moveBuilding(s, east.id, -2, -2, T0, 100, [])).toThrow(/つながらなくなります/);

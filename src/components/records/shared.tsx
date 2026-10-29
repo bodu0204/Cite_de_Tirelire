@@ -51,7 +51,7 @@ export function ResolutionLine({ r, prefix }: { r: Resolution; prefix?: string }
         {surplus ? "＋差分" : "−差分"} {fmt(total)}
       </span>
       {(d?.canceled ?? 0) > 0 && <span>予約を取りやめ {fmt(d!.canceled!)}</span>}
-      {(d?.cutMining ?? 0) > 0 && <span>残りの採掘 −{fmt(d!.cutMining!)}G</span>}
+      {(d?.cutMining ?? 0) > 0 && <span>残りの配当 −{fmt(d!.cutMining!)}G</span>}
       {(d?.cutCustom ?? 0) > 0 && <span>ユーザ通貨の未発生分 −{fmt(d!.cutCustom!)}</span>}
       {r.bond !== 0 && (
         <span className="inline-flex items-center gap-0.5">
