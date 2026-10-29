@@ -14,7 +14,7 @@ import { type Png, readPng, writePng } from "./png";
 
 const SRC = path.join(path.resolve(__dirname, "../.."), "art/sprites/64");
 /** 土の側面と、その輪郭の色 */
-const SOIL = ["040203", "271511", "3b221d", "4c352c", "644334", "6d4f3e", "7a3f1e"];
+export const SOIL = ["040203", "271511", "3b221d", "4c352c", "644334", "6d4f3e", "7a3f1e"];
 
 function opaqueBottom(p: Png): number {
   for (let y = p.height - 1; y >= 0; y--) for (let x = 0; x < p.width; x++) if (p.alpha[y * p.width + x]) return y;
@@ -35,7 +35,7 @@ function columnBottom(rgba: Uint8Array, w: number, h: number, x: number): number
  * そのあと、下の縁から1〜3列の幅で飛び出した画素（側面の色でない小石・輪郭の残り）を、両側の列の縁の高さまで消す。
  * ひし形の辺は2列で1ドット下がるので、r 列離れた両側の縁より ceil(r/2) ドットを超えて下にある画素は飛び出し
  */
-function trim(p: Png, depth: number, side: Set<string>): Buffer {
+export function trim(p: Png, depth: number, side: Set<string>): Buffer {
   const out = new Uint8Array(p.rgba);
   const clear = (x: number, y: number) => out.fill(0, (y * p.width + x) * 4, (y * p.width + x + 1) * 4);
   for (let x = 0; x < p.width; x++) {
@@ -52,6 +52,24 @@ function trim(p: Png, depth: number, side: Set<string>): Buffer {
     for (let y = bottoms[x]; y > limit; y--) clear(x, y);
   }
   return writePng(p.width, p.height, out);
+}
+
+/**
+ * 土台が残っていそうな度合い：一番下から側面の色が3ドット以上続く列の割合（build-atlas.ts の LINT-09）。
+ * 茶色い壁の建物も高くなるので、目で見て土台でないと確かめた絵は base-ok.json に書いて外す
+ */
+export function sideShare(p: Png): number {
+  let used = 0;
+  let thick = 0;
+  for (let x = 0; x < p.width; x++) {
+    let y = columnBottom(p.rgba, p.width, p.height, x);
+    if (y < 0) continue;
+    used++;
+    let run = 0;
+    for (; y >= 0 && p.alpha[y * p.width + x] && SOIL.includes(hex(p, x, y)); y--) run++;
+    if (run >= 3) thick++;
+  }
+  return used ? thick / used : 0;
 }
 
 function main() {
@@ -76,4 +94,4 @@ function main() {
   writeFileSync(ANIM_FILE, `${JSON.stringify(anims, null, 2)}\n`);
 }
 
-main();
+if (require.main === module) main();

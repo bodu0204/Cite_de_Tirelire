@@ -1,0 +1,11 @@
+{
+  "$comment": "LINT-09（土台が残っていそう）の警告から外す絵と、目で見て確かめた理由。下に続く茶色が、土台の側面ではなく建物・小物・地形のもの",
+  "big/building/commerce/0": "木の屋台・樽・ベンチの脚",
+  "big/building/commerce/1": "木造の壁と木箱",
+  "big/building/factory/0": "れんがの壁と木箱・柵",
+  "big/building/factory/3": "工場の足元の機械と木箱",
+  "big/building/farm/2": "納屋の板壁と柵",
+  "big/building/housing/3": "足元の柵と植木鉢",
+  "big/special/bank/3": "足元の柵と植木鉢",
+  "big/special/gold_mine": "岩山の縁の岩と土の地面"
+}

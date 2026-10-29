@@ -47,7 +47,7 @@ function vee(bottoms: number[], cx: number): { apex: number; gap: number } {
 }
 
 /** 左右の空いている列の数（同じだけずらすほかの絵＝動きのコマ・発光マスクも含めて、一番狭いもの） */
-function room(pngs: Png[]): [number, number] {
+export function room(pngs: Png[]): [number, number] {
   let left = Infinity;
   let right = Infinity;
   for (const p of pngs) {

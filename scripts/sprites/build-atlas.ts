@@ -8,10 +8,12 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { requiredKeys, tierChains } from "./catalog";
+import { fit, room } from "./align";
 import { isSmall } from "./finish";
 import { ANIM_FILE, type AnimDef } from "./import-anim";
 import { PALETTE_FILE } from "./palette";
 import { type Png, readPng, writePng } from "./png";
+import { sideShare } from "./trim-base";
 
 const ROOT = path.resolve(__dirname, "../..");
 const TW = 64;
@@ -23,6 +25,8 @@ const MAX = 2048;
 const PAD = 2;
 /** LINT-07：大きな建物（big/）で、前の段階より低くてもよい高さ（ドット） */
 const BIG_TOLERANCE = 10;
+/** LINT-09：一番下から土の色が3ドット以上続く列がこの割合を超えたら、土台が残っていそうとして警告する */
+const SIDE_SHARE = 0.4;
 
 interface Sprite {
   key: string;
@@ -133,7 +137,29 @@ export function lint(sprites: Map<string, Sprite>, palette: Set<string>, anims: 
       prevKey = k;
     }
   }
+  // LINT-08：大きな建物（big/）が占有範囲のひし形に合っている（scripts/sprites/align.ts と同じ測り方。直すのは align.ts --write）
+  for (const s of sprites.values()) {
+    if (!s.key.startsWith("big/")) continue;
+    const others = [sprites.get(`glow/${s.key}`), ...Array.from({ length: anims[s.key]?.frames ?? 0 }, (_, i) => sprites.get(`anim/${s.key}/${i}`))];
+    const { dx, apex } = fit(s.png, room([s.png, ...others.flatMap((o) => (o ? [o.png] : []))]));
+    const ay = apex - (s.png.width / 4 - 1);
+    if (dx || ay !== s.ay) errors.push(`LINT-08 占有範囲からずれている（横 ${dx}、基準点の高さ ${s.ay} → ${ay}）。align.ts --write で直す：${s.key}`);
+  }
   return errors;
+}
+
+/**
+ * LINT-09（警告だけ）：地面の上に置く絵に、土の側面（土台）が残っていそう。trim-base.ts で削るか、
+ * 目で見て土台でないと確かめたら base-ok.json に理由を書いて外す。大きな絵（big/）がある1マスの絵は代わりにしか使わないので見ない
+ */
+export function warnings(sprites: Map<string, Sprite>, baseOk: Record<string, string> = {}): string[] {
+  const out: string[] = [];
+  for (const s of sprites.values()) {
+    if (!onTile(s.key) || /^(anim|glow|ground|road|fx)\//.test(s.key) || sprites.has(`big/${s.key}`) || s.key in baseOk) continue;
+    const share = sideShare(s.png);
+    if (share > SIDE_SHARE) out.push(`LINT-09 土台が残っていそう（下に土の色が続く列 ${Math.round(share * 100)}%）：${s.key}`);
+  }
+  return out;
 }
 
 /** 高さの順に棚へ並べる。入りきらなければ次のアトラスへ */
@@ -198,6 +224,10 @@ function main() {
     }
   }
   let errors = lint(sprites, palette, anims);
+  const baseOkFile = path.join(SRC, "base-ok.json");
+  const { $comment: _, ...baseOk }: Record<string, string> = existsSync(baseOkFile) ? JSON.parse(readFileSync(baseOkFile, "utf8")) : {};
+  // GitHub Actions では PR の画面に注記として出す
+  for (const w of warnings(sprites, baseOk)) console.warn(process.env.GITHUB_ACTIONS ? `::warning::${w}` : w);
   if (allowMissing) {
     const missing = errors.filter((e) => e.startsWith("LINT-01"));
     if (missing.length) console.warn(`LINT-01：絵が ${missing.length} 枚足りません（仮の絵で描きます）`);
