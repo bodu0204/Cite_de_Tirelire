@@ -126,6 +126,13 @@ export class IsoStage {
   private darkTiles = new Set<string>();
   private heights = new Map<string, number>();
   private select: Sprite;
+  /**
+   * 選んだマスを建物の上にも出す（OBJ-10・RND-04 の一番上の層）：建物に隠れないよう、ひし形の枠を半透明で重ね、
+   * マスの建物の輪郭を白く光らせる
+   */
+  private selectLayer = new Container();
+  private selectGhost: Sprite;
+  private selected: { x: number; y: number } | null = null;
   private highlight: Sprite;
   private highlightUntil = 0;
   private cam: Camera = { cx: 0, cy: 0, zoom: 1 };
@@ -150,6 +157,7 @@ export class IsoStage {
     this.p = iso(opts.tw);
     this.book = new TextureBook(opts.tw);
     this.select = new Sprite();
+    this.selectGhost = new Sprite();
     this.highlight = new Sprite();
   }
 
@@ -189,7 +197,7 @@ export class IsoStage {
     canvas.style.touchAction = "none";
     canvas.style.display = "block";
     canvas.addEventListener("webglcontextlost", this.onContextLost);
-    this.world.addChild(this.groundLayer, this.markLayer, this.objLayer, this.fxLayer, this.troubleLayer);
+    this.world.addChild(this.groundLayer, this.markLayer, this.objLayer, this.fxLayer, this.troubleLayer, this.selectLayer);
     this.objLayer.sortableChildren = true;
     this.app.stage.addChild(this.world);
 
@@ -197,6 +205,9 @@ export class IsoStage {
     this.select.texture = sel.texture;
     this.select.anchor.set(sel.ax / sel.w, sel.ay / sel.h);
     this.select.visible = false;
+    this.selectGhost.texture = sel.texture;
+    this.selectGhost.anchor.copyFrom(this.select.anchor);
+    this.selectGhost.alpha = 0.5;
     const hl = this.book.get("ui/highlight");
     this.highlight.texture = hl.texture;
     this.highlight.anchor.set(hl.ax / hl.w, hl.ay / hl.h);
@@ -293,9 +304,10 @@ export class IsoStage {
     }
     if (changed) {
       this.visibleObjects = [...this.shown].flatMap((k) => this.chunkObjects.get(k) ?? []);
-      // 建物が変わると屋根の高さも変わるので、アイコンを置き直す
+      // 建物が変わると屋根の高さも変わるので、アイコンと選択の輪郭を置き直す
       this.troubleSig = "";
       this.drawTroubles();
+      this.drawSelection();
     }
     const now = performance.now();
     for (const { o, kind } of born) {
@@ -605,10 +617,31 @@ export class IsoStage {
   }
 
   setSelected(tile: { x: number; y: number } | null) {
+    this.selected = tile;
     this.select.visible = !!tile;
     if (tile) {
       const s = toScreen(this.p, tile.x, tile.y);
       this.select.position.set(s.sx, s.sy);
+    }
+    this.drawSelection();
+  }
+
+  /** 建物の上に重ねる選択の印を作り直す（選んだマスか、そのマスの建物が変わった時） */
+  private drawSelection() {
+    for (const c of this.selectLayer.removeChildren()) if (c !== this.selectGhost) c.destroy();
+    const t = this.selected;
+    if (!t || !this.map) return;
+    const s = toScreen(this.p, t.x, t.y);
+    this.selectGhost.position.set(s.sx, s.sy);
+    this.selectLayer.addChild(this.selectGhost);
+    const k = chunkKey({ cx: Math.floor(t.x / CHUNK), cy: Math.floor(t.y / CHUNK) });
+    for (const o of this.chunkObjects.get(k) ?? []) {
+      if (o.x !== t.x || o.y !== t.y) continue;
+      const e = this.book.getOutline(o.key);
+      const sp = new Sprite(e.texture);
+      sp.anchor.set(e.ax / e.w, e.ay / e.h);
+      sp.position.copyFrom(o.node.position);
+      this.selectLayer.addChild(sp);
     }
   }
 

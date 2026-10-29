@@ -63,6 +63,23 @@ export function dimmed(base: Art, gray: number, dark: number): Art {
   return { canvas: c, ax: base.ax, ay: base.ay };
 }
 
+/**
+ * 絵の外側を1ドット囲む輪郭だけの絵（選んだ建物を光らせる。OBJ-10）。
+ * 上下左右に不透明な画素がある透明な画素を塗る。絵より上下左右1ドットずつ大きい
+ */
+export function outlineOf(base: Art, color: string): Art {
+  const w = base.canvas.width;
+  const h = base.canvas.height;
+  const src = base.canvas.getContext("2d", { willReadFrequently: true })!.getImageData(0, 0, w, h).data;
+  const solid = (x: number, y: number) => x >= 0 && y >= 0 && x < w && y < h && src[(y * w + x) * 4 + 3] >= 128;
+  const [c, ctx] = blank(w + 2, h + 2);
+  ctx.fillStyle = color;
+  for (let y = -1; y <= h; y++)
+    for (let x = -1; x <= w; x++)
+      if (!solid(x, y) && (solid(x - 1, y) || solid(x + 1, y) || solid(x, y - 1) || solid(x, y + 1))) ctx.fillRect(x + 1, y + 1, 1, 1);
+  return { canvas: c, ax: base.ax + 1, ay: base.ay + 1 };
+}
+
 /** 像の建設途中（stage 0〜4）：台座から上へ、段階に応じて姿を見せ、手前に足場をかける */
 export function statueInProgress(statue: Art, stage: number, cover: Art | null): Art {
   const [c, ctx] = blank(statue.canvas.width, statue.canvas.height);

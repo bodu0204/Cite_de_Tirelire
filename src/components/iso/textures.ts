@@ -1,6 +1,7 @@
 // 絵をキーで引く台帳（§9 の getTexture）。PixiJS のテクスチャと、タップ判定用の不透明な画素を持つ。
 import { Texture } from "pixi.js";
 import { ArtBook } from "./artbook";
+import { outlineOf } from "./compose";
 import { alphaMask } from "./placeholder";
 
 export type { ArtSource } from "./artbook";
@@ -41,6 +42,18 @@ export class TextureBook extends ArtBook {
     return this.glowCache.get(k)!;
   }
 
+  private outlineCache = new Map<string, Entry>();
+
+  /** 選んだ建物の輪郭（絵の外側1ドット） */
+  getOutline(key: string): Entry {
+    let e = this.outlineCache.get(key);
+    if (!e) {
+      e = this.entry(outlineOf(this.art(key), "#ffffff"));
+      this.outlineCache.set(key, e);
+    }
+    return e;
+  }
+
   /** 動く絵のコマ（なければ null） */
   getAnim(key: string): { entries: Entry[]; fps: number } | null {
     if (!this.animCache.has(key)) {
@@ -63,6 +76,7 @@ export class TextureBook extends ArtBook {
     for (const e of this.cache.values()) e.texture.destroy(true);
     for (const a of this.animCache.values()) for (const e of a?.entries ?? []) e.texture.destroy(true);
     for (const e of this.glowCache.values()) e?.texture.destroy(true);
+    for (const e of this.outlineCache.values()) e.texture.destroy(true);
     this.glowCache.clear();
     this.cache.clear();
     this.animCache.clear();
