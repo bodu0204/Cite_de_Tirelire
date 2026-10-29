@@ -295,7 +295,10 @@ export class IsoStage {
     // 建物などの絵
     const byChunk = new Map<string, IsoObject[]>();
     for (const o of map.objects) {
-      const k = chunkKey(chunkOf(o.x, o.y));
+      // 大きな建物は手前の角のマスで数える。絵は手前の角から上へ伸びるので、左上のマスで数えると
+      // そのチャンクが画面の外に出た時に、まだ見えている建物まで消えてしまう
+      const n = (o.size ?? 1) - 1;
+      const k = chunkKey(chunkOf(o.x + n, o.y + n));
       const list = byChunk.get(k) ?? [];
       list.push(o);
       byChunk.set(k, list);
@@ -789,8 +792,10 @@ export class IsoStage {
     const r = viewRect(this.cam, this.viewport);
     const tall = (TALL * this.p.tw) / 64;
     const tiles = this.map.outside === "locked" ? this.viewTiles(r, tall) : this.tiles;
-    const keep = visibleChunks(this.p, r, tiles, tall, 1);
-    const draw = visibleChunks(this.p, r, tiles, tall, 0);
+    // 3x3 の建物は手前の角のマスより左右に1マス分はみ出すので、その分だけ横にも広げて判定する
+    const wide = { ...r, minX: r.minX - this.p.tw, maxX: r.maxX + this.p.tw };
+    const keep = visibleChunks(this.p, wide, tiles, tall, 1);
+    const draw = visibleChunks(this.p, wide, tiles, tall, 0);
     const drawKeys = new Set(draw.map(chunkKey));
 
     // 見えている分はすぐ焼く。余白の分は1フレームに1つずつ焼き、パン中の引っかかりを防ぐ（NF-01）
