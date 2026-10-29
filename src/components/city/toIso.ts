@@ -161,15 +161,29 @@ function smallKey(b: CityBuilding, bankLevel: number): string {
  */
 export const LOCKED_BAND = PLOT_SIZE;
 
-/** 盤面の範囲と、マスが開いているか。林を押しのけて置いた公園・像と道路のマスも開いているものとして描く */
+/** 占有範囲のマスが属する区画（"px,py"） */
+function footprintPlots(x: number, y: number, size: number): string[] {
+  const out: string[] = [];
+  for (let dy = 0; dy < size; dy++)
+    for (let dx = 0; dx < size; dx++) {
+      const { px, py } = plotOf(x + dx, y + dy);
+      out.push(plotKey(px, py));
+    }
+  return out;
+}
+
+/** 盤面の範囲と、マスが開いているか。林を押しのけて置いた公園・像（まわり1マスを含む）と道路のマスも開いているものとして描く */
 function landOf(input: CityInput, buildings: CityBuilding[]): { rect: Rect; open: (x: number, y: number) => boolean } {
   const plots = new Set(input.plots);
   const land = landBounds({ plots: input.plots });
   const pushed = new Set<string>();
   for (const b of buildings) {
     if (b.placed === false) continue;
+    // 林に置いた建物はまわり1マスも切り開き、隣の林の木が建物にかぶらないようにする（道路は道の幅だけ）
     const size = buildingSize(b);
-    for (let dy = 0; dy < size; dy++) for (let dx = 0; dx < size; dx++) pushed.add(tileKey(b.x + dx, b.y + dy));
+    const inForest = b.line !== "road" && footprintPlots(b.x, b.y, size).some((t) => !plots.has(t));
+    const m = inForest ? 1 : 0;
+    for (let dy = -m; dy < size + m; dy++) for (let dx = -m; dx < size + m; dx++) pushed.add(tileKey(b.x + dx, b.y + dy));
   }
   return {
     rect: { minX: land.minX - LOCKED_BAND, minY: land.minY - LOCKED_BAND, maxX: land.maxX + LOCKED_BAND, maxY: land.maxY + LOCKED_BAND },

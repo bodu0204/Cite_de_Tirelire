@@ -68,6 +68,22 @@ describe("盤面の変換", () => {
     expect(locked.length).toBe(20 * 20 - 10 * 10);
   });
 
+  it("林を押しのけて置いた公園はまわり1マスも切り開き、道路は道の幅だけ切り開く", () => {
+    const { map } = cityToIso({
+      plots: INITIAL_PLOTS,
+      buildings: [b({ id: "p", special: "park", tier: 3, x: 3, y: 3 }), b({ id: "r", line: "road", tier: 0, x: 7, y: -1 })],
+      zones: {},
+      bankLevel: 1,
+    });
+    // 公園の占有範囲（3〜5）とまわり1マス（2〜6）
+    for (const [x, y] of [[5, 5], [6, 6], [6, 3], [2, 6]]) expect(map.locked[tileIndex(map, x, y)]).toBe(0);
+    expect(map.locked[tileIndex(map, 7, 7)]).toBe(1);
+    expect(map.objects.some((o) => o.key.startsWith("locked/") && o.x === 6 && o.y === 6)).toBe(false);
+    // 道路はそのマスだけ
+    expect(map.locked[tileIndex(map, 7, -1)]).toBe(0);
+    expect(map.locked[tileIndex(map, 8, -1)]).toBe(1);
+  });
+
   it("大きな建物は占有範囲の一辺を渡し、その地面を敷地にする。道路と像は1マス", () => {
     const { map, overlay } = cityToIso({
       plots: INITIAL_PLOTS,
