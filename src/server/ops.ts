@@ -576,7 +576,7 @@ function subscriptionInput(body: Body) {
 async function subscriptionWarnings(ctx: GameCtx): Promise<{ warning: string | null; overruns: Overrun[] }> {
   ctx.subs = await ctx.tx.subscription.findMany({ where: { userId: ctx.user.id }, orderBy: { createdAt: "asc" } });
   const overruns = budgetOverruns(budgetPlan(ctx), ctx.now);
-  return { warning: overruns.length ? `${describeOverruns(overruns)}。その月の金貨の採掘は0になります` : null, overruns };
+  return { warning: overruns.length ? `${describeOverruns(overruns)}。その月の金貨の配当は0になります` : null, overruns };
 }
 
 export async function createSubscription(ctx: GameCtx, body: Body) {

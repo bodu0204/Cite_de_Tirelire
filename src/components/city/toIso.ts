@@ -2,7 +2,7 @@
 // 描画側はマップの大きさやゲームの規則を知らないので（RND-10）、ここで絵のキーと重ね描きの情報に置き換える。
 import { LINES, type LineId, type SpecialKind, type Zone } from "@/game/catalog";
 import { LOGISTICS_FLOOR, PLOT_SIZE } from "@/game/config";
-import { buildingSize, isPlannedRoad, landBounds, plotKey, plotOf, tileKey, type Rect } from "@/game/city/layout";
+import { buildingSize, isLegacyMine, isPlannedRoad, landBounds, plotKey, plotOf, tileKey, type Rect } from "@/game/city/layout";
 import { MIN_ROAD } from "@/components/iso/agents";
 import { hash2, type IsoMap, type IsoObject, type IsoOverlay, lockedKey, tileIndex } from "@/components/iso/map";
 
@@ -54,7 +54,7 @@ export interface CityInput {
   logistics?: number;
   /** 電気・働き手・食料の足りている割合（0〜1）。足りない分だけ建物に困りごとアイコンを出す（A3） */
   supply?: { power: number; workers: number; food: number };
-  /** 金鉱の未回収の金と、1分あたりの採掘量。金鉱の前に金貨の山を出す（A4） */
+  /** 未受取の配当（金貨）と、1分あたりの配当量。銀行の前に金貨の山を出す（A4） */
   gold?: { uncollected: number; ratePerMinute: number };
 }
 
@@ -142,9 +142,6 @@ function smallKey(b: CityBuilding, bankLevel: number): string {
   switch (b.special) {
     case "bank":
       return `special/bank/${Math.min(6, Math.max(1, bankLevel))}`;
-    case "gold_mine":
-    case "silver_mine":
-      return `special/${b.special}${lv}`;
     case "park":
       return `special/park/${Math.min(3, Math.max(0, b.tier))}${b.closed ? "@closed" : ""}`;
     case "statue": {
@@ -195,8 +192,8 @@ function landOf(input: CityInput, buildings: CityBuilding[]): { rect: Rect; open
 }
 
 export function cityToIso(input: CityInput): { map: IsoMap; overlay: IsoOverlay } {
-  // 2回たどる（建物と困りごと）ので、一度だけ取り出す
-  const buildings = [...input.buildings];
+  // 2回たどる（建物と困りごと）ので、一度だけ取り出す。以前の街の金鉱・銀鉱（タイムラプス）は描かない
+  const buildings = [...input.buildings].filter((b) => !isLegacyMine(b));
   const { rect, open } = landOf(input, buildings);
   const shape = { x0: rect.minX, y0: rect.minY, width: rect.maxX - rect.minX + 1, height: rect.maxY - rect.minY + 1 };
   const n = shape.width * shape.height;
@@ -225,9 +222,9 @@ export function cityToIso(input: CityInput): { map: IsoMap; overlay: IsoOverlay 
     const size = buildingSize(b);
     markLot(b.x, b.y, size);
     objects.push({ id: b.id, x: b.x, y: b.y, key: buildingKey(b, input.bankLevel, size), ...(size > 1 ? { size } : {}) });
-    // 金鉱の前に、未回収の金の量に応じた金貨の山（A4）
-    const stage = b.special === "gold_mine" && input.gold ? goldStage(input.gold.uncollected, input.gold.ratePerMinute) : 0;
-    if (stage) objects.push({ id: "gold", x: b.x, y: b.y, key: `props/gold/${stage}`, dz: 0.3, ox: 14, oy: 7 });
+    // 銀行の前（手前の角のマス）に、未受取の配当の量に応じた金貨の山（A4）
+    const stage = b.special === "bank" && input.gold ? goldStage(input.gold.uncollected, input.gold.ratePerMinute) : 0;
+    if (stage) objects.push({ id: "gold", x: b.x + size - 1, y: b.y + size - 1, key: `props/gold/${stage}`, dz: 0.3 });
   }
 
   // 未開放の区画（OBJ-02）：林か岩で覆い、開拓できる区画の真ん中に看板を立てる。開拓中の区画は林を切り開いた地面にする

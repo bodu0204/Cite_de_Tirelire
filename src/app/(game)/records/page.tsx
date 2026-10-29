@@ -7,12 +7,12 @@ import { ExpenseTab } from "@/components/records/ExpenseTab";
 import { HistoryTab } from "@/components/records/HistoryTab";
 import { IncomeTab } from "@/components/records/IncomeTab";
 import { SavingsTab } from "@/components/records/SavingsTab";
-import { Tabs } from "@/components/ui";
+import { Coin, Tabs } from "@/components/ui";
 import { REWARD_PURCHASE, REWARD_SAVINGS } from "@/game/config";
 
 type Tab = "income" | "expense" | "adjust" | "savings" | "history";
 
-/** 銀鉱・記録（SCR-02）：収入・支出・誤差調整の3種類と、貯金管理・履歴（docs/record-input-redesign.md §9.5） */
+/** 収支記録（SCR-02）：収入・支出・誤差調整の3種類と、貯金管理・履歴（docs/record-input-redesign.md §9.5） */
 export default function RecordsPage() {
   const { view } = useGame();
   const v = useSeasonView();
@@ -24,13 +24,16 @@ export default function RecordsPage() {
   return (
     <div className="mx-auto max-w-2xl space-y-4">
       <div>
-        <h1 className="font-pixel text-2xl">銀鉱</h1>
+        <h1 className="flex items-center gap-2 font-pixel text-2xl">
+          <Coin kind="silver" size={22} />
+          収支記録
+        </h1>
         <p className="mt-1 text-sm text-muted">
           現実の収入と支出を記録すると銀貨がもらえます（収入・支出 {REWARD_PURCHASE}S・貯金管理 {REWARD_SAVINGS}S、1日 {v?.silverMine.dailyCap ?? 300}S まで）。金額の大小で報酬は変わりません。
         </p>
         {v && (
           <p className="mt-1 text-xs text-muted">
-            銀鉱 Lv{v.silverMine.level}（有効な記録 {v.silverMine.records}件{v.silverMine.nextLevelAt !== null && ` ・ 次のLvまで ${v.silverMine.nextLevelAt - v.silverMine.records}件`}） ・ 今日の報酬 {v.silverMine.todayRewarded}/
+            記録 Lv{v.silverMine.level}（有効な記録 {v.silverMine.records}件{v.silverMine.nextLevelAt !== null && ` ・ 次のLvまで ${v.silverMine.nextLevelAt - v.silverMine.records}件`}） ・ 今日の報酬 {v.silverMine.todayRewarded}/
             {v.silverMine.dailyCap}S ・ 当期 {v.income.periodKey}（毎月{v.income.day}日から）
           </p>
         )}

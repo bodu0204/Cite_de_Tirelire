@@ -107,7 +107,7 @@ function MonthlyIncomes({ onDone }: { onDone: () => void }) {
                       <div className="rounded-lg bg-surface-2 px-3 py-2 text-xs">
                         <div className="mb-0.5 font-medium">−差分は当期の未配当分から減らし、足りない分は債券から</div>
                         <span className="num">
-                          残りの採掘 −{fmt(st.quote.reduction.cutMining)}G ・ ユーザ通貨の未発生分 −{fmt(st.quote.reduction.cutCustom.reduce((a, c) => a + c.amount, 0))}
+                          残りの配当 −{fmt(st.quote.reduction.cutMining)}G ・ ユーザ通貨の未発生分 −{fmt(st.quote.reduction.cutCustom.reduce((a, c) => a + c.amount, 0))}
                         </span>
                         {st.quote.reduction.shortfall && <ResolutionPreview r={st.quote.reduction.shortfall} />}
                       </div>
@@ -139,7 +139,7 @@ function MonthlyIncomes({ onDone }: { onDone: () => void }) {
         </Button>
       )}
       <p className="text-xs text-muted">
-        ベースは今の月間自由予算です。雛形の分はこれまでどおり金鉱の採掘とユーザ通貨で配当され、差分だけが追加で配当されます。記録しない月も雛形で配当は続きます。報酬は1件 {REWARD_PURCHASE}S（月ごとに1回）。
+        ベースは今の月間自由予算です。雛形の分はこれまでどおり金貨とユーザ通貨で配当され、差分だけが追加で配当されます。記録しない月も雛形で配当は続きます。報酬は1件 {REWARD_PURCHASE}S（月ごとに1回）。
       </p>
     </div>
   );

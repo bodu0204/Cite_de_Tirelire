@@ -30,7 +30,7 @@ export const BIG_PARK_TIER = 3;
 
 /**
  * 建物の一辺のマス数（docs/map-layout-redesign.md §4.1）。
- * 道路・像が 1×1、銀行と高額なサブスクの公園が 3×3、それ以外（鉄道・金鉱・銀鉱・ほかの公園を含む）が 2×2
+ * 道路・像が 1×1、銀行と高額なサブスクの公園が 3×3、それ以外（鉄道・ほかの公園を含む）が 2×2
  */
 export function buildingSize(b: Pick<Building, "line" | "special" | "tier">): number {
   if (b.line === "road" || b.special === "statue") return 1;
@@ -125,16 +125,35 @@ export function isNoAuto(s: Pick<CityState, "noAuto">, x: number, y: number): bo
 
 /**
  * 初期の土地用途の提案。中心の 10×10 の四つの区画を住宅（北西）・商業（北東）・農業（南西）・工業（南東）にし、
- * 銀行のまわりの街区（−2〜1）と、金鉱・銀鉱の敷地を特殊地区にする
+ * 銀行のまわりの街区（−2〜1）を特殊地区にする
  */
 export function initialZones(): Record<string, Zone> {
   const zones: Record<string, Zone> = {};
-  const special = (x: number, y: number) =>
-    (x >= -2 && x <= 1 && y >= -2 && y <= 1) || (x >= 3 && x <= 4 && y >= -2 && y <= -1) || (x >= -2 && x <= -1 && y >= 3 && y <= 4);
-  for (let y = -PLOT_SIZE; y < PLOT_SIZE; y++)
-    for (let x = -PLOT_SIZE; x < PLOT_SIZE; x++)
-      zones[tileKey(x, y)] = special(x, y) ? "special" : y < 0 ? (x < 0 ? "residential" : "commercial") : x < 0 ? "agricultural" : "industrial";
+  for (let y = -PLOT_SIZE; y < PLOT_SIZE; y++) for (let x = -PLOT_SIZE; x < PLOT_SIZE; x++) zones[tileKey(x, y)] = initialZone(x, y);
   return zones;
+}
+
+function initialZone(x: number, y: number): Zone {
+  if (x >= -2 && x <= 1 && y >= -2 && y <= 1) return "special";
+  return y < 0 ? (x < 0 ? "residential" : "commercial") : x < 0 ? "agricultural" : "industrial";
+}
+
+/** 以前の街にあった金鉱・銀鉱の建物（役割は銀行に移したので、地図には置かない） */
+export function isLegacyMine(b: { special?: string }): boolean {
+  return b.special === "gold_mine" || b.special === "silver_mine";
+}
+
+/** 以前の街から金鉱・銀鉱の建物を取り除き、敷地を最初の土地用途に戻す。取り除いたら true */
+export function dropLegacyMines(s: CityState): boolean {
+  const mines = s.buildings.filter(isLegacyMine);
+  if (!mines.length) return false;
+  s.buildings = s.buildings.filter((b) => !isLegacyMine(b));
+  for (const m of mines)
+    for (const t of footprint(m.x, m.y, 2)) {
+      const k = tileKey(t.x, t.y);
+      if (s.zones[k] === "special") s.zones[k] = initialZone(t.x, t.y);
+    }
+  return true;
 }
 
 // ---- 占有と配置 ----

@@ -5,6 +5,7 @@ import { Prisma, type CurrencyDef, type Season, type Subscription, type User, ty
 import { bondCap } from "@/game/bond";
 import { FEE_INSTANT_ROAD, placeOffMapSpecials, syncParks, syncStatues, type ParkSource, type StatueSource } from "@/game/city/actions";
 import { applyTechLevel } from "@/game/city/sim";
+import { dropLegacyMines } from "@/game/city/layout";
 import { BudgetPlan, type CurrencyDefLite, type Rule } from "@/game/currency";
 import { fail } from "@/game/errors";
 import { advance, type Accrual, type CustomCut, type Grant } from "@/game/idle";
@@ -272,6 +273,8 @@ async function load(tx: Tx, userId: string, now: number): Promise<GameCtx> {
 
   const row = await tx.cityState.findUniqueOrThrow({ where: { seasonId: season.id } });
   ctx.city = row.state as unknown as CityState;
+  // 以前の街にあった金鉱・銀鉱の建物は取り除く（役割は銀行に移した）
+  dropLegacyMines(ctx.city);
   ctx.cityVersion = row.version;
   ctx.mine = mineFromSeason(season);
 

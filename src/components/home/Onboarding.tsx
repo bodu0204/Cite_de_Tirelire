@@ -29,7 +29,7 @@ export function Onboarding() {
             act("/api/season", { goalAmount: Number(goal), monthlyBudget: Number(budget || 0), preset });
           }}
         >
-          <Field label="月間自由予算（円）" hint="固定費や予定している貯金を除いた、毎月自由に使える金額。金鉱がこの額を1か月かけて金貨に変えます。">
+          <Field label="月間自由予算（円）" hint="固定費や予定している貯金を除いた、毎月自由に使える金額。銀行がこの額を1か月かけて金貨に変えます。">
             <input inputMode="numeric" required value={budget} onChange={(e) => setBudget(e.target.value.replace(/\D/g, ""))} placeholder="60000" />
           </Field>
           <Field label="今回の貯金目標（円）" hint="今の預金残高ではなく、これから新しく貯める金額。">

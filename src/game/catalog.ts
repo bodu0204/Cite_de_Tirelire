@@ -289,12 +289,10 @@ export function evolveCost(line: LineId, toTier: number): Cost {
 
 // ---- 特殊施設 ----
 
-export type SpecialKind = "bank" | "gold_mine" | "silver_mine" | "park" | "statue";
+export type SpecialKind = "bank" | "park" | "statue";
 
 export const SPECIAL_LABELS: Record<SpecialKind, string> = {
   bank: "銀行",
-  gold_mine: "金鉱",
-  silver_mine: "銀鉱",
   park: "公園",
   statue: "像",
 };

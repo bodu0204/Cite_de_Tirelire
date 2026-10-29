@@ -353,7 +353,7 @@ function CurrencyForm({ initial, categories, onDone, tz, onCategoriesChanged }: 
   const [newCategory, setNewCategory] = useState("");
   const body = { ...f, id: initial?.id, remainderDays: Number(f.remainderDays || 0), endDate: f.endDate || null };
 
-  // 保存前に「次の5回の発生日」と「今月・来月の C と採掘額」を確かめる
+  // 保存前に「次の5回の発生日」と「今月・来月の C と配当額」を確かめる
   const key = JSON.stringify(body);
   useEffect(() => {
     const t = setTimeout(async () => {
@@ -491,7 +491,7 @@ function CurrencyForm({ initial, categories, onDone, tz, onCategoriesChanged }: 
                   <th className="font-normal">月</th>
                   <th className="text-right font-normal">この通貨</th>
                   <th className="text-right font-normal">C（全通貨）</th>
-                  <th className="text-right font-normal">採掘（月）</th>
+                  <th className="text-right font-normal">配当（月）</th>
                 </tr>
               </thead>
               <tbody>
@@ -507,7 +507,7 @@ function CurrencyForm({ initial, categories, onDone, tz, onCategoriesChanged }: 
             </table>
             {preview.months[0] && (
               <p className="mt-1 text-xs text-muted">
-                採掘 ＝ 自由予算 {yen(preview.months[0].budget)} − サブスク {yen(preview.months[0].subs)} − C
+                配当 ＝ 自由予算 {yen(preview.months[0].budget)} − サブスク {yen(preview.months[0].subs)} − C
               </p>
             )}
             {over.length > 0 && (
@@ -595,7 +595,7 @@ export default function CurrenciesPage() {
       <div>
         <h1 className="font-pixel text-2xl">通貨</h1>
         <p className="mt-1 text-sm text-muted">
-          「食費コイン」のように、自由予算の一部を決まったジャンルの購入用に分けた通貨を作れます。発生する分だけ金鉱の採掘が減ります（自由予算の内訳なので、予算の二重計上になりません）。
+          「食費コイン」のように、自由予算の一部を決まったジャンルの購入用に分けた通貨を作れます。発生する分だけ金貨の配当が減ります（自由予算の内訳なので、予算の二重計上になりません）。
         </p>
       </div>
 
