@@ -4,7 +4,6 @@ import { use, useEffect, useMemo, useRef, useState } from "react";
 import { CityView } from "@/components/city/CityView";
 import { useGame } from "@/components/GameProvider";
 import { Button, Card, Gauge, LinkButton } from "@/components/ui";
-import { normalizeCity } from "@/game/city/layout";
 import { DEV_NAMES } from "@/game/config";
 import { describeEvent } from "@/game/describe";
 import { createReplay, rateAt, type ReplayEvent, type ReplayStart } from "@/game/replay";
@@ -63,8 +62,8 @@ export default function TimelapsePlayer({ params }: { params: Promise<{ id: stri
 
   const replay = useMemo(() => {
     if (!data?.start) return null;
-    const city = normalizeCity(structuredClone(data.start));
-    const start: ReplayStart = { layout: city.v, plots: city.plots, buildings: city.buildings, zones: city.zones, techLevel: city.techLevel };
+    const city = data.start;
+    const start: ReplayStart = { plots: city.plots, buildings: city.buildings, zones: city.zones, techLevel: city.techLevel };
     return createReplay(start, data.events);
   }, [data]);
 
@@ -89,11 +88,9 @@ export default function TimelapsePlayer({ params }: { params: Promise<{ id: stri
         <CityView
           fixed
           label={`${formatDate(t, tz)}時点の街`}
-          layout={frame.layout}
           plots={frame.plots}
           buildings={[...frame.buildings.values()]}
           zones={frame.zones}
-          devLevel={frame.devLevel}
           bankLevel={frame.bankLevel}
         />
         {finished && (

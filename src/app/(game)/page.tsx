@@ -9,8 +9,7 @@ import { DevGauge, SavingsGauge, TechGauge, WishSavingsGauge } from "@/component
 import { Onboarding } from "@/components/home/Onboarding";
 import { TilePanel } from "@/components/home/TilePanel";
 import { BondIcon, Button, Card, Coin, CustomIcon, LinkButton, Modal, Stat } from "@/components/ui";
-import { expandablePlots, isLegacy, tileLabel } from "@/game/city/layout";
-import { devLevel } from "@/game/levels";
+import { expandablePlots, tileLabel } from "@/game/city/layout";
 import { fmt } from "@/lib/api";
 
 /** ホームに最初から出すユーザ通貨の数（残りは折りたたむ） */
@@ -62,7 +61,7 @@ export default function HomePage() {
   const m = v.metrics;
   const c = v.city;
   // 開拓できる区画には看板を立てる
-  const expandable = isLegacy(c) ? undefined : expandablePlots(c);
+  const expandable = expandablePlots(c);
   const uncollected = Math.floor(v.mine.uncollected);
 
   return (
@@ -78,14 +77,12 @@ export default function HomePage() {
         <div>
           <CityView
             label={`${v.dev.name}の街。人口${Math.floor(m.population)}人、建物${c.buildings.length}棟。矢印キーでマスを選べます`}
-            layout={c.v}
             plots={c.plots}
             expandable={expandable}
             buildings={c.buildings}
             jobs={c.jobs}
             zones={c.zones}
             noAuto={c.noAuto}
-            devLevel={devLevel(c.devPoints)}
             bankLevel={c.bankLevel}
             selected={tile}
             highlights={highlights}
@@ -115,7 +112,7 @@ export default function HomePage() {
         </div>
 
         {tile && (
-          <Card title={tileLabel(c, tile.x, tile.y)} action={<button className="text-sm text-muted" onClick={() => (setTile(null), setMoving(null))}>閉じる</button>}>
+          <Card title={tileLabel(tile.x, tile.y)} action={<button className="text-sm text-muted" onClick={() => (setTile(null), setMoving(null))}>閉じる</button>}>
             <TilePanel v={v} tile={tile} moving={moving} setMoving={setMoving} />
           </Card>
         )}

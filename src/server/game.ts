@@ -4,7 +4,6 @@ import { randomUUID } from "node:crypto";
 import { Prisma, type CurrencyDef, type Season, type Subscription, type User, type WishItem } from "@prisma/client";
 import { bondCap } from "@/game/bond";
 import { placeOffMapSpecials, syncParks, syncStatues, type ParkSource, type StatueSource } from "@/game/city/actions";
-import { normalizeCity } from "@/game/city/layout";
 import { applyTechLevel } from "@/game/city/sim";
 import { BudgetPlan, type CurrencyDefLite, type Rule } from "@/game/currency";
 import { fail } from "@/game/errors";
@@ -266,7 +265,7 @@ async function load(tx: Tx, userId: string, now: number): Promise<GameCtx> {
   if (!season) return ctx;
 
   const row = await tx.cityState.findUniqueOrThrow({ where: { seasonId: season.id } });
-  ctx.city = normalizeCity(row.state as unknown as CityState);
+  ctx.city = row.state as unknown as CityState;
   ctx.cityVersion = row.version;
   ctx.mine = mineFromSeason(season);
 

@@ -1,7 +1,7 @@
-// マップ：区画の解放、土地用途、自動配置（docs/map-layout-redesign.md）。
-// v1 の街は 10×10 固定で発展Lvで区画が開く。v2 の街は銀行の中心が原点で、開拓した区画だけが使える。
+// マップ：区画の開拓、土地用途、道路網、自動配置（docs/map-layout-redesign.md）。
+// 銀行の中心が原点で、開拓した 5×5 の区画だけが使える。
 import { LINES, type LineId, type Zone } from "../catalog";
-import { DEV_THRESHOLDS, LEGACY_MAP_SIZE, MAX_PLOTS, PLOT_LIMIT, PLOT_SIZE, PLOT_STEP, PLOT_STEP_POINTS } from "../config";
+import { DEV_THRESHOLDS, MAX_PLOTS, PLOT_LIMIT, PLOT_SIZE, PLOT_STEP, PLOT_STEP_POINTS } from "../config";
 import { devLevel } from "../levels";
 import type { Building, CityState, Job } from "../types";
 
@@ -9,7 +9,6 @@ export const tileKey = (x: number, y: number) => `${x},${y}`;
 export const plotKey = (px: number, py: number) => `${px},${py}`;
 export const plotOf = (x: number, y: number) => ({ px: Math.floor(x / PLOT_SIZE), py: Math.floor(y / PLOT_SIZE) });
 
-export const isLegacy = (s: Pick<CityState, "v">) => s.v === 1;
 export const isPlaced = (b: Pick<Building, "placed">) => b.placed !== false;
 
 export interface Rect {
@@ -19,9 +18,9 @@ export interface Rect {
   maxY: number;
 }
 
-/** 画面に出すマスの名前。v1 は 1 から数え、v2 は銀行の中心を (0, 0) とする */
-export function tileLabel(s: Pick<CityState, "v">, x: number, y: number): string {
-  return isLegacy(s) ? `マス (${x + 1}, ${y + 1})` : `マス (${x}, ${y})`;
+/** 画面に出すマスの名前（銀行の中心が (0, 0)） */
+export function tileLabel(x: number, y: number): string {
+  return `マス (${x}, ${y})`;
 }
 
 // ---- 建物の大きさ ----
@@ -30,11 +29,10 @@ export function tileLabel(s: Pick<CityState, "v">, x: number, y: number): string
 export const BIG_PARK_TIER = 3;
 
 /**
- * 建物の一辺のマス数（docs/map-layout-redesign.md §4.1）。v1 の街はすべて1マス。
- * v2 は道路・像が 1×1、銀行と高額なサブスクの公園が 3×3、それ以外（鉄道・金鉱・銀鉱・ほかの公園を含む）が 2×2
+ * 建物の一辺のマス数（docs/map-layout-redesign.md §4.1）。
+ * 道路・像が 1×1、銀行と高額なサブスクの公園が 3×3、それ以外（鉄道・金鉱・銀鉱・ほかの公園を含む）が 2×2
  */
-export function buildingSize(s: Pick<CityState, "v">, b: Pick<Building, "line" | "special" | "tier">): number {
-  if (isLegacy(s)) return 1;
+export function buildingSize(b: Pick<Building, "line" | "special" | "tier">): number {
   if (b.line === "road" || b.special === "statue") return 1;
   if (b.special === "bank") return 3;
   if (b.special === "park") return b.tier >= BIG_PARK_TIER ? 3 : 2;
@@ -61,24 +59,7 @@ export function contains(b: { x: number; y: number }, size: number, x: number, y
   return x >= b.x && y >= b.y && x < b.x + size && y < b.y + size;
 }
 
-// ---- 区画の解放 ----
-
-/** v1：そのマスを使えるようになる発展Lv（中央4×4 → 6×6 → 8×8 → 左右の列 → 上下の行） */
-export function tileUnlockLevel(x: number, y: number): number {
-  const half = LEGACY_MAP_SIZE / 2;
-  const edge = (v: number) => (v < half ? half - 1 - v : v - half);
-  const ex = edge(x);
-  const ey = edge(y);
-  const r = Math.max(ex, ey);
-  if (r <= 1) return 1;
-  if (r === 2) return 2;
-  if (r === 3) return 3;
-  return ey === 4 ? 5 : 4;
-}
-
-function inLegacyBounds(x: number, y: number): boolean {
-  return x >= 0 && y >= 0 && x < LEGACY_MAP_SIZE && y < LEGACY_MAP_SIZE;
-}
+// ---- 開いた区画 ----
 
 const setCache = new WeakMap<string[], { n: number; set: Set<string> }>();
 /** 配列を集合として引く（配列は足すか作り直すだけなので、長さが同じ間は作り直さない） */
@@ -91,49 +72,38 @@ function asSet(list: string[]): Set<string> {
 }
 
 export function plotSet(s: Pick<CityState, "plots">): Set<string> {
-  return asSet(s.plots ?? []);
+  return asSet(s.plots);
 }
 
-/** 盤面の中か（v1 は 10×10、v2 は座標が整数なら常に中） */
-export function inBounds(s: Pick<CityState, "v">, x: number, y: number): boolean {
-  if (!Number.isInteger(x) || !Number.isInteger(y)) return false;
-  return isLegacy(s) ? inLegacyBounds(x, y) : true;
+/** マスの座標として正しいか（マップの大きさは決めないので、整数なら常に盤面の中） */
+export function inBounds(x: number, y: number): boolean {
+  return Number.isInteger(x) && Number.isInteger(y);
 }
 
-export function isTileUnlocked(s: Pick<CityState, "v" | "devPoints" | "plots">, x: number, y: number): boolean {
-  if (!inBounds(s, x, y)) return false;
-  if (isLegacy(s)) return tileUnlockLevel(x, y) <= devLevel(s.devPoints);
+export function isTileUnlocked(s: Pick<CityState, "plots">, x: number, y: number): boolean {
+  if (!inBounds(x, y)) return false;
   const { px, py } = plotOf(x, y);
   return plotSet(s).has(plotKey(px, py));
 }
 
 /** 開いているマス（行優先ではなく、区画ごとの順） */
-export function openTiles(s: Pick<CityState, "v" | "devPoints" | "plots">): { x: number; y: number }[] {
+export function openTiles(s: Pick<CityState, "plots">): { x: number; y: number }[] {
   const out: { x: number; y: number }[] = [];
-  if (isLegacy(s)) {
-    const dev = devLevel(s.devPoints);
-    for (let y = 0; y < LEGACY_MAP_SIZE; y++) for (let x = 0; x < LEGACY_MAP_SIZE; x++) if (tileUnlockLevel(x, y) <= dev) out.push({ x, y });
-    return out;
-  }
-  for (const k of s.plots ?? []) {
+  for (const k of s.plots) {
     const [px, py] = k.split(",").map(Number);
     for (let y = py * PLOT_SIZE; y < (py + 1) * PLOT_SIZE; y++) for (let x = px * PLOT_SIZE; x < (px + 1) * PLOT_SIZE; x++) out.push({ x, y });
   }
   return out;
 }
 
-export function unlockedTileCount(s: Pick<CityState, "v" | "devPoints" | "plots">): number {
-  return isLegacy(s) ? openTiles(s).length : (s.plots ?? []).length * PLOT_SIZE * PLOT_SIZE;
+export function unlockedTileCount(s: Pick<CityState, "plots">): number {
+  return s.plots.length * PLOT_SIZE * PLOT_SIZE;
 }
 
-/**
- * 盤面の範囲（マス）。v1 は未開放を含む 10×10、v2 は開拓した区画を囲む矩形。
- * 描画はこれに未開放の帯を足して描く
- */
-export function landBounds(s: Pick<CityState, "v" | "plots">): Rect {
-  if (isLegacy(s)) return { minX: 0, minY: 0, maxX: LEGACY_MAP_SIZE - 1, maxY: LEGACY_MAP_SIZE - 1 };
+/** 開拓した区画を囲む矩形（マス）。描画はこれに未開放の帯を足して描く */
+export function landBounds(s: Pick<CityState, "plots">): Rect {
   const r: Rect = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
-  for (const k of s.plots ?? []) {
+  for (const k of s.plots) {
     const [px, py] = k.split(",").map(Number);
     r.minX = Math.min(r.minX, px * PLOT_SIZE);
     r.minY = Math.min(r.minY, py * PLOT_SIZE);
@@ -142,14 +112,6 @@ export function landBounds(s: Pick<CityState, "v" | "plots">): Rect {
   }
   return r.minX === Infinity ? { minX: 0, minY: 0, maxX: 0, maxY: 0 } : r;
 }
-
-export const DISTRICT_NAMES: Record<number, string> = {
-  1: "中心部",
-  2: "周辺の住宅・農業エリア",
-  3: "工業・商業エリア",
-  4: "東西の追加区画",
-  5: "南北の追加区画",
-};
 
 // ---- 土地用途と自動建設の禁止 ----
 
@@ -161,28 +123,8 @@ export function isNoAuto(s: Pick<CityState, "noAuto">, x: number, y: number): bo
   return asSet(s.noAuto).has(tileKey(x, y));
 }
 
-/** v1：初期の土地用途の提案。中央が特殊地区、四象限に住宅・商業・農業・工業 */
-export function legacyZones(): Record<string, Zone> {
-  const zones: Record<string, Zone> = {};
-  const mid = LEGACY_MAP_SIZE / 2;
-  for (let y = 0; y < LEGACY_MAP_SIZE; y++) {
-    for (let x = 0; x < LEGACY_MAP_SIZE; x++) {
-      let z: Zone;
-      const centerCol = x === mid - 1 || x === mid;
-      if (centerCol && (y === mid - 1 || y === mid)) z = "special";
-      else if (centerCol) z = y < mid ? "public" : "none";
-      else if (x < mid && y < mid) z = "residential";
-      else if (x >= mid && y < mid) z = "commercial";
-      else if (x < mid) z = "agricultural";
-      else z = "industrial";
-      if (z !== "none") zones[tileKey(x, y)] = z;
-    }
-  }
-  return zones;
-}
-
 /**
- * v2：初期の土地用途の提案。中心の 10×10 の四つの区画を住宅（北西）・商業（北東）・農業（南西）・工業（南東）にし、
+ * 初期の土地用途の提案。中心の 10×10 の四つの区画を住宅（北西）・商業（北東）・農業（南西）・工業（南東）にし、
  * 銀行のまわりの街区（−2〜1）と、金鉱・銀鉱の敷地を特殊地区にする
  */
 export function initialZones(): Record<string, Zone> {
@@ -195,27 +137,6 @@ export function initialZones(): Record<string, Zone> {
   return zones;
 }
 
-/**
- * 古い形（10×10 の行優先配列）で保存された土地用途・自動建設の禁止を、マスのキーの形にする。
- * v1 の街の遊び方は変えない（docs/map-layout-redesign.md §6.5）
- */
-export function normalizeCity<T extends Pick<CityState, "v" | "zones" | "noAuto" | "buildings">>(s: T): T {
-  if (Array.isArray(s.zones)) {
-    const old = s.zones as unknown as Zone[];
-    const zones: Record<string, Zone> = {};
-    old.forEach((z, i) => {
-      if (z && z !== "none") zones[tileKey(i % LEGACY_MAP_SIZE, Math.floor(i / LEGACY_MAP_SIZE))] = z;
-    });
-    s.zones = zones;
-  }
-  if (s.noAuto.length && typeof s.noAuto[0] === "boolean") {
-    const old = s.noAuto as unknown as boolean[];
-    s.noAuto = old.flatMap((on, i) => (on ? [tileKey(i % LEGACY_MAP_SIZE, Math.floor(i / LEGACY_MAP_SIZE))] : []));
-  }
-  if (isLegacy(s)) for (const b of s.buildings) if (b.x < 0 && b.placed !== false) b.placed = false;
-  return s;
-}
-
 // ---- 占有と配置 ----
 
 type Kind = Pick<Building, "line" | "special" | "tier">;
@@ -225,17 +146,17 @@ export function occupancy(s: CityState): Map<string, string> {
   const occ = new Map<string, string>();
   for (const b of s.buildings) {
     if (!isPlaced(b)) continue;
-    for (const t of footprint(b.x, b.y, buildingSize(s, b))) occ.set(tileKey(t.x, t.y), b.id);
+    for (const t of footprint(b.x, b.y, buildingSize(b))) occ.set(tileKey(t.x, t.y), b.id);
   }
   for (const j of s.jobs) {
     if (j.kind !== "build") continue;
-    for (const t of footprint(j.x, j.y, jobSize(s, j))) occ.set(tileKey(t.x, t.y), j.buildingId);
+    for (const t of footprint(j.x, j.y, jobSize(j))) occ.set(tileKey(t.x, t.y), j.buildingId);
   }
   return occ;
 }
 
-export function jobSize(s: Pick<CityState, "v">, j: Pick<Job, "line" | "tier">): number {
-  return buildingSize(s, { line: j.line, tier: j.tier });
+export function jobSize(j: Pick<Job, "line" | "tier">): number {
+  return buildingSize({ line: j.line, tier: j.tier });
 }
 
 /** 占有範囲がすべて開いていて空いているか（ignore の建物は空きとみなす。移動用） */
@@ -276,7 +197,7 @@ export function roadNetwork(s: CityState, without?: string): RoadNetwork {
   const b = s.buildings.find((o) => o.special === "bank" && isPlaced(o));
   const tiles = new Set<string>();
   if (!b) return { tiles, bank };
-  const size = buildingSize(s, b);
+  const size = buildingSize(b);
   for (const t of footprint(b.x, b.y, size)) bank.add(tileKey(t.x, t.y));
   const queue: { x: number; y: number }[] = [];
   for (const t of perimeter(b.x, b.y, size)) {
@@ -299,12 +220,11 @@ export function roadNetwork(s: CityState, without?: string): RoadNetwork {
 }
 
 /**
- * 道路網のきまりを満たすか（v1 の街は常に満たす）。
+ * 道路網のきまりを満たすか。
  * 道路以外は占有範囲の外周が道路網の道路に接すること。道路は道路網か銀行に隣り合うこと（網の端から延ばす形）
  */
 export function connected(s: CityState, net: RoadNetwork, b: Kind, x: number, y: number): boolean {
-  if (isLegacy(s)) return true;
-  const size = buildingSize(s, b);
+  const size = buildingSize(b);
   for (const t of perimeter(x, y, size)) {
     const k = tileKey(t.x, t.y);
     if (net.tiles.has(k) || (b.line === "road" && net.bank.has(k))) return true;
@@ -327,7 +247,7 @@ export function placeCtx(s: CityState, ignore?: string): PlaceCtx {
 
 /** (x, y) を左上にして置けるか（開いた区画・空き・道路網） */
 export function canPlace(s: CityState, b: Kind, x: number, y: number, c = placeCtx(s)): boolean {
-  return fits(s, x, y, buildingSize(s, b), c.occ, c.ignore) && connected(s, c.net, b, x, y);
+  return fits(s, x, y, buildingSize(b), c.occ, c.ignore) && connected(s, c.net, b, x, y);
 }
 
 /**
@@ -335,7 +255,7 @@ export function canPlace(s: CityState, b: Kind, x: number, y: number, c = placeC
  * できなければ占有範囲が選んだマスを含むほかの置き方を、左上から順に試す
  */
 export function placementFor(s: CityState, b: Kind, tx: number, ty: number, c = placeCtx(s)): { x: number; y: number } | null {
-  const size = buildingSize(s, b);
+  const size = buildingSize(b);
   if (canPlace(s, b, tx, ty, c)) return { x: tx, y: ty };
   for (let dy = 0; dy < size; dy++)
     for (let dx = 0; dx < size; dx++) {
@@ -347,11 +267,11 @@ export function placementFor(s: CityState, b: Kind, tx: number, ty: number, c = 
 /** 選んだマスに置けない理由（置けるなら null） */
 export function placementError(s: CityState, b: Kind, tx: number, ty: number, c = placeCtx(s)): string | null {
   if (placementFor(s, b, tx, ty, c)) return null;
-  if (!inBounds(s, tx, ty)) return "マップの外です";
+  if (!inBounds(tx, ty)) return "マップの外です";
   if (!isTileUnlocked(s, tx, ty)) return "まだ解放されていない区画です";
   const o = c.occ.get(tileKey(tx, ty));
   if (o && o !== c.ignore) return "そのマスは使用中です";
-  const size = buildingSize(s, b);
+  const size = buildingSize(b);
   // 空きはあるのに置けない：道路網に接していない
   let room = false;
   for (let dy = 0; dy < size && !room; dy++) for (let dx = 0; dx < size && !room; dx++) room = fits(s, tx - dx, ty - dy, size, c.occ, c.ignore);
@@ -360,11 +280,10 @@ export function placementError(s: CityState, b: Kind, tx: number, ty: number, c 
 }
 
 /**
- * 置ける場所（左上のマス、y・x の小さい順）。v1 は開いたマスすべてを、v2 は道路網に接する場所だけを調べる
+ * 置ける場所（左上のマス、y・x の小さい順）。道路網に接する場所だけを調べる
  */
 export function candidateSites(s: CityState, b: Kind, c = placeCtx(s)): { x: number; y: number }[] {
-  if (isLegacy(s)) return openTiles(s).filter((t) => canPlace(s, b, t.x, t.y, c));
-  const size = buildingSize(s, b);
+  const size = buildingSize(b);
   const seen = new Set<string>();
   const out: { x: number; y: number }[] = [];
   const near = b.line === "road" ? [...c.net.tiles, ...c.net.bank] : [...c.net.tiles];
@@ -384,11 +303,6 @@ export function candidateSites(s: CityState, b: Kind, c = placeCtx(s)): { x: num
   return out.sort((a, b2) => a.y - b2.y || a.x - b2.x);
 }
 
-/** 盤面の中心（自動配置は中心に近いほど加点する） */
-function centerOf(s: Pick<CityState, "v">): { x: number; y: number } {
-  return isLegacy(s) ? { x: 4.5, y: 4.5 } : { x: 0, y: 0 };
-}
-
 /** 占有範囲に隣り合う建物の系統（特殊施設は "special"） */
 function neighborLines(x: number, y: number, size: number, grid: Map<string, LineId | "special">): (LineId | "special")[] {
   const out: (LineId | "special")[] = [];
@@ -403,19 +317,18 @@ function lineGrid(s: CityState): Map<string, LineId | "special"> {
   const grid = new Map<string, LineId | "special">();
   for (const b of s.buildings) {
     if (!isPlaced(b)) continue;
-    for (const t of footprint(b.x, b.y, buildingSize(s, b))) grid.set(tileKey(t.x, t.y), b.line ?? "special");
+    for (const t of footprint(b.x, b.y, buildingSize(b))) grid.set(tileKey(t.x, t.y), b.line ?? "special");
   }
   for (const j of s.jobs) {
     if (j.kind !== "build") continue;
-    for (const t of footprint(j.x, j.y, jobSize(s, j))) grid.set(tileKey(t.x, t.y), j.line);
+    for (const t of footprint(j.x, j.y, jobSize(j))) grid.set(tileKey(t.x, t.y), j.line);
   }
   return grid;
 }
 
-/** 自動開発が使ってよい場所か（v2 は、道路は推奨道路の上だけ、ほかの建物は推奨道路をふさがない。§5.3） */
+/** 自動開発が使ってよい場所か（道路は推奨道路の上だけ、ほかの建物は推奨道路をふさがない。§5.3） */
 function autoAllowed(s: CityState, line: LineId, x: number, y: number, size: number): boolean {
   if (footprint(x, y, size).some((t) => isNoAuto(s, t.x, t.y))) return false;
-  if (isLegacy(s)) return true;
   if (line === "road") return isPlannedRoad(x, y);
   return !footprint(x, y, size).some((t) => isPlannedRoad(t.x, t.y));
 }
@@ -434,7 +347,7 @@ export const siteCache = (): SiteCache => ({ sites: new Map() });
 
 function cachedSites(s: CityState, kind: Kind, cache?: SiteCache): { x: number; y: number }[] {
   if (!cache) return candidateSites(s, kind);
-  const key = `${buildingSize(s, kind)}:${kind.line === "road"}`;
+  const key = `${buildingSize(kind)}:${kind.line === "road"}`;
   let list = cache.sites.get(key);
   if (!list) {
     cache.ctx ??= placeCtx(s);
@@ -451,9 +364,10 @@ function cachedSites(s: CityState, kind: Kind, cache?: SiteCache): { x: number; 
 export function findSite(s: CityState, line: LineId, cache?: SiteCache): { x: number; y: number } | null {
   const def = LINES[line];
   const kind = { line, tier: 0 };
-  const size = buildingSize(s, kind);
+  const size = buildingSize(kind);
   const grid = cache ? (cache.grid ??= lineGrid(s)) : lineGrid(s);
-  const c = centerOf(s);
+  // 銀行（原点）に近いほど加点する
+  const c = { x: 0, y: 0 };
   const half = (size - 1) / 2;
 
   let best: { x: number; y: number; score: number } | null = null;
@@ -483,10 +397,10 @@ export function findSite(s: CityState, line: LineId, cache?: SiteCache): { x: nu
   return best ? { x: best.x, y: best.y } : null;
 }
 
-/** 特殊施設（公園・像）の場所：特殊地区 → 未指定 → 任意の空き。v2 は推奨道路をふさがない */
+/** 特殊施設（公園・像）の場所：特殊地区 → 未指定 → 任意の空き。推奨道路はふさがない */
 export function findSpecialSite(s: CityState, b: Kind): { x: number; y: number } | null {
-  const size = buildingSize(s, b);
-  const free = candidateSites(s, b).filter((t) => isLegacy(s) || !footprint(t.x, t.y, size).some((f) => isPlannedRoad(f.x, f.y)));
+  const size = buildingSize(b);
+  const free = candidateSites(s, b).filter((t) => !footprint(t.x, t.y, size).some((f) => isPlannedRoad(f.x, f.y)));
   const rank = (z: Zone) => (z === "special" ? 0 : z === "none" ? 1 : 2);
   free.sort((a, b2) => rank(zoneAt(s, a.x, a.y)) - rank(zoneAt(s, b2.x, b2.y)));
   return free[0] ?? null;
@@ -497,7 +411,6 @@ export function findSpecialSite(s: CityState, b: Kind): { x: number; y: number }
  * 道路網から外れる道路があるか、道路網に接しなくなる建物・工事があれば、その名前の代わりに建物ID を返す
  */
 export function removalBreaks(s: CityState, roadId: string): string | null {
-  if (isLegacy(s)) return null;
   const net = roadNetwork(s, roadId);
   for (const b of s.buildings) {
     if (b.id === roadId || !isPlaced(b)) continue;
@@ -528,7 +441,7 @@ export function expandingPlots(s: Pick<CityState, "jobs">): Set<string> {
 
 /** 開いた区画と開拓中の区画の数（上限と比べる数） */
 export function plotsUsed(s: Pick<CityState, "plots" | "jobs">): number {
-  return (s.plots ?? []).length + expandingPlots(s).size;
+  return (s.plots).length + expandingPlots(s).size;
 }
 
 /** 区画の推奨道路（真ん中を通る十字、9マス） */
@@ -541,7 +454,6 @@ export function plotCross(px: number, py: number): { x: number; y: number }[] {
 
 /** その区画を開拓できない理由（できれば null） */
 export function expansionError(s: CityState, px: number, py: number, net = roadNetwork(s)): string | null {
-  if (isLegacy(s)) return "この街は区画を開拓できません";
   const k = plotKey(px, py);
   if (plotSet(s).has(k)) return "開拓済みの区画です";
   if (expandingPlots(s).has(k)) return "開拓中の区画です";
@@ -557,10 +469,9 @@ export function expansionError(s: CityState, px: number, py: number, net = roadN
 
 /** 開拓できる区画（"px,py"） */
 export function expandablePlots(s: CityState, net = roadNetwork(s)): string[] {
-  if (isLegacy(s)) return [];
   const seen = new Set<string>();
   const out: string[] = [];
-  for (const k of s.plots ?? []) {
+  for (const k of s.plots) {
     const [px, py] = k.split(",").map(Number);
     for (const [dx, dy] of [
       [1, 0],
@@ -630,19 +541,19 @@ export function pollutionPairs(s: CityState): number {
   const industry = new Map<string, string>();
   for (const b of s.buildings) {
     if (!isPlaced(b) || !b.line || LINES[b.line].category !== "industry") continue;
-    for (const t of footprint(b.x, b.y, buildingSize(s, b))) industry.set(tileKey(t.x, t.y), b.id);
+    for (const t of footprint(b.x, b.y, buildingSize(b))) industry.set(tileKey(t.x, t.y), b.id);
   }
   if (!industry.size) return 0;
   let pairs = 0;
   for (const b of s.buildings) {
     if (b.line !== "housing" || !isPlaced(b)) continue;
-    const size = buildingSize(s, b);
-    // v1（1マス）は辺ごとに数える。大きな建物は同じ隣の建物を1回だけ数える
+    const size = buildingSize(b);
+    // 同じ隣の建物は1回だけ数える
     const seen = new Set<string>();
     for (const t of perimeter(b.x, b.y, size)) {
       const n = industry.get(tileKey(t.x, t.y));
       if (!n) continue;
-      if (size > 1 && seen.has(n)) continue;
+      if (seen.has(n)) continue;
       seen.add(n);
       pairs++;
     }

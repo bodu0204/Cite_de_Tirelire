@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { INITIAL_PLOTS, LEGACY_MAP_SIZE } from "@/game/config";
-import { legacyZones, tileUnlockLevel } from "@/game/city/layout";
+import { INITIAL_PLOTS } from "@/game/config";
 import { tileIndex } from "@/components/iso/map";
 import { LOCKED_BAND, MAX_CARS, MAX_PEOPLE, agentCounts, buildingKey, cityToIso, goldStage, hourIn, lightRatio, nightLevel, troubleIcons } from "../toIso";
 
@@ -24,53 +23,33 @@ describe("建物の絵のキー", () => {
 });
 
 describe("大きな建物の絵のキー（docs/map-layout-redesign.md §4.5）", () => {
-  it("2×2・3×3 は big/ を付ける。1×1 と v1 はそのまま", () => {
+  it("2×2・3×3 は big/ を付ける。1×1 はそのまま", () => {
     expect(buildingKey(b({ line: "housing", tier: 2, level: 3 }), 1, 2)).toBe("big/building/housing/2@lv3");
     expect(buildingKey(b({ special: "bank" }), 4, 3)).toBe("big/special/bank/4");
     expect(buildingKey(b({ special: "park", tier: 1, closed: true }), 1, 2)).toBe("big/special/park/1@closed");
     expect(buildingKey(b({ special: "statue", tier: 0, level: 5 }), 1, 1)).toBe("special/statue/bronze");
-    const { map } = cityToIso({ plots: INITIAL_PLOTS, buildings: [b({ id: "h", line: "housing", x: -5, y: -5 }), b({ id: "r", line: "road", x: -3, y: -3 })], zones: {}, devLevel: 1, bankLevel: 1 });
+    const { map } = cityToIso({ plots: INITIAL_PLOTS, buildings: [b({ id: "h", line: "housing", x: -5, y: -5 }), b({ id: "r", line: "road", x: -3, y: -3 })], zones: {}, bankLevel: 1 });
     expect(map.objects.find((o) => o.id === "h")?.key).toBe("big/building/housing/0");
-    const v1 = cityToIso({ layout: 1, buildings: [b({ id: "h", line: "housing" })], zones: {}, devLevel: 6, bankLevel: 1 });
-    expect(v1.map.objects[0].key).toBe("building/housing/0");
   });
 });
 
-describe("盤面の変換（v1：10×10 固定）", () => {
-  const zones = legacyZones();
-
+describe("盤面の変換", () => {
   it("道路は地面に、建物は絵に、マップ外は描かない", () => {
     const { map } = cityToIso({
-      layout: 1,
-      buildings: [b({ id: "r", line: "road", tier: 1, x: 3, y: 4 }), b({ id: "h", line: "housing" }), b({ id: "s", special: "statue", x: -1, y: -1, placed: false })],
-      zones,
-      devLevel: 6,
+      plots: INITIAL_PLOTS,
+      buildings: [b({ id: "r", line: "road", tier: 1, x: -3, y: 2 }), b({ id: "h", line: "housing", x: -5, y: -5 }), b({ id: "s", special: "statue", x: 0, y: 0, placed: false })],
+      zones: {},
       bankLevel: 1,
     });
-    expect(map.width).toBe(LEGACY_MAP_SIZE);
-    expect(map.road[4 * LEGACY_MAP_SIZE + 3]).toBe(2);
-    expect(map.objects.map((o) => o.id)).toEqual(["h"]);
-    expect(map.home).toBeUndefined();
+    expect(map.road[tileIndex(map, -3, 2)]).toBe(2);
+    expect(map.objects.filter((o) => !o.key.startsWith("locked/")).map((o) => o.id)).toEqual(["h"]);
   });
-
-  it("未開放の区画は覆い（林・岩・看板）を置く", () => {
-    const { map } = cityToIso({ layout: 1, buildings: [], zones, devLevel: 1, bankLevel: 1 });
-    let lockedTiles = 0;
-    for (let y = 0; y < LEGACY_MAP_SIZE; y++) for (let x = 0; x < LEGACY_MAP_SIZE; x++) if (tileUnlockLevel(x, y) > 1) lockedTiles++;
-    expect(map.objects.length).toBe(lockedTiles);
-    expect(map.objects.every((o) => o.key.startsWith("locked/"))).toBe(true);
-    expect(map.locked.reduce((a, v) => a + v, 0)).toBe(lockedTiles);
-  });
-});
-
-describe("盤面の変換（v2：開拓した区画）", () => {
   it("範囲は開拓した区画に未開放の帯を足したもの。銀行の中心（原点）にカメラを向ける", () => {
     const { map, overlay } = cityToIso({
       plots: INITIAL_PLOTS,
       buildings: [b({ id: "r", line: "road", tier: 0, x: -3, y: 2 }), b({ id: "h", line: "housing", x: -5, y: -5 })],
       zones: { "-5,-5": "residential" },
       noAuto: ["4,4"],
-      devLevel: 1,
       bankLevel: 1,
     });
     expect({ x0: map.x0, y0: map.y0, width: map.width, height: map.height }).toEqual({ x0: -5 - LOCKED_BAND, y0: -5 - LOCKED_BAND, width: 10 + LOCKED_BAND * 2, height: 10 + LOCKED_BAND * 2 });
@@ -102,7 +81,6 @@ describe("盤面の変換（v2：開拓した区画）", () => {
         { x: -5, y: -5, kind: "upgrade", startedAt: 0, finishAt: 10 },
       ],
       zones: {},
-      devLevel: 1,
       bankLevel: 1,
     });
     const size = (id: string) => map.objects.find((o) => o.id === id)?.size ?? 1;
@@ -119,7 +97,6 @@ describe("盤面の変換（v2：開拓した区画）", () => {
       buildings: [],
       jobs: [{ x: 0, y: 5, kind: "expand", plot: "0,1", startedAt: 0, finishAt: 10 }],
       zones: {},
-      devLevel: 2,
       bankLevel: 1,
     });
     expect(map.objects.find((o) => o.x === 7 && o.y === 2)?.key).toBe("locked/sign");
@@ -130,18 +107,12 @@ describe("盤面の変換（v2：開拓した区画）", () => {
     expect(overlay.jobs).toEqual([{ x: 0, y: 5, size: 5, startedAt: 0, finishAt: 10 }]);
   });
 
-  it("v1 の盤面では、どの建物も1マス", () => {
-    const { map } = cityToIso({ layout: 1, buildings: [b({ id: "bank", special: "bank" })], zones: {}, devLevel: 6, bankLevel: 1 });
-    expect(map.objects[0].size).toBeUndefined();
-    expect(map.lot!.every((v) => v === 0)).toBe(true);
-  });
-
   it("工事：新築は足場、改築は覆いを手前に。バーは重ね描きに渡す", () => {
     const jobs = [
       { x: 1, y: 1, kind: "build", startedAt: 0, finishAt: 10 },
       { x: 4, y: 4, kind: "upgrade", startedAt: 0, finishAt: 10 },
     ];
-    const { map, overlay } = cityToIso({ buildings: [b({ id: "h", line: "housing" })], jobs, zones: {}, devLevel: 6, bankLevel: 1, showZones: true, highlights: new Set(["4,4"]) });
+    const { map, overlay } = cityToIso({ plots: INITIAL_PLOTS, buildings: [b({ id: "h", line: "housing" })], jobs, zones: {}, bankLevel: 1, showZones: true, highlights: new Set(["4,4"]) });
     expect(map.objects.find((o) => o.id === "job:1,1")?.key).toBe("fx/scaffold");
     expect(map.objects.find((o) => o.id === "job:4,4")).toMatchObject({ key: "fx/cover", dz: 0.25 });
     expect(overlay.jobs).toHaveLength(2);
@@ -176,9 +147,9 @@ describe("OBJ-14 昼夜", () => {
   });
 
   it("時刻がなければ昼のまま", () => {
-    const { overlay } = cityToIso({ buildings: [], layout: 1, zones: legacyZones(), devLevel: 6, bankLevel: 1 });
+    const { overlay } = cityToIso({ plots: INITIAL_PLOTS, buildings: [], zones: {}, bankLevel: 1 });
     expect(overlay.night).toBe(0);
-    expect(cityToIso({ buildings: [], layout: 1, zones: legacyZones(), devLevel: 6, bankLevel: 1, hour: 22 }).overlay.night).toBe(1);
+    expect(cityToIso({ plots: INITIAL_PLOTS, buildings: [], zones: {}, bankLevel: 1, hour: 22 }).overlay.night).toBe(1);
   });
 });
 
@@ -202,11 +173,11 @@ describe("M3 にぎわい", () => {
   });
 
   it("A4 金鉱の前に金貨の山を置く", () => {
-    const zones = legacyZones();
+    const zones = {};
     const mine = { id: "m", special: "gold_mine" as const, tier: 0, level: 1, x: 3, y: 3 };
-    const { map } = cityToIso({ layout: 1, buildings: [mine], zones, devLevel: 9, bankLevel: 1, gold: { uncollected: 120, ratePerMinute: 1 } });
+    const { map } = cityToIso({ plots: INITIAL_PLOTS, buildings: [mine], zones, bankLevel: 1, gold: { uncollected: 120, ratePerMinute: 1 } });
     expect(map.objects.find((o) => o.id === "gold")).toMatchObject({ x: 3, y: 3, key: "props/gold/2" });
-    const none = cityToIso({ layout: 1, buildings: [mine], zones, devLevel: 9, bankLevel: 1, gold: { uncollected: 0, ratePerMinute: 1 } });
+    const none = cityToIso({ plots: INITIAL_PLOTS, buildings: [mine], zones, bankLevel: 1, gold: { uncollected: 0, ratePerMinute: 1 } });
     expect(none.map.objects.find((o) => o.id === "gold")).toBeUndefined();
   });
 

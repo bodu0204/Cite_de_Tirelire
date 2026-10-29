@@ -4,7 +4,7 @@ import { DAY, HOUR, TICK_MS } from "../config";
 import { demolish, expandQuote, manualBuild, manualExpand, manualUpgrade, moveBuilding, placeOffMapSpecials, rushJob, setPolicy, syncParks } from "../city/actions";
 import { computeMetrics } from "../city/economy";
 import { createCity } from "../city/init";
-import { buildingSize, connected, expandablePlots, findSite, footprint, isPlaced, isPlannedRoad, isTileUnlocked, normalizeCity, occupancy, placementFor, plotLimit, roadNetwork, tileKey, tileUnlockLevel } from "../city/layout";
+import { buildingSize, connected, expandablePlots, findSite, footprint, isPlaced, isPlannedRoad, isTileUnlocked, occupancy, placementFor, plotLimit, roadNetwork, tileKey } from "../city/layout";
 import { applyTechLevel, simulate } from "../city/sim";
 import { devLevel } from "../levels";
 import { createReplay } from "../replay";
@@ -44,8 +44,6 @@ describe("AT-012 長期間の放置", () => {
     expect(s.stock.food).toBeGreaterThanOrEqual(0);
     expect(s.treasury).toBeGreaterThanOrEqual(0);
     expect(devLevel(s.devPoints)).toBeGreaterThanOrEqual(2);
-    // 発展Lvで区画が開くのは v1 の街だけ（v2 は資源で開拓する）
-    expect(events.some((e) => e.type === "DISTRICT_UNLOCKED")).toBe(false);
   });
 
   it("決定的：まとめて計算しても小分けにしても同じ結果になる", () => {
@@ -193,38 +191,6 @@ describe("手動操作", () => {
   });
 });
 
-describe("v1 の街（2026-10 までに始めたシーズン）", () => {
-  it("10×10 のまま、発展Lvで区画が開く", () => {
-    const s = createCity(T0, "balanced", 1);
-    expect(s.v).toBe(1);
-    expect(tileUnlockLevel(0, 0)).toBe(5);
-    expect(isTileUnlocked(s, 2, 2)).toBe(false);
-    expect(() => manualBuild(s, { line: "housing", x: 2, y: 2 }, T0, 100)).toThrow(/解放/);
-    expect(() => manualBuild(s, { line: "housing", x: -1, y: 4 }, T0, 100)).toThrow(/マップの外/);
-    applyTechLevel(s, 2, T0, []);
-    const events = run(s, 7 * DAY);
-    expect(events.some((e) => e.type === "DISTRICT_UNLOCKED")).toBe(true);
-    for (const b of s.buildings) {
-      expect(b.x).toBeGreaterThanOrEqual(0);
-      expect(b.x).toBeLessThan(10);
-      expect(b.y).toBeGreaterThanOrEqual(0);
-      expect(b.y).toBeLessThan(10);
-    }
-    expect(occupancy(s).size).toBe(s.buildings.length + s.jobs.filter((j) => j.kind === "build").length);
-  });
-
-  it("古い形で保存した土地用途・自動建設の禁止・マップ外を読み替える", () => {
-    const s = createCity(T0, "balanced", 1);
-    const zones = Array.from({ length: 100 }, (_, i) => (i === 13 ? "industrial" : "none"));
-    const noAuto = Array.from({ length: 100 }, (_, i) => i === 25);
-    const old = { ...s, zones, noAuto, buildings: [...s.buildings, { ...s.buildings[0], id: "p", special: "park" as const, x: -1, y: -1 }] } as unknown as CityState;
-    const n = normalizeCity(old);
-    expect(n.zones).toEqual({ [tileKey(3, 1)]: "industrial" });
-    expect(n.noAuto).toEqual([tileKey(5, 2)]);
-    expect(n.buildings.find((b) => b.id === "p")?.placed).toBe(false);
-  });
-});
-
 describe("公園", () => {
   it("サブスクの公園は幸福度を上げ、効果は逓減する", () => {
     const s = createCity(T0);
@@ -256,24 +222,22 @@ describe("公園", () => {
 });
 
 describe("建物の大きさ（docs/map-layout-redesign.md §4）", () => {
-  it("道路・像は1×1、銀行と高額なサブスクの公園は3×3、ほかは2×2。v1 はすべて1マス", () => {
-    const v2 = { v: 2 as const };
-    expect(buildingSize(v2, { line: "road", tier: 0 })).toBe(1);
-    expect(buildingSize(v2, { special: "statue", tier: 2 })).toBe(1);
-    expect(buildingSize(v2, { special: "bank", tier: 0 })).toBe(3);
-    expect(buildingSize(v2, { special: "park", tier: 3 })).toBe(3);
-    expect(buildingSize(v2, { special: "park", tier: 2 })).toBe(2);
-    expect(buildingSize(v2, { line: "rail", tier: 0 })).toBe(2);
-    expect(buildingSize(v2, { special: "gold_mine", tier: 0 })).toBe(2);
-    expect(buildingSize(v2, { line: "housing", tier: 5 })).toBe(2);
-    expect(buildingSize({ v: 1 }, { special: "bank", tier: 0 })).toBe(1);
+  it("道路・像は1×1、銀行と高額なサブスクの公園は3×3、ほかは2×2", () => {
+    expect(buildingSize({ line: "road", tier: 0 })).toBe(1);
+    expect(buildingSize({ special: "statue", tier: 2 })).toBe(1);
+    expect(buildingSize({ special: "bank", tier: 0 })).toBe(3);
+    expect(buildingSize({ special: "park", tier: 3 })).toBe(3);
+    expect(buildingSize({ special: "park", tier: 2 })).toBe(2);
+    expect(buildingSize({ line: "rail", tier: 0 })).toBe(2);
+    expect(buildingSize({ special: "gold_mine", tier: 0 })).toBe(2);
+    expect(buildingSize({ line: "housing", tier: 5 })).toBe(2);
   });
 
   it("初期の街：銀行は原点を中心にした3×3。建物の占有範囲は重ならない", () => {
     const s = createCity(T0);
     const bank = s.buildings.find((b) => b.special === "bank")!;
     expect({ x: bank.x, y: bank.y }).toEqual({ x: -1, y: -1 });
-    const tiles = s.buildings.reduce((n, b) => n + buildingSize(s, b) ** 2, 0);
+    const tiles = s.buildings.reduce((n, b) => n + buildingSize(b) ** 2, 0);
     expect(occupancy(s).size).toBe(tiles);
   });
 
@@ -300,17 +264,17 @@ describe("建物の大きさ（docs/map-layout-redesign.md §4）", () => {
     const s = createCity(T0);
     syncParks(s, [{ id: "a", name: "A", monthly: 1000, active: true }], T0, []);
     const park = s.buildings.find((b) => b.special === "park")!;
-    expect(buildingSize(s, park)).toBe(2);
+    expect(buildingSize(park)).toBe(2);
     expect(isPlaced(park)).toBe(true);
     // 中心の 10×10 は推奨道路で 2×2 の敷地に分かれていて、3×3 は入らない
     syncParks(s, [{ id: "a", name: "A", monthly: 5000, active: true }], T0, []);
-    expect(buildingSize(s, park)).toBe(3);
+    expect(buildingSize(park)).toBe(3);
     expect(isPlaced(park)).toBe(false);
     // 安くなれば、空き待ちから 2×2 で置かれる
     syncParks(s, [{ id: "a", name: "A", monthly: 1000, active: true }], T0, []);
     placeOffMapSpecials(s);
     expect(isPlaced(park)).toBe(true);
-    expect(occupancy(s).size).toBe(s.buildings.filter(isPlaced).reduce((n, b) => n + buildingSize(s, b) ** 2, 0));
+    expect(occupancy(s).size).toBe(s.buildings.filter(isPlaced).reduce((n, b) => n + buildingSize(b) ** 2, 0));
   });
 });
 
@@ -366,14 +330,8 @@ describe("道路網（docs/map-layout-redesign.md §5）", () => {
     applyTechLevel(s, 3, T0, []);
     run(s, 5 * DAY);
     for (const b of s.buildings.filter((o) => isPlaced(o) && o.line !== "road" && !o.manual && !o.special))
-      expect(footprint(b.x, b.y, buildingSize(s, b)).some((t) => isPlannedRoad(t.x, t.y)), `${b.line} ${b.x},${b.y}`).toBe(false);
+      expect(footprint(b.x, b.y, buildingSize(b)).some((t) => isPlannedRoad(t.x, t.y)), `${b.line} ${b.x},${b.y}`).toBe(false);
     expectConnected(s);
-  });
-
-  it("v1 の街には道路のきまりがない", () => {
-    const s = createCity(T0, "balanced", 1);
-    s.buildings = s.buildings.filter((b) => b.line !== "road");
-    expect(() => manualBuild(s, { line: "housing", x: 4, y: 3 }, T0, 100)).not.toThrow();
   });
 });
 
@@ -434,14 +392,13 @@ describe("開拓（docs/map-layout-redesign.md §7）", () => {
     expect(() => manualBuild(s, { line: "housing", x: 5, y: 0 }, T0, 100)).not.toThrow();
   });
 
-  it("開拓できない区画：隣でない・上限・v1 の街", () => {
+  it("開拓できない区画：隣でない・上限", () => {
     const s = createCity(T0);
     s.stock.wood = 1000;
     expect(() => manualExpand(s, 5, 0, T0, 100)).toThrow(/4 までです/);
     atDev(s, 2);
     expect(() => manualExpand(s, 12, 0, T0, 100)).toThrow(/隣から/);
     expect(() => manualExpand(s, 0, 0, T0, 100)).toThrow(/開拓済み/);
-    expect(() => manualExpand(createCity(T0, "balanced", 1), 0, 0, T0, 100)).toThrow(/開拓できません/);
   });
 
   it("銀行までつながった道路が境目まで届いていない区画は開拓できない", () => {
@@ -486,7 +443,7 @@ describe("開拓（docs/map-layout-redesign.md §7）", () => {
       rushJob(s, s.jobs.at(-1)!.id, T0, 1000, []);
     }
     expect(isPlaced(park)).toBe(true);
-    expect(buildingSize(s, park)).toBe(3);
+    expect(buildingSize(park)).toBe(3);
     expect(connected(s, roadNetwork(s), park, park.x, park.y)).toBe(true);
   });
 });
@@ -500,7 +457,7 @@ describe("タイムラプス（v2）", () => {
     manualExpand(s, 5, 0, T0, 100);
     const events: CityEvent[] = [];
     rushJob(s, s.jobs.at(-1)!.id, T0 + 1000, 100, events);
-    const replay = createReplay({ layout: start.v, plots: start.plots, buildings: start.buildings.map(snapBuilding), zones: start.zones, techLevel: 1 }, events);
+    const replay = createReplay({ plots: start.plots, buildings: start.buildings.map(snapBuilding), zones: start.zones, techLevel: 1 }, events);
     expect(replay.at(T0).plots).toHaveLength(4);
     const after = replay.at(T0 + 1000);
     expect(after.plots).toContain("1,0");

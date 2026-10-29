@@ -22,7 +22,6 @@ import {
   buildingSize,
   contains,
   expansionError,
-  isLegacy,
   isNoAuto,
   isPlaced,
   isTileUnlocked,
@@ -31,7 +30,6 @@ import {
   placementError,
   plotKey,
   plotOf,
-  tileUnlockLevel,
   zoneAt,
 } from "@/game/city/layout";
 import { FEE_MOVE, FEE_RUSH_PER_10MIN, feeBuild, feeUpgrade, MINUTE } from "@/game/config";
@@ -190,14 +188,13 @@ export function TilePanel({
   const silver = v.currencies.silver;
   const dev = v.dev.level;
   // 大きな建物は、占有範囲のどのマスを選んでもその建物
-  const b = city.buildings.find((o) => isPlaced(o) && contains(o, buildingSize(city, o), tile.x, tile.y));
-  const job = city.jobs.find((j) => contains(j, j.kind === "build" ? jobSize(city, j) : 1, tile.x, tile.y) && (j.kind === "build" || (j.x === tile.x && j.y === tile.y)));
+  const b = city.buildings.find((o) => isPlaced(o) && contains(o, buildingSize(o), tile.x, tile.y));
+  const job = city.jobs.find((j) => contains(j, j.kind === "build" ? jobSize(j) : 1, tile.x, tile.y) && (j.kind === "build" || (j.x === tile.x && j.y === tile.y)));
   const zone = zoneAt(city, tile.x, tile.y);
   const cityAct = (body: Record<string, unknown>) => act("/api/city", body);
   const [showAll, setShowAll] = useState(false);
 
   if (!isTileUnlocked(city, tile.x, tile.y)) {
-    if (isLegacy(city)) return <p className="text-sm text-muted">この区画は発展Lv{tileUnlockLevel(tile.x, tile.y)}で解放されます。</p>;
     return <ExpandPanel v={v} tile={tile} />;
   }
 
@@ -352,7 +349,7 @@ export function TilePanel({
   const ctx = placeCtx(city);
   const lines = LINE_IDS.map((line) => {
     const tier = highestUnlockedTier(line, city.techLevel, dev);
-    const size = buildingSize(city, { line, tier });
+    const size = buildingSize({ line, tier });
     return { line, tier, size, why: tier >= 0 ? placementError(city, { line, tier }, tile.x, tile.y, ctx) : null };
   }).filter((x) => x.tier >= 0);
   const suggested = lines.filter((l) => LINES[l.line].zone === zone || LINES[l.line].zone === "any");

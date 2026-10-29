@@ -38,7 +38,7 @@ import { coverPlans, firstShort, type PlanQueue, type QueuePlan } from "../planQ
 import type { Zone } from "../catalog";
 import { snapBuilding, type Building, type CityEvent, type CityState, type Gains, type Job, type NeedKey } from "../types";
 import { computeMetrics, type Metrics } from "./economy";
-import { choosePlot, DISTRICT_NAMES, findSite, isLegacy, occupancy, placeOffMapSpecials, plotCross, plotsUsed, siteCache, tileKey, type SiteCache } from "./layout";
+import { choosePlot, findSite, occupancy, placeOffMapSpecials, plotCross, plotsUsed, siteCache, tileKey, type SiteCache } from "./layout";
 
 export const alignTick = (t: number) => Math.floor(t / TICK_MS) * TICK_MS;
 
@@ -123,10 +123,6 @@ export function emitDevLevel(s: CityState, before: number, at: number, events: C
   const after = devLevel(s.devPoints);
   for (let lv = before + 1; lv <= after; lv++) {
     events.push({ at, type: "DEV_LEVEL", auto: true, important: true, payload: { level: lv } });
-    // v1 の街だけ、発展Lvで区画が開く
-    if (isLegacy(s) && DISTRICT_NAMES[lv]) {
-      events.push({ at, type: "DISTRICT_UNLOCKED", auto: true, important: true, payload: { level: lv, name: DISTRICT_NAMES[lv] } });
-    }
   }
 }
 
@@ -158,7 +154,7 @@ export function creditBuild(s: CityState, b: Building, kind: "build" | "upgrade"
  */
 function openPlot(s: CityState, job: Job, at: number, events: CityEvent[]) {
   const plot = job.plot!;
-  if (!(s.plots ??= []).includes(plot)) s.plots.push(plot);
+  if (!s.plots.includes(plot)) s.plots.push(plot);
   const [px, py] = plot.split(",").map(Number);
   const cross = plotCross(px, py);
   const onCross = new Set(cross.map((t) => tileKey(t.x, t.y)));
@@ -284,7 +280,7 @@ function buildPlanAt(s: CityState, line: LineId, dev: number, cache?: SiteCache)
     const t = tierDef(line, tier);
     return { kind: "build", line, tier, level: 1, site, cost: t.cost, minutes: t.buildMinutes };
   }
-  if (line === "road" || isLegacy(s)) return null;
+  if (line === "road") return null;
   // 置き場所がなければ、まず欠けた推奨道路を道路網の端から延ばし、それもなければ区画を開拓する（§5.3・§7.2）
   const zone = LINES[line].zone;
   return buildPlanAt(s, "road", dev, cache) ?? expandPlan(s, dev, zone === "any" ? null : zone, cache);

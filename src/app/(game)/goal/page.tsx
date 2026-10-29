@@ -4,7 +4,6 @@ import { useRouter } from "next/navigation";
 import { CityView } from "@/components/city/CityView";
 import { useGame, useSeasonView } from "@/components/GameProvider";
 import { Button, Card, LinkButton, Stat } from "@/components/ui";
-import { devLevel } from "@/game/levels";
 import { fmt, formatDate, yen } from "@/lib/api";
 
 export default function GoalPage() {
@@ -33,12 +32,10 @@ export default function GoalPage() {
       <CityView
         fixed
         label="完成間近の街"
-        layout={v.city.v}
         plots={v.city.plots}
         buildings={v.city.buildings}
         jobs={[]}
         zones={v.city.zones}
-        devLevel={devLevel(v.city.devPoints)}
         bankLevel={v.city.bankLevel}
         population={v.metrics.population}
         logistics={v.metrics.logistics}

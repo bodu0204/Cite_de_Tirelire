@@ -486,7 +486,7 @@ export function cityAction(ctx: GameCtx, body: Body) {
     ["build", "upgrade", "evolve", "move", "demolish", "rush", "lock", "zone", "noAuto", "policy", "expand"] as const,
     "操作",
   );
-  // 範囲の確かめは盤面の版ごとに actions.ts で行う（v2 は負の座標もある）
+  // 範囲の確かめは actions.ts で行う（銀行の中心が原点なので負の座標もある）
   const xy = () => ({ x: int(body.x, "X", { min: -100_000, max: 100_000 }), y: int(body.y, "Y", { min: -100_000, max: 100_000 }) });
   const id = () => str(body.buildingId ?? body.jobId, "対象");
   let fee = 0;

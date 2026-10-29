@@ -4,7 +4,7 @@ import { expandCost, expandMinutes, FEE_MOVE, FEE_RUSH_PER_10MIN, feeBuild, feeU
 import { fail } from "../errors";
 import { devLevel, statueRank } from "../levels";
 import { snapBuilding, type Building, type CityEvent, type CityPolicy, type CityState, type NeedKey } from "../types";
-import { buildingSize, canPlace, expansionError, findSpecialSite, inBounds, isLegacy, isPlaced, placeCtx, placementError, placementFor, plotOf, removalBreaks, tileKey } from "./layout";
+import { buildingSize, canPlace, expansionError, findSpecialSite, inBounds, isPlaced, placeCtx, placementError, placementFor, plotOf, removalBreaks, tileKey } from "./layout";
 import { buildingName, canAfford, finishJob, levelCap, newId, nextPlotIndex, startJob } from "./sim";
 
 function requireBuilding(s: CityState, id: string): Building {
@@ -31,11 +31,11 @@ function siteCode(message: string): string {
 }
 
 /**
- * 選んだマス (x, y) を含む占有範囲を決める。開いた区画・空きで、v2 は銀行までつながった道路に接すること。
+ * 選んだマス (x, y) を含む占有範囲を決める。開いた区画・空きで、銀行までつながった道路に接すること。
  * ignore は移動する建物自身。大きな建物は、選んだマスを左上にできなければ、選んだマスを含むほかの置き方を探す
  */
 function requireSite(s: CityState, x: number, y: number, b: Pick<Building, "line" | "special" | "tier">, ignore?: string): { x: number; y: number } {
-  if (!inBounds(s, x, y)) fail("bad_tile", "マップの外です");
+  if (!inBounds(x, y)) fail("bad_tile", "マップの外です");
   const c = placeCtx(s, ignore);
   const at = placementFor(s, b, x, y, c);
   if (at) return at;
@@ -132,7 +132,7 @@ export function manualEvolve(s: CityState, id: string, now: number, silver: numb
 export function moveBuilding(s: CityState, id: string, x: number, y: number, now: number, silver: number, events: CityEvent[]): ManualResult {
   const b = requireBuilding(s, id);
   if (b.locked && !b.special) fail("locked", "固定された建物は移動できません。固定を解除してください");
-  if (b.special === "bank" && !isLegacy(s)) fail("special", "銀行は街の中心に固定です");
+  if (b.special === "bank") fail("special", "銀行は街の中心に固定です");
   requireIdle(s, b);
   requireRoadRemovable(s, b);
   const site = requireSite(s, x, y, b, b.id);
@@ -180,14 +180,14 @@ export function setLocked(s: CityState, id: string, locked: boolean) {
 const ZONES: Zone[] = ["residential", "commercial", "industrial", "agricultural", "public", "special", "none"];
 
 export function setZone(s: CityState, x: number, y: number, zone: Zone) {
-  if (!inBounds(s, x, y)) fail("bad_tile", "マップの外です");
+  if (!inBounds(x, y)) fail("bad_tile", "マップの外です");
   if (!ZONES.includes(zone)) fail("bad_zone", "土地用途が不正です");
   if (zone === "none") delete s.zones[tileKey(x, y)];
   else s.zones[tileKey(x, y)] = zone;
 }
 
 export function setNoAuto(s: CityState, x: number, y: number, noAuto: boolean) {
-  if (!inBounds(s, x, y)) fail("bad_tile", "マップの外です");
+  if (!inBounds(x, y)) fail("bad_tile", "マップの外です");
   const k = tileKey(x, y);
   const rest = s.noAuto.filter((o) => o !== k);
   s.noAuto = noAuto ? [...rest, k] : rest;
@@ -196,7 +196,7 @@ export function setNoAuto(s: CityState, x: number, y: number, noAuto: boolean) {
 /** 特殊施設を置く場所。なければマップ外（区画が開いたら placeOffMapSpecials で置く） */
 function specialSite(s: CityState, b: Pick<Building, "special" | "tier">): Pick<Building, "x" | "y" | "placed"> {
   const site = findSpecialSite(s, b);
-  return site ? { x: site.x, y: site.y } : { x: isLegacy(s) ? -1 : 0, y: isLegacy(s) ? -1 : 0, placed: false };
+  return site ? { x: site.x, y: site.y } : { x: 0, y: 0, placed: false };
 }
 
 const NEEDS: NeedKey[] = ["shortage", "jobs", "housing", "logistics", "efficiency", "industry", "beautify"];
@@ -260,9 +260,9 @@ export function syncParks(s: CityState, subs: ParkSource[], now: number, events:
  * 今の場所で収まればそのまま、収まらなければ空きを探し、なければマップ外にして開拓で場所ができるのを待つ
  */
 function resizePark(s: CityState, park: Building, tier: number) {
-  const before = buildingSize(s, park);
+  const before = buildingSize(park);
   park.tier = tier;
-  const size = buildingSize(s, park);
+  const size = buildingSize(park);
   if (size === before || !isPlaced(park)) return;
   // 公園自身を盤面から外してから空きを調べる（大きくした占有範囲が、隣の建物のマスを上書きしないように）
   park.placed = false;

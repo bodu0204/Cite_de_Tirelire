@@ -21,7 +21,7 @@ export interface Building {
   refId?: string;
   tier: number;
   level: number;
-  /** 占有範囲の左上のマス（docs/map-layout-redesign.md §4.2）。v1 の街は 0〜9、v2 の街は銀行の中心が原点で負もある */
+  /** 占有範囲の左上のマス（docs/map-layout-redesign.md §4.2）。銀行の中心が原点で、負もある */
   x: number;
   y: number;
   /** false はマップ外（土地が足りない特殊施設）。x, y は意味を持たない */
@@ -74,19 +74,12 @@ export interface CityPolicy {
   priorities: NeedKey[];
   /** false で自動開発を止める */
   autoEnabled: boolean;
-  /** false で自動開発の開拓を止める（v2。省略すると開拓する。Q9） */
+  /** false で自動開発の開拓を止める（省略すると開拓する。Q9） */
   autoExpand?: boolean;
 }
 
-/**
- * 街の盤面の版（docs/map-layout-redesign.md §6.5）。
- * 1：10×10 固定・全建物1マス・発展Lvで区画が開く（2026-10 までに始めたシーズン）。
- * 2：銀行の中心が原点・建物の大きさ・道路網・資源で開拓する無限のマップ
- */
-export type CityLayout = 1 | 2;
-
 export interface CityState {
-  v: CityLayout;
+  v: 1;
   /** シミュレーション済みの時刻（TICK_MS に揃う） */
   simTime: number;
   buildings: Building[];
@@ -103,8 +96,8 @@ export interface CityState {
   zones: Record<string, Zone>;
   /** 自動建設を禁止したマス（"x,y"） */
   noAuto: string[];
-  /** 開拓した区画（"px,py"。v2 のみ。区画 (px, py) はマス x = 5px〜5px+4、y = 5py〜5py+4） */
-  plots?: string[];
+  /** 開拓した区画（"px,py"。区画 (px, py) はマス x = 5px〜5px+4、y = 5py〜5py+4） */
+  plots: string[];
   policy: CityPolicy;
   techLevel: number;
   /** 銀行Lv（達成率から決まる。タイムラプスの外観用に街の状態にも持つ） */
@@ -125,7 +118,6 @@ export type CityEventType =
   | "MOVE"
   | "TECH_UNLOCKED"
   | "DEV_LEVEL"
-  | "DISTRICT_UNLOCKED"
   | "PLOT_EXPANDED"
   | "POPULATION"
   | "SHORTAGE_STARTED"

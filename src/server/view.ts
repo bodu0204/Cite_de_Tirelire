@@ -2,7 +2,7 @@
 import { bondCap, bondMiningStatus, bondMultiplier, bondShare } from "@/game/bond";
 import { highestUnlockedTier, LINE_IDS, LINES, unlocksAtTech } from "@/game/catalog";
 import { computeMetrics } from "@/game/city/economy";
-import { DISTRICT_NAMES, isLegacy, plotLimit, plotsUsed, unlockedTileCount } from "@/game/city/layout";
+import { plotLimit, plotsUsed, unlockedTileCount } from "@/game/city/layout";
 import { cityNeeds, levelCap } from "@/game/city/sim";
 import {
   AWAY_SUMMARY_MIN_MS,
@@ -56,7 +56,7 @@ async function awaySummary(ctx: GameCtx) {
   const tiles = new Set<string>();
   for (const e of events) {
     const b = (e.payload as { building?: { x: number; y: number; placed?: false } }).building;
-    if (b && b.placed !== false && (!isLegacy(city) || b.x >= 0)) tiles.add(`${b.x},${b.y}`);
+    if (b && b.placed !== false) tiles.add(`${b.x},${b.y}`);
   }
   return {
     hours: Math.floor((ctx.now - last) / 3_600_000),
@@ -234,10 +234,9 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
       ratePerHour: DEV_PER_HOUR * metrics.operation * k,
       operation: metrics.operation,
       bondMultiplier: k,
-      nextDistrict: isLegacy(city) ? (DISTRICT_NAMES[dev + 1] ?? null) : null,
       tiles: unlockedTileCount(city),
-      /** v2：開いた・開拓中の区画の数と、その上限（docs/map-layout-redesign.md §7.3） */
-      plots: isLegacy(city) ? null : { used: plotsUsed(city), limit: plotLimit(city.devPoints) },
+      /** 開いた・開拓中の区画の数と、その上限（docs/map-layout-redesign.md §7.3） */
+      plots: { used: plotsUsed(city), limit: plotLimit(city.devPoints) },
       levelCap: levelCap(dev),
     },
     city,

@@ -139,7 +139,7 @@ export default function SubscriptionsPage() {
                       {park ? (park.closed ? "閉園中" : "開園中") : s.startDate > today ? "契約開始日に開園" : "閉園"}
                       {" ・ "}
                       {SIZE[park?.tier ?? parkSize(monthly(s))]}
-                      {park && v && ` ・ ${park.placed !== false ? tileLabel(v.city, park.x, park.y) : "置く場所の空き待ち"}`}
+                      {park && ` ・ ${park.placed !== false ? tileLabel(park.x, park.y) : "置く場所の空き待ち"}`}
                       {nextSize(monthly(s))}
                     </span>
                   </span>

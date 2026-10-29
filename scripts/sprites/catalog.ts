@@ -37,7 +37,7 @@ export function requiredKeys(): string[] {
 }
 
 /**
- * 2×2・3×3 の建物の絵（docs/map-layout-redesign.md §4.5）。v2 の街の、道路・像以外の建物と特殊施設。
+ * 2×2・3×3 の建物の絵（docs/map-layout-redesign.md §4.5）。道路・像以外の建物と特殊施設。
  * 1マスの絵のキーに big/ を付ける
  */
 export function bigKeys(): string[] {
