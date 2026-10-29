@@ -12,11 +12,11 @@ import { REWARD_PURCHASE, REWARD_SAVINGS } from "@/game/config";
 
 type Tab = "income" | "expense" | "adjust" | "savings" | "history";
 
-/** 収支記録（SCR-02）：収入・支出・誤差調整の3種類と、貯金管理・履歴（docs/record-input-redesign.md §9.5） */
+/** 収支記録（SCR-02）：支出・収入・誤差調整の3種類と、貯金管理・履歴（docs/record-input-redesign.md §9.5） */
 export default function RecordsPage() {
   const { view } = useGame();
   const v = useSeasonView();
-  const [tab, setTab] = useState<Tab>("income");
+  const [tab, setTab] = useState<Tab>("expense");
   const [reloadKey, setReloadKey] = useState(0);
   const tz = view?.user.timezone ?? "Asia/Tokyo";
   const done = () => setReloadKey((k) => k + 1);
@@ -44,8 +44,8 @@ export default function RecordsPage() {
           value={tab}
           onChange={setTab}
           items={[
-            { value: "income", label: "収入" },
             { value: "expense", label: "支出" },
+            { value: "income", label: "収入" },
             { value: "adjust", label: "誤差調整" },
             { value: "savings", label: "貯金管理" },
             { value: "history", label: "履歴" },
