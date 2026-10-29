@@ -29,7 +29,7 @@ export function requiredKeys(): string[] {
   for (let t = 0; t < PARK_TIERS; t++) keys.push(`special/park/${t}`);
   for (const r of STATUE_RANKS) keys.push(`special/statue/${r}`);
   keys.push("fx/scaffold", "fx/cover", "locked/forest", "locked/rocks", "locked/sign", ...LV_PROPS);
-  for (let v = 0; v < AGENT_VARIANTS; v++) keys.push(`agent/person/${v}/se`, `agent/person/${v}/ne`, `agent/car/${v}/sw`);
+  for (let v = 0; v < AGENT_VARIANTS; v++) keys.push(`agent/person/${v}/se`, `agent/person/${v}/ne`, `agent/car/${v}/sw`, `agent/car/${v}/ne`);
   for (const t of TROUBLES) keys.push(`icons/${t}`);
   for (let s = 1; s <= GOLD_STAGES; s++) keys.push(`props/gold/${s}`);
   return keys;

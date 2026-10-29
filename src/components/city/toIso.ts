@@ -3,6 +3,7 @@
 import { LINES, type LineId, type SpecialKind, type Zone } from "@/game/catalog";
 import { LOGISTICS_FLOOR, MAP_SIZE } from "@/game/config";
 import { tileUnlockLevel } from "@/game/city/layout";
+import { MIN_ROAD } from "@/components/iso/agents";
 import { hash2, type IsoMap, type IsoObject, type IsoOverlay } from "@/components/iso/map";
 
 export interface CityBuilding {
@@ -50,12 +51,15 @@ export interface CityInput {
 export const MAX_PEOPLE = 200;
 export const MAX_CARS = 100;
 
-/** 道路を行き交う人と車の数：人は人口の4割、車は人口の12%に物流効率を掛ける */
-export function agentCounts(population: number, logistics: number, roadTiles: number): { people: number; cars: number } {
+/**
+ * 道路を行き交う人と車の数：人は人口の4割、車は人口の12%に物流効率を掛ける。
+ * 車は舗装道路（paved マス）だけを走るので、未舗装道路しかない序盤は 0 台
+ */
+export function agentCounts(population: number, logistics: number, roadTiles: number, paved = roadTiles): { people: number; cars: number } {
   const flow = Math.max(0, Math.min(1, (logistics - LOGISTICS_FLOOR) / (1 - LOGISTICS_FLOOR)));
   return {
     people: Math.min(MAX_PEOPLE, roadTiles, Math.round(Math.max(0, population) * 0.4)),
-    cars: Math.min(MAX_CARS, Math.floor(roadTiles / 3), Math.round(Math.max(0, population) * 0.12 * (0.3 + 0.7 * flow))),
+    cars: Math.min(MAX_CARS, Math.floor(paved / 3), Math.round(Math.max(0, population) * 0.12 * (0.3 + 0.7 * flow))),
   };
 }
 
@@ -171,7 +175,8 @@ export function cityToIso(input: CityInput): { map: IsoMap; overlay: IsoOverlay 
   }
 
   const roadTiles = road.reduce((n, r) => n + (r ? 1 : 0), 0);
-  const agents = input.population === undefined ? undefined : agentCounts(input.population, input.logistics ?? 1, roadTiles);
+  const paved = road.reduce((n, r) => n + (r >= MIN_ROAD.car ? 1 : 0), 0);
+  const agents = input.population === undefined ? undefined : agentCounts(input.population, input.logistics ?? 1, roadTiles, paved);
   return {
     map: { width: size, height: size, road, locked, objects },
     overlay: {

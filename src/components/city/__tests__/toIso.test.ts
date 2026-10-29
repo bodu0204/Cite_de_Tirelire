@@ -99,6 +99,8 @@ describe("M3 にぎわい", () => {
     expect(agentCounts(100000, 1, 10000)).toEqual({ people: MAX_PEOPLE, cars: MAX_CARS });
     expect(agentCounts(1000, 1, 10)).toEqual({ people: 10, cars: 3 });
     expect(agentCounts(0, 1, 100)).toEqual({ people: 0, cars: 0 });
+    // 未舗装道路しかない序盤は車が走らない
+    expect(agentCounts(100, 1, 500, 0)).toEqual({ people: 40, cars: 0 });
   });
 
   it("A4 金貨の山は未回収が採掘の何分ぶんかで3段階", () => {

@@ -163,6 +163,19 @@ describe("OBJ-11 人と車", () => {
     expect(a).toEqual(b);
   });
 
+  it("車は舗装道路だけを走り、未舗装道路しかなければ出ない", () => {
+    const dirt = { ...m, road: m.road.map((r) => (r ? 1 : 0)) };
+    expect(createAgents(dirt, 5, 5).filter((a) => a.kind === "car")).toHaveLength(0);
+    // 半分を未舗装道路にしても、車は舗装道路から出ない
+    const mixed = { ...m, road: m.road.map((r, i) => (r ? (i % 2 ? 2 : 1) : 0)) };
+    const cars = createAgents(mixed, 0, 30);
+    for (let t = 0; t < 200; t++)
+      for (const a of cars) {
+        stepAgent(a, mixed, 0.1);
+        expect(mixed.road[Math.round(a.y) * mixed.width + Math.round(a.x)]).toBe(2);
+      }
+  });
+
   it("人と車の数を分けて置き、増やしても前からいる人は変わらない", () => {
     const few = createAgents(m, 10, 4);
     const more = createAgents(m, 20, 8);
@@ -172,13 +185,15 @@ describe("OBJ-11 人と車", () => {
     expect(more.filter((a) => a.kind === "car").slice(0, 4)).toEqual(few.slice(10));
   });
 
-  it("向きの絵：人は前と後ろ、車は道の向きだけ", () => {
+  it("向きの絵：前向きと後ろ向きを反転して4方向", () => {
     expect(agentFacing({ kind: "person", dx: 1, dy: 0 })).toEqual({ dir: "se", flip: false });
     expect(agentFacing({ kind: "person", dx: 0, dy: 1 })).toEqual({ dir: "se", flip: true });
     expect(agentFacing({ kind: "person", dx: 0, dy: -1 })).toEqual({ dir: "ne", flip: false });
     expect(agentFacing({ kind: "person", dx: -1, dy: 0 })).toEqual({ dir: "ne", flip: true });
     expect(agentFacing({ kind: "car", dx: 0, dy: 1 })).toEqual({ dir: "sw", flip: false });
-    expect(agentFacing({ kind: "car", dx: -1, dy: 0 })).toEqual({ dir: "sw", flip: true });
+    expect(agentFacing({ kind: "car", dx: 1, dy: 0 })).toEqual({ dir: "sw", flip: true });
+    expect(agentFacing({ kind: "car", dx: 0, dy: -1 })).toEqual({ dir: "ne", flip: false });
+    expect(agentFacing({ kind: "car", dx: -1, dy: 0 })).toEqual({ dir: "ne", flip: true });
   });
 });
 
