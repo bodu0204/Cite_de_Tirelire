@@ -3,7 +3,7 @@
 import { randomUUID } from "node:crypto";
 import { Prisma, type CurrencyDef, type Season, type Subscription, type User, type WishItem } from "@prisma/client";
 import { bondCap } from "@/game/bond";
-import { placeOffMapSpecials, syncParks, syncStatues, type ParkSource, type StatueSource } from "@/game/city/actions";
+import { FEE_INSTANT_ROAD, placeOffMapSpecials, syncParks, syncStatues, type ParkSource, type StatueSource } from "@/game/city/actions";
 import { applyTechLevel } from "@/game/city/sim";
 import { BudgetPlan, type CurrencyDefLite, type Rule } from "@/game/currency";
 import { fail } from "@/game/errors";
@@ -226,9 +226,15 @@ export function parkSources(subs: Subscription[], tz: string, at: number): ParkS
 export async function syncSpecials(ctx: GameCtx) {
   if (!ctx.season || !ctx.city) return;
   ctx.subs = await ctx.tx.subscription.findMany({ where: { userId: ctx.user.id }, orderBy: { createdAt: "asc" } });
-  placeOffMapSpecials(ctx.city);
-  syncParks(ctx.city, parkSources(ctx.subs, ctx.user.timezone, ctx.now), ctx.now, ctx.events);
-  syncStatues(ctx.city, await statueSources(ctx.tx, ctx.user.id, ctx.season), ctx.now, ctx.events);
+  let roads = placeOffMapSpecials(ctx.city, ctx.now, ctx.events);
+  roads += syncParks(ctx.city, parkSources(ctx.subs, ctx.user.timezone, ctx.now), ctx.now, ctx.events);
+  roads += syncStatues(ctx.city, await statueSources(ctx.tx, ctx.user.id, ctx.season), ctx.now, ctx.events);
+  // 公園・像のためにすぐ敷いた道路の銀貨。足りなくても払い、マイナスとして残す（addCurrency はマイナスを許さないので直接記録する）
+  if (roads) {
+    const delta = -roads * FEE_INSTANT_ROAD;
+    ctx.balances.silver += delta;
+    ctx.ledger.push({ currency: "SILVER", delta, reason: "special_road" });
+  }
 }
 
 async function load(tx: Tx, userId: string, now: number): Promise<GameCtx> {

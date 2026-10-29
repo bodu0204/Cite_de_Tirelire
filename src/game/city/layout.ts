@@ -406,6 +406,90 @@ export function findSpecialSite(s: CityState, b: Kind): { x: number; y: number }
   return free[0] ?? null;
 }
 
+/** 林を押しのけて置く場所と、銀行の道路網につなぐために敷く道路のマス */
+export interface ForestSite {
+  x: number;
+  y: number;
+  roads: { x: number; y: number }[];
+}
+
+/**
+ * 開いた区画に置ける場所がない特殊施設（公園・像）の場所。未開放の林も使ってよい（林を押しのけて置く）。
+ * 道路網に接していなければ、つなぐ道路も返す。道路は推奨道路の上を優先し、敷くマスが少ない場所を選ぶ。
+ * 描画で林の帯（区画1つ分）の中に収まるよう、開いた土地から区画1つ分より内側だけを探す
+ */
+export function forestSite(s: CityState, b: Kind): ForestSite | null {
+  const size = buildingSize(b);
+  const land = landBounds(s);
+  const m = PLOT_SIZE - 1;
+  const area = { minX: land.minX - m, minY: land.minY - m, maxX: land.maxX + m, maxY: land.maxY + m };
+  const w = area.maxX - area.minX + 1;
+  const h = area.maxY - area.minY + 1;
+  const idx = (x: number, y: number) => (x < area.minX || y < area.minY || x > area.maxX || y > area.maxY ? -1 : (y - area.minY) * w + (x - area.minX));
+  const occ = occupancy(s);
+  const net = roadNetwork(s);
+  const free = (x: number, y: number) => idx(x, y) >= 0 && !occ.has(tileKey(x, y));
+
+  // 道路網からの、道路を敷く手間（推奨道路は 2、それ以外は 3）。重みが小さな整数なのでバケツで回す
+  const dist = new Float64Array(w * h).fill(Infinity);
+  const prev = new Int32Array(w * h).fill(-1);
+  const buckets: number[][] = [[]];
+  const push = (i: number, d: number) => {
+    dist[i] = d;
+    (buckets[d] ??= []).push(i);
+  };
+  // 道路がまだ無ければ、銀行の隣から延ばす
+  for (const k of net.tiles.size ? net.tiles : net.bank) {
+    const [x, y] = k.split(",").map(Number);
+    const i = idx(x, y);
+    if (i >= 0) push(i, 0);
+  }
+  for (let d = 0; d < buckets.length; d++)
+    for (const i of buckets[d] ?? []) {
+      if (dist[i] !== d) continue;
+      const x = (i % w) + area.minX;
+      const y = Math.floor(i / w) + area.minY;
+      for (const n of perimeter(x, y, 1)) {
+        if (!free(n.x, n.y)) continue;
+        const j = idx(n.x, n.y);
+        const nd = d + (isPlannedRoad(n.x, n.y) ? 2 : 3);
+        if (nd >= dist[j]) continue;
+        prev[j] = i;
+        push(j, nd);
+      }
+    }
+  const pathTo = (i: number) => {
+    const out: { x: number; y: number }[] = [];
+    for (let j = i; j >= 0 && dist[j] > 0; j = prev[j]) out.push({ x: (j % w) + area.minX, y: Math.floor(j / w) + area.minY });
+    return out.reverse();
+  };
+
+  const half = (size - 1) / 2;
+  const found: { x: number; y: number; p: number; score: number }[] = [];
+  for (let y = area.minY; y + size - 1 <= area.maxY; y++)
+    for (let x = area.minX; x + size - 1 <= area.maxX; x++) {
+      const tiles = footprint(x, y, size);
+      if (tiles.some((t) => !free(t.x, t.y) || isPlannedRoad(t.x, t.y))) continue;
+      // 一番手間の少ない隣のマス（道路網の道路なら手間 0）
+      let best = -1;
+      for (const t of perimeter(x, y, size)) {
+        const i = idx(t.x, t.y);
+        if (i < 0 || !(net.tiles.has(tileKey(t.x, t.y)) || free(t.x, t.y))) continue;
+        if (dist[i] < Infinity && (best < 0 || dist[i] < dist[best])) best = i;
+      }
+      if (best < 0) continue;
+      found.push({ x, y, p: best, score: dist[best] * 10 + Math.hypot(x + half, y + half) });
+    }
+  found.sort((a, b2) => a.score - b2.score || a.y - b2.y || a.x - b2.x);
+  for (const f of found) {
+    const roads = pathTo(f.p);
+    // 道路が置き場所を通っていれば次の候補にする
+    if (roads.some((r) => contains(f, size, r.x, r.y))) continue;
+    return { x: f.x, y: f.y, roads };
+  }
+  return null;
+}
+
 /**
  * 道路 roadId を外すと、銀行とのつながりが切れるもの（なければ null）。
  * 道路網から外れる道路があるか、道路網に接しなくなる建物・工事があれば、その名前の代わりに建物ID を返す
@@ -524,7 +608,7 @@ export function choosePlot(s: CityState, zone: Zone | null, cache?: SiteCache): 
 }
 
 /** マップ外に置かれた特殊施設を、場所ができたら置く（区画の解放・開拓・撤去のあと） */
-export function placeOffMapSpecials(s: CityState) {
+export function placeWaitingSpecials(s: CityState) {
   for (const b of s.buildings) {
     if (isPlaced(b) || !b.special) continue;
     const site = findSpecialSite(s, b);

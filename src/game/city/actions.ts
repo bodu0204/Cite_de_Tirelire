@@ -4,7 +4,7 @@ import { expandCost, expandMinutes, FEE_MOVE, FEE_RUSH_PER_10MIN, feeBuild, feeU
 import { fail } from "../errors";
 import { devLevel, statueRank } from "../levels";
 import { snapBuilding, type Building, type CityEvent, type CityPolicy, type CityState, type NeedKey } from "../types";
-import { buildingSize, canPlace, expansionError, findSpecialSite, inBounds, isPlaced, placeCtx, placementError, placementFor, plotOf, removalBreaks, tileKey } from "./layout";
+import { buildingSize, canPlace, expansionError, findSpecialSite, forestSite, inBounds, isPlaced, placeCtx, placementError, placementFor, plotOf, removalBreaks, tileKey } from "./layout";
 import { buildingName, canAfford, finishJob, levelCap, newId, nextPlotIndex, startJob } from "./sim";
 
 function requireBuilding(s: CityState, id: string): Building {
@@ -193,10 +193,45 @@ export function setNoAuto(s: CityState, x: number, y: number, noAuto: boolean) {
   s.noAuto = noAuto ? [...rest, k] : rest;
 }
 
-/** 特殊施設を置く場所。なければマップ外（区画が開いたら placeOffMapSpecials で置く） */
-function specialSite(s: CityState, b: Pick<Building, "special" | "tier">): Pick<Building, "x" | "y" | "placed"> {
+/** 林を押しのけて敷く道路1マスの銀貨（手動建設の手数料と同じ） */
+export const FEE_INSTANT_ROAD = feeBuild(0);
+
+/**
+ * 特殊施設（公園・像）を置く。開いた区画に置けなければ林を押しのけて置き、
+ * 銀行の道路網に接していなければ足りない道路をすぐに敷く。道路の木材は備蓄から引き、足りなくてもマイナスにして記録する。
+ * 敷いた道路の数を返す（銀貨は呼び出し側が 1マス FEE_INSTANT_ROAD で払い、足りなければマイナスにする）
+ */
+function placeSpecial(s: CityState, b: Building, now: number, events: CityEvent[]): number {
   const site = findSpecialSite(s, b);
-  return site ? { x: site.x, y: site.y } : { x: 0, y: 0, placed: false };
+  if (site) {
+    b.x = site.x;
+    b.y = site.y;
+    delete b.placed;
+    return 0;
+  }
+  const forest = forestSite(s, b);
+  if (!forest) {
+    b.placed = false;
+    return 0;
+  }
+  b.x = forest.x;
+  b.y = forest.y;
+  delete b.placed;
+  const wood = LINES.road.tiers[0].cost.wood;
+  for (const t of forest.roads) {
+    const road: Building = { id: newId(s), line: "road", tier: 0, level: 1, x: t.x, y: t.y, locked: false, manual: true, builtAt: now };
+    s.buildings.push(road);
+    s.stock.wood -= wood;
+    events.push({ at: now, type: "BUILD", auto: false, important: false, payload: { building: snapBuilding(road), name: buildingName(road) } });
+  }
+  return forest.roads.length;
+}
+
+/** マップ外で待っている公園・像を置く（林を押しのけて置く）。敷いた道路の数を返す */
+export function placeOffMapSpecials(s: CityState, now: number, events: CityEvent[]): number {
+  let roads = 0;
+  for (const b of s.buildings) if (!isPlaced(b) && b.special) roads += placeSpecial(s, b, now, events);
+  return roads;
 }
 
 const NEEDS: NeedKey[] = ["shortage", "jobs", "housing", "logistics", "efficiency", "industry", "beautify"];
@@ -228,7 +263,9 @@ export function parkSize(monthly: number): number {
   return 0;
 }
 
-export function syncParks(s: CityState, subs: ParkSource[], now: number, events: CityEvent[]) {
+/** 公園を家計のサブスクに合わせる。林を押しのけて敷いた道路の数を返す */
+export function syncParks(s: CityState, subs: ParkSource[], now: number, events: CityEvent[]): number {
+  let roads = 0;
   const ids = new Set(subs.map((x) => x.id));
   for (const b of s.buildings.filter((b) => b.special === "park" && b.refId && !ids.has(b.refId))) {
     s.buildings = s.buildings.filter((o) => o.id !== b.id);
@@ -239,12 +276,13 @@ export function syncParks(s: CityState, subs: ParkSource[], now: number, events:
     const tier = parkSize(sub.monthly);
     if (!park) {
       if (!sub.active) continue;
-      const b: Building = { id: newId(s), special: "park", refId: sub.id, tier, level: 1, ...specialSite(s, { special: "park", tier }), locked: false, manual: false, builtAt: now };
+      const b: Building = { id: newId(s), special: "park", refId: sub.id, tier, level: 1, x: 0, y: 0, placed: false, locked: false, manual: false, builtAt: now };
+      roads += placeSpecial(s, b, now, events);
       s.buildings.push(b);
       events.push({ at: now, type: "PARK_OPENED", auto: false, important: true, payload: { building: snapBuilding(b), name: sub.name } });
       continue;
     }
-    if (park.tier !== tier) resizePark(s, park, tier);
+    if (park.tier !== tier) roads += resizePark(s, park, tier, now, events);
     if (park.closed && sub.active) {
       park.closed = false;
       events.push({ at: now, type: "PARK_OPENED", auto: false, important: true, payload: { building: snapBuilding(park), name: sub.name } });
@@ -253,28 +291,25 @@ export function syncParks(s: CityState, subs: ParkSource[], now: number, events:
       events.push({ at: now, type: "PARK_CLOSED", auto: false, important: true, payload: { building: snapBuilding(park), name: sub.name } });
     }
   }
+  return roads;
 }
 
 /**
  * 公園の段階を変える。3×3（高額なサブスク）と 2×2 をまたぐ時は置き直す（docs/map-layout-redesign.md §4.4）：
- * 今の場所で収まればそのまま、収まらなければ空きを探し、なければマップ外にして開拓で場所ができるのを待つ
+ * 今の場所で収まればそのまま、収まらなければ空きを探し、なければ林を押しのけて置く（placeSpecial）
  */
-function resizePark(s: CityState, park: Building, tier: number) {
+function resizePark(s: CityState, park: Building, tier: number, now: number, events: CityEvent[]): number {
   const before = buildingSize(park);
   park.tier = tier;
   const size = buildingSize(park);
-  if (size === before || !isPlaced(park)) return;
+  if (size === before || !isPlaced(park)) return 0;
   // 公園自身を盤面から外してから空きを調べる（大きくした占有範囲が、隣の建物のマスを上書きしないように）
   park.placed = false;
   if (size < before || canPlace(s, park, park.x, park.y)) {
     delete park.placed;
-    return;
+    return 0;
   }
-  const site = findSpecialSite(s, park);
-  if (!site) return;
-  park.x = site.x;
-  park.y = site.y;
-  delete park.placed;
+  return placeSpecial(s, park, now, events);
 }
 
 // ---- 像（ほしい物） ----
@@ -296,7 +331,9 @@ export function statueStage(src: StatueSource): number {
   return Math.min(4, Math.floor(src.progress * 4 + 1e-9));
 }
 
-export function syncStatues(s: CityState, wishes: StatueSource[], now: number, events: CityEvent[]) {
+/** 像をほしい物に合わせる。林を押しのけて敷いた道路の数を返す */
+export function syncStatues(s: CityState, wishes: StatueSource[], now: number, events: CityEvent[]): number {
+  let roads = 0;
   const ids = new Set(wishes.map((w) => w.id));
   for (const b of s.buildings.filter((b) => b.special === "statue" && b.refId && !ids.has(b.refId))) {
     s.buildings = s.buildings.filter((o) => o.id !== b.id);
@@ -307,7 +344,8 @@ export function syncStatues(s: CityState, wishes: StatueSource[], now: number, e
     const tier = RANKS.indexOf(statueRank(w.price));
     const stage = statueStage(w);
     if (!statue) {
-      statue = { id: newId(s), special: "statue", refId: w.id, tier, level: 0, ...specialSite(s, { special: "statue", tier }), locked: false, manual: false, builtAt: now };
+      statue = { id: newId(s), special: "statue", refId: w.id, tier, level: 0, x: 0, y: 0, placed: false, locked: false, manual: false, builtAt: now };
+      roads += placeSpecial(s, statue, now, events);
       s.buildings.push(statue);
       events.push({ at: now, type: "STATUE_PROGRESS", auto: false, important: false, payload: { building: snapBuilding(statue), name: w.name, progress: 0 } });
     }
@@ -328,6 +366,5 @@ export function syncStatues(s: CityState, wishes: StatueSource[], now: number, e
       }
     }
   }
+  return roads;
 }
-
-export { placeOffMapSpecials } from "./layout";

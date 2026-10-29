@@ -194,7 +194,8 @@ export function TilePanel({
   const cityAct = (body: Record<string, unknown>) => act("/api/city", body);
   const [showAll, setShowAll] = useState(false);
 
-  if (!isTileUnlocked(city, tile.x, tile.y)) {
+  // 林を押しのけて置いた公園・像と道路は、未開放の区画でも建物として見せる
+  if (!b && !isTileUnlocked(city, tile.x, tile.y)) {
     return <ExpandPanel v={v} tile={tile} />;
   }
 

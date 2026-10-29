@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { CityView } from "@/components/city/CityView";
+import { syncParks, syncStatues } from "@/game/city/actions";
 import { computeMetrics } from "@/game/city/economy";
 import { expandablePlots } from "@/game/city/layout";
 import { createCity } from "@/game/city/init";
@@ -15,11 +16,17 @@ const T0 = Date.UTC(2026, 9, 1);
 const DAYS = [0, 1, 3, 7, 14, 21, 30];
 const techAt = (d: number) => (d >= 21 ? 5 : d >= 14 ? 4 : d >= 7 ? 3 : d >= 1 ? 2 : 1);
 
-function cityAfter(days: number): CityState {
+function cityAfter(days: number, specials: boolean): CityState {
   const s = createCity(T0);
   for (let d = 0; d < days; d++) {
     applyTechLevel(s, techAt(d + 1), s.simTime, []);
     simulate(s, T0 + (d + 1) * DAY, []);
+  }
+  // 公園（高額・ふつう）と像。土地が足りなければ林を押しのけて置く
+  if (specials) {
+    const at = s.simTime;
+    syncParks(s, [{ id: "p1", name: "高額", monthly: 5000, active: true }, { id: "p2", name: "ふつう", monthly: 1000, active: true }], at, []);
+    syncStatues(s, Array.from({ length: 6 }, (_, i) => ({ id: `w${i}`, name: `像${i}`, price: 10_000 * (i + 1), progress: 0.6, purchased: false })), at, []);
   }
   return s;
 }
@@ -28,8 +35,9 @@ export function CityPlayground() {
   const [days, setDays] = useState(7);
   const [showZones, setShowZones] = useState(false);
   const [night, setNight] = useState(false);
+  const [specials, setSpecials] = useState(false);
   const [selected, setSelected] = useState<{ x: number; y: number } | null>(null);
-  const city = useMemo(() => cityAfter(days), [days]);
+  const city = useMemo(() => cityAfter(days, specials), [days, specials]);
   const m = computeMetrics(city);
   return (
     <div className="space-y-3 p-4">
@@ -47,6 +55,10 @@ export function CityPlayground() {
         <label className="flex items-center gap-1">
           <input type="checkbox" className="w-auto" checked={showZones} onChange={(e) => setShowZones(e.target.checked)} />
           土地用途
+        </label>
+        <label className="flex items-center gap-1">
+          <input type="checkbox" className="w-auto" checked={specials} onChange={(e) => setSpecials(e.target.checked)} />
+          公園・像
         </label>
         <label className="flex items-center gap-1">
           <input type="checkbox" className="w-auto" checked={night} onChange={(e) => setNight(e.target.checked)} />

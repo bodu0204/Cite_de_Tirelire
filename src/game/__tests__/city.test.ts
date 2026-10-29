@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { tierDef } from "../catalog";
 import { DAY, HOUR, TICK_MS } from "../config";
-import { demolish, expandQuote, manualBuild, manualExpand, manualUpgrade, moveBuilding, placeOffMapSpecials, rushJob, setPolicy, syncParks } from "../city/actions";
+import { demolish, expandQuote, manualBuild, manualExpand, manualUpgrade, moveBuilding, rushJob, setPolicy, syncParks, syncStatues } from "../city/actions";
 import { computeMetrics } from "../city/economy";
 import { createCity } from "../city/init";
-import { buildingSize, connected, expandablePlots, findSite, footprint, isPlaced, isPlannedRoad, isTileUnlocked, occupancy, placementFor, plotLimit, roadNetwork, tileKey } from "../city/layout";
+import { buildingSize, connected, expandablePlots, expansionError, findSite, footprint, isPlaced, isPlannedRoad, isTileUnlocked, occupancy, placementFor, plotCross, plotLimit, roadNetwork, tileKey } from "../city/layout";
 import { applyTechLevel, simulate } from "../city/sim";
 import { devLevel } from "../levels";
 import { createReplay } from "../replay";
@@ -260,20 +260,41 @@ describe("建物の大きさ（docs/map-layout-redesign.md §4）", () => {
     expect(() => moveBuilding(s, "bank", -5, -5, T0, 100, [])).toThrow(/銀行/);
   });
 
-  it("公園は高額（月3,000円以上）になると3×3 にし、場所がなければ空き待ちになる", () => {
+  it("公園は高額（月3,000円以上）になると3×3 にし、場所がなければ林を押しのけて置く", () => {
     const s = createCity(T0);
     syncParks(s, [{ id: "a", name: "A", monthly: 1000, active: true }], T0, []);
     const park = s.buildings.find((b) => b.special === "park")!;
     expect(buildingSize(park)).toBe(2);
     expect(isPlaced(park)).toBe(true);
-    // 中心の 10×10 は推奨道路で 2×2 の敷地に分かれていて、3×3 は入らない
-    syncParks(s, [{ id: "a", name: "A", monthly: 5000, active: true }], T0, []);
+    // 中心の 10×10 は推奨道路で 2×2 の敷地に分かれていて、3×3 は入らないので、林を押しのけて置く
+    const wood = s.stock.wood;
+    const events: CityEvent[] = [];
+    const roads = syncParks(s, [{ id: "a", name: "A", monthly: 5000, active: true }], T0, events);
     expect(buildingSize(park)).toBe(3);
-    expect(isPlaced(park)).toBe(false);
-    // 安くなれば、空き待ちから 2×2 で置かれる
-    syncParks(s, [{ id: "a", name: "A", monthly: 1000, active: true }], T0, []);
-    placeOffMapSpecials(s);
     expect(isPlaced(park)).toBe(true);
+    expect(footprint(park.x, park.y, 3).some((t) => !isTileUnlocked(s, t.x, t.y))).toBe(true);
+    expect(footprint(park.x, park.y, 3).some((t) => isPlannedRoad(t.x, t.y))).toBe(false);
+    expect(connected(s, roadNetwork(s), park, park.x, park.y)).toBe(true);
+    // 敷いた道路は木材を使い、建設として記録する
+    expect(s.stock.wood).toBe(wood - roads * tierDef("road", 0).cost.wood);
+    expect(events.filter((e) => e.type === "BUILD")).toHaveLength(roads);
+    expect(occupancy(s).size).toBe(s.buildings.filter(isPlaced).reduce((n, b) => n + buildingSize(b) ** 2, 0));
+  });
+
+  it("像は土地が埋まっていても林を押しのけて置き、足りない木材はマイナスにする", () => {
+    const s = createCity(T0);
+    s.stock.wood = 0;
+    const wishes = Array.from({ length: 60 }, (_, i) => ({ id: `w${i}`, name: `W${i}`, price: 1000, progress: 0, purchased: false }));
+    const roads = syncStatues(s, wishes, T0, []);
+    const statues = s.buildings.filter((b) => b.special === "statue");
+    expect(statues).toHaveLength(60);
+    const net = roadNetwork(s);
+    for (const b of statues) {
+      expect(isPlaced(b)).toBe(true);
+      expect(connected(s, net, b, b.x, b.y)).toBe(true);
+    }
+    expect(roads).toBeGreaterThan(0);
+    expect(s.stock.wood).toBe(-roads * tierDef("road", 0).cost.wood);
     expect(occupancy(s).size).toBe(s.buildings.filter(isPlaced).reduce((n, b) => n + buildingSize(b) ** 2, 0));
   });
 });
@@ -430,21 +451,25 @@ describe("開拓（docs/map-layout-redesign.md §7）", () => {
     expect(off.plots).toHaveLength(4);
   });
 
-  it("開拓で 3×3 の場所ができると、空き待ちの高額なサブスクの公園が置かれる", () => {
+  it("林を押しのけて置いた公園は、まわりを開拓しても動かず、区画の十字の道路もふさがない", () => {
     const s = atDev(createCity(T0), 3);
     s.stock.wood = 10_000;
     s.stock.stone = 10_000;
     syncParks(s, [{ id: "a", name: "A", monthly: 5000, active: true }], T0, []);
     const park = s.buildings.find((b) => b.special === "park")!;
-    expect(isPlaced(park)).toBe(false);
-    // (3, 3) の敷地のまわりの3区画を開くと、道路に挟まれた 4×4 の街区ができる
-    for (const [x, y] of [[5, 0], [0, 5], [5, 5]]) {
+    const at = { x: park.x, y: park.y };
+    for (const [x, y] of [[5, 0], [0, 5], [5, 5], [-10, 0], [0, -10]]) {
+      if (expansionError(s, Math.floor(x / 5), Math.floor(y / 5))) continue;
       manualExpand(s, x, y, T0, 1000);
       rushJob(s, s.jobs.at(-1)!.id, T0, 1000, []);
     }
-    expect(isPlaced(park)).toBe(true);
-    expect(buildingSize(park)).toBe(3);
+    expect({ x: park.x, y: park.y }).toEqual(at);
     expect(connected(s, roadNetwork(s), park, park.x, park.y)).toBe(true);
+    const roads = new Set(s.buildings.filter((b) => b.line === "road").map((b) => tileKey(b.x, b.y)));
+    for (const k of s.plots) {
+      const [px, py] = k.split(",").map(Number);
+      for (const t of plotCross(px, py)) expect(roads.has(tileKey(t.x, t.y))).toBe(true);
+    }
   });
 });
 

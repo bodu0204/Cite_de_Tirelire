@@ -38,7 +38,7 @@ import { coverPlans, firstShort, type PlanQueue, type QueuePlan } from "../planQ
 import type { Zone } from "../catalog";
 import { snapBuilding, type Building, type CityEvent, type CityState, type Gains, type Job, type NeedKey } from "../types";
 import { computeMetrics, type Metrics } from "./economy";
-import { choosePlot, findSite, occupancy, placeOffMapSpecials, plotCross, plotsUsed, siteCache, tileKey, type SiteCache } from "./layout";
+import { choosePlot, findSite, occupancy, placeWaitingSpecials, plotCross, plotsUsed, siteCache, tileKey, type SiteCache } from "./layout";
 
 export const alignTick = (t: number) => Math.floor(t / TICK_MS) * TICK_MS;
 
@@ -173,7 +173,7 @@ function openPlot(s: CityState, job: Job, at: number, events: CityEvent[]) {
   s.peaks["n:road"] = Math.max(s.peaks["n:road"] ?? 0, count);
   events.push({ at, type: "PLOT_EXPANDED", auto: job.auto, important: true, payload: { plot, zone: job.zone ?? null, roads: roads.map(snapBuilding) } });
   // 場所が足りずにマップ外で待っていた公園・像を置く
-  placeOffMapSpecials(s);
+  placeWaitingSpecials(s);
 }
 
 export function finishJob(s: CityState, job: Job, at: number, events: CityEvent[]) {

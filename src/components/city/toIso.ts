@@ -161,21 +161,29 @@ function smallKey(b: CityBuilding, bankLevel: number): string {
  */
 export const LOCKED_BAND = PLOT_SIZE;
 
-/** 盤面の範囲と、マスが開いているか */
-function landOf(input: CityInput): { rect: Rect; open: (x: number, y: number) => boolean } {
+/** 盤面の範囲と、マスが開いているか。林を押しのけて置いた公園・像と道路のマスも開いているものとして描く */
+function landOf(input: CityInput, buildings: CityBuilding[]): { rect: Rect; open: (x: number, y: number) => boolean } {
   const plots = new Set(input.plots);
   const land = landBounds({ plots: input.plots });
+  const pushed = new Set<string>();
+  for (const b of buildings) {
+    if (b.placed === false) continue;
+    const size = buildingSize(b);
+    for (let dy = 0; dy < size; dy++) for (let dx = 0; dx < size; dx++) pushed.add(tileKey(b.x + dx, b.y + dy));
+  }
   return {
     rect: { minX: land.minX - LOCKED_BAND, minY: land.minY - LOCKED_BAND, maxX: land.maxX + LOCKED_BAND, maxY: land.maxY + LOCKED_BAND },
     open: (x, y) => {
       const { px, py } = plotOf(x, y);
-      return plots.has(plotKey(px, py));
+      return plots.has(plotKey(px, py)) || pushed.has(tileKey(x, y));
     },
   };
 }
 
 export function cityToIso(input: CityInput): { map: IsoMap; overlay: IsoOverlay } {
-  const { rect, open } = landOf(input);
+  // 2回たどる（建物と困りごと）ので、一度だけ取り出す
+  const buildings = [...input.buildings];
+  const { rect, open } = landOf(input, buildings);
   const shape = { x0: rect.minX, y0: rect.minY, width: rect.maxX - rect.minX + 1, height: rect.maxY - rect.minY + 1 };
   const n = shape.width * shape.height;
   const road = new Uint8Array(n);
@@ -192,8 +200,6 @@ export function cityToIso(input: CityInput): { map: IsoMap; overlay: IsoOverlay 
       }
   };
 
-  // 2回たどる（建物と困りごと）ので、一度だけ取り出す
-  const buildings = [...input.buildings];
   for (const b of buildings) {
     if (b.placed === false) continue;
     const i = tileIndex(shape, b.x, b.y);
