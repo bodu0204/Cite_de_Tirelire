@@ -218,6 +218,8 @@ export function normalizeCity<T extends Pick<CityState, "v" | "zones" | "noAuto"
 
 // ---- 占有と配置 ----
 
+type Kind = Pick<Building, "line" | "special" | "tier">;
+
 /** 建物と新築の工事が占めているマス（"x,y" → 建物ID） */
 export function occupancy(s: CityState): Map<string, string> {
   const occ = new Map<string, string>();
@@ -246,25 +248,140 @@ export function fits(s: CityState, x: number, y: number, size: number, occ = occ
   return true;
 }
 
+// ---- 道路網（docs/map-layout-redesign.md §5） ----
+
+const mod = (v: number, n: number) => ((v % n) + n) % n;
+
+/** 推奨道路：区画の真ん中を通る十字（x か y を 5 で割った余りが 2）。2×2 の建物2列と道路1列がそろう */
+export function isPlannedRoad(x: number, y: number): boolean {
+  return mod(x, PLOT_SIZE) === 2 || mod(y, PLOT_SIZE) === 2;
+}
+
+export interface RoadNetwork {
+  /** 銀行まで道路だけでつながった道路のマス */
+  tiles: Set<string>;
+  /** 銀行の占有範囲（道路は銀行の隣から延ばせる） */
+  bank: Set<string>;
+}
+
 /**
- * 選んだマス（tx, ty）を含むように size×size を置ける左上のマス。選んだマスを左上にできればそれを、
+ * 道路網：銀行に接する道路から、辺で隣り合う道路をたどって行ける道路（Q4）。建設中の道路も含める。
+ * without の道路は無いものとして作る（撤去・移動の確かめ）
+ */
+export function roadNetwork(s: CityState, without?: string): RoadNetwork {
+  const roads = new Set<string>();
+  for (const b of s.buildings) if (b.line === "road" && isPlaced(b) && b.id !== without) roads.add(tileKey(b.x, b.y));
+  for (const j of s.jobs) if (j.kind === "build" && j.line === "road" && j.buildingId !== without) roads.add(tileKey(j.x, j.y));
+  const bank = new Set<string>();
+  const b = s.buildings.find((o) => o.special === "bank" && isPlaced(o));
+  const tiles = new Set<string>();
+  if (!b) return { tiles, bank };
+  const size = buildingSize(s, b);
+  for (const t of footprint(b.x, b.y, size)) bank.add(tileKey(t.x, t.y));
+  const queue: { x: number; y: number }[] = [];
+  for (const t of perimeter(b.x, b.y, size)) {
+    const k = tileKey(t.x, t.y);
+    if (roads.has(k) && !tiles.has(k)) {
+      tiles.add(k);
+      queue.push(t);
+    }
+  }
+  while (queue.length) {
+    const t = queue.pop()!;
+    for (const n of perimeter(t.x, t.y, 1)) {
+      const k = tileKey(n.x, n.y);
+      if (!roads.has(k) || tiles.has(k)) continue;
+      tiles.add(k);
+      queue.push(n);
+    }
+  }
+  return { tiles, bank };
+}
+
+/**
+ * 道路網のきまりを満たすか（v1 の街は常に満たす）。
+ * 道路以外は占有範囲の外周が道路網の道路に接すること。道路は道路網か銀行に隣り合うこと（網の端から延ばす形）
+ */
+export function connected(s: CityState, net: RoadNetwork, b: Kind, x: number, y: number): boolean {
+  if (isLegacy(s)) return true;
+  const size = buildingSize(s, b);
+  for (const t of perimeter(x, y, size)) {
+    const k = tileKey(t.x, t.y);
+    if (net.tiles.has(k) || (b.line === "road" && net.bank.has(k))) return true;
+  }
+  return false;
+}
+
+export interface PlaceCtx {
+  occ: Map<string, string>;
+  net: RoadNetwork;
+  /** 空きとみなす建物（移動する建物自身） */
+  ignore?: string;
+}
+
+/** 配置の確かめに使う盤面の情報。道路を動かす時は、その道路を除いた道路網で確かめる */
+export function placeCtx(s: CityState, ignore?: string): PlaceCtx {
+  const moving = ignore ? s.buildings.find((b) => b.id === ignore) : undefined;
+  return { occ: occupancy(s), net: roadNetwork(s, moving?.line === "road" ? ignore : undefined), ignore };
+}
+
+/** (x, y) を左上にして置けるか（開いた区画・空き・道路網） */
+export function canPlace(s: CityState, b: Kind, x: number, y: number, c = placeCtx(s)): boolean {
+  return fits(s, x, y, buildingSize(s, b), c.occ, c.ignore) && connected(s, c.net, b, x, y);
+}
+
+/**
+ * 選んだマス（tx, ty）を含むように置ける左上のマス。選んだマスを左上にできればそれを、
  * できなければ占有範囲が選んだマスを含むほかの置き方を、左上から順に試す
  */
-export function placementFor(s: CityState, size: number, tx: number, ty: number, occ = occupancy(s), ignore?: string): { x: number; y: number } | null {
-  if (fits(s, tx, ty, size, occ, ignore)) return { x: tx, y: ty };
+export function placementFor(s: CityState, b: Kind, tx: number, ty: number, c = placeCtx(s)): { x: number; y: number } | null {
+  const size = buildingSize(s, b);
+  if (canPlace(s, b, tx, ty, c)) return { x: tx, y: ty };
   for (let dy = 0; dy < size; dy++)
     for (let dx = 0; dx < size; dx++) {
-      if (!dx && !dy) continue;
-      if (fits(s, tx - dx, ty - dy, size, occ, ignore)) return { x: tx - dx, y: ty - dy };
+      if ((dx || dy) && canPlace(s, b, tx - dx, ty - dy, c)) return { x: tx - dx, y: ty - dy };
     }
   return null;
 }
 
-/** 建てられる場所（左上のマス）。size×size が収まるところ */
-export function freeSites(s: CityState, size: number, occ = occupancy(s)): { x: number; y: number }[] {
+/** 選んだマスに置けない理由（置けるなら null） */
+export function placementError(s: CityState, b: Kind, tx: number, ty: number, c = placeCtx(s)): string | null {
+  if (placementFor(s, b, tx, ty, c)) return null;
+  if (!inBounds(s, tx, ty)) return "マップの外です";
+  if (!isTileUnlocked(s, tx, ty)) return "まだ解放されていない区画です";
+  const o = c.occ.get(tileKey(tx, ty));
+  if (o && o !== c.ignore) return "そのマスは使用中です";
+  const size = buildingSize(s, b);
+  // 空きはあるのに置けない：道路網に接していない
+  let room = false;
+  for (let dy = 0; dy < size && !room; dy++) for (let dx = 0; dx < size && !room; dx++) room = fits(s, tx - dx, ty - dy, size, c.occ, c.ignore);
+  if (!room) return `${size}×${size} マスの空きがありません`;
+  return b.line === "road" ? "道路は、銀行までつながった道路の隣に建ててください" : "銀行までつながった道路に接していません";
+}
+
+/**
+ * 置ける場所（左上のマス、y・x の小さい順）。v1 は開いたマスすべてを、v2 は道路網に接する場所だけを調べる
+ */
+export function candidateSites(s: CityState, b: Kind, c = placeCtx(s)): { x: number; y: number }[] {
+  if (isLegacy(s)) return openTiles(s).filter((t) => canPlace(s, b, t.x, t.y, c));
+  const size = buildingSize(s, b);
+  const seen = new Set<string>();
   const out: { x: number; y: number }[] = [];
-  for (const t of openTiles(s)) if (fits(s, t.x, t.y, size, occ)) out.push(t);
-  return out;
+  const near = b.line === "road" ? [...c.net.tiles, ...c.net.bank] : [...c.net.tiles];
+  for (const k of near) {
+    const [rx, ry] = k.split(",").map(Number);
+    for (const n of perimeter(rx, ry, 1))
+      for (let dy = 0; dy < size; dy++)
+        for (let dx = 0; dx < size; dx++) {
+          const x = n.x - dx;
+          const y = n.y - dy;
+          const key = tileKey(x, y);
+          if (seen.has(key)) continue;
+          seen.add(key);
+          if (canPlace(s, b, x, y, c)) out.push({ x, y });
+        }
+  }
+  return out.sort((a, b2) => a.y - b2.y || a.x - b2.x);
 }
 
 /** 盤面の中心（自動配置は中心に近いほど加点する） */
@@ -273,7 +390,7 @@ function centerOf(s: Pick<CityState, "v">): { x: number; y: number } {
 }
 
 /** 占有範囲に隣り合う建物の系統（特殊施設は "special"） */
-function neighborLines(s: CityState, x: number, y: number, size: number, grid: Map<string, LineId | "special">): (LineId | "special")[] {
+function neighborLines(x: number, y: number, size: number, grid: Map<string, LineId | "special">): (LineId | "special")[] {
   const out: (LineId | "special")[] = [];
   for (const t of perimeter(x, y, size)) {
     const n = grid.get(tileKey(t.x, t.y));
@@ -295,20 +412,29 @@ function lineGrid(s: CityState): Map<string, LineId | "special"> {
   return grid;
 }
 
+/** 自動開発が使ってよい場所か（v2 は、道路は推奨道路の上だけ、ほかの建物は推奨道路をふさがない。§5.3） */
+function autoAllowed(s: CityState, line: LineId, x: number, y: number, size: number): boolean {
+  if (footprint(x, y, size).some((t) => isNoAuto(s, t.x, t.y))) return false;
+  if (isLegacy(s)) return true;
+  if (line === "road") return isPlannedRoad(x, y);
+  return !footprint(x, y, size).some((t) => isPlannedRoad(t.x, t.y));
+}
+
 /**
  * 自動配置の場所を選ぶ。用途が一致する土地 → 未指定の土地 の順。
  * 同系統の隣接と道路の隣接を加点し、住宅と工業の隣接を減点する。決定的にタイブレークする。
  */
 export function findSite(s: CityState, line: LineId): { x: number; y: number } | null {
   const def = LINES[line];
-  const size = buildingSize(s, { line, tier: 0 });
+  const kind = { line, tier: 0 };
+  const size = buildingSize(s, kind);
   const grid = lineGrid(s);
   const c = centerOf(s);
   const half = (size - 1) / 2;
 
   let best: { x: number; y: number; score: number } | null = null;
-  for (const { x, y } of freeSites(s, size)) {
-    if (footprint(x, y, size).some((t) => isNoAuto(s, t.x, t.y))) continue;
+  for (const { x, y } of candidateSites(s, kind)) {
+    if (!autoAllowed(s, line, x, y, size)) continue;
     const zone = zoneAt(s, x, y);
     let score: number;
     if (def.zone === "any") {
@@ -318,7 +444,7 @@ export function findSite(s: CityState, line: LineId): { x: number; y: number } |
     else if (zone === "none") score = 40;
     else continue;
 
-    const neighbors = neighborLines(s, x, y, size, grid);
+    const neighbors = neighborLines(x, y, size, grid);
     for (const n of neighbors) {
       if (n === line) score += 3;
       if (n === "road" || n === "rail") score += 2;
@@ -333,12 +459,31 @@ export function findSite(s: CityState, line: LineId): { x: number; y: number } |
   return best ? { x: best.x, y: best.y } : null;
 }
 
-/** 特殊施設（公園・像）の場所：特殊地区 → 未指定 → 任意の空き */
-export function findSpecialSite(s: CityState, size: number): { x: number; y: number } | null {
-  const free = freeSites(s, size);
+/** 特殊施設（公園・像）の場所：特殊地区 → 未指定 → 任意の空き。v2 は推奨道路をふさがない */
+export function findSpecialSite(s: CityState, b: Kind): { x: number; y: number } | null {
+  const size = buildingSize(s, b);
+  const free = candidateSites(s, b).filter((t) => isLegacy(s) || !footprint(t.x, t.y, size).some((f) => isPlannedRoad(f.x, f.y)));
   const rank = (z: Zone) => (z === "special" ? 0 : z === "none" ? 1 : 2);
-  free.sort((a, b) => rank(zoneAt(s, a.x, a.y)) - rank(zoneAt(s, b.x, b.y)));
+  free.sort((a, b2) => rank(zoneAt(s, a.x, a.y)) - rank(zoneAt(s, b2.x, b2.y)));
   return free[0] ?? null;
+}
+
+/**
+ * 道路 roadId を外すと、銀行とのつながりが切れるもの（なければ null）。
+ * 道路網から外れる道路があるか、道路網に接しなくなる建物・工事があれば、その名前の代わりに建物ID を返す
+ */
+export function removalBreaks(s: CityState, roadId: string): string | null {
+  if (isLegacy(s)) return null;
+  const net = roadNetwork(s, roadId);
+  for (const b of s.buildings) {
+    if (b.id === roadId || !isPlaced(b)) continue;
+    if (b.line === "road" ? !net.tiles.has(tileKey(b.x, b.y)) : !connected(s, net, b, b.x, b.y)) return b.id;
+  }
+  for (const j of s.jobs) {
+    if (j.kind !== "build" || j.buildingId === roadId) continue;
+    if (j.line === "road" ? !net.tiles.has(tileKey(j.x, j.y)) : !connected(s, net, j, j.x, j.y)) return j.buildingId;
+  }
+  return null;
 }
 
 /** 住宅と工業が隣接している組の数（公害による幸福度の減点） */

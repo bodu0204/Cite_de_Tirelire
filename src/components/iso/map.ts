@@ -35,6 +35,8 @@ export interface IsoOverlay {
   showZones?: boolean;
   /** 行優先。自動開発の対象外（OBJ-09） */
   noAuto?: boolean[];
+  /** 行優先。まだ道路のない推奨道路のマス。showZones の時だけ描く（docs/map-layout-redesign.md §5.3） */
+  plannedRoads?: boolean[];
   /** 工事の進み具合のバー（OBJ-07）。時刻はミリ秒。size は占有範囲の一辺（バーを中心に出す） */
   jobs?: { x: number; y: number; size?: number; startedAt: number; finishAt: number }[];
   /** 点滅させるマス（"x,y"。B6 の強調） */

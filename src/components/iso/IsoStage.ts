@@ -561,9 +561,16 @@ export class IsoStage {
   private drawZones() {
     const g = this.zoneGfx;
     g.clear();
-    const { zones, showZones } = this.overlay;
+    const { zones, showZones, plannedRoads } = this.overlay;
     if (!showZones || !zones) return;
     const u = this.p.tw / 64;
+    // 推奨道路（まだ道路のないところ）は、白い点線のひし形で示す
+    plannedRoads?.forEach((on, i) => {
+      if (!on) return;
+      const t = tileAt(this.map, i);
+      this.diamond(g, t.x, t.y, 0.7);
+      g.stroke({ color: 0xffffff, alpha: 0.6, width: u });
+    });
     for (let i = 0; i < zones.length; i++) {
       const st = ZONE_STYLE[zones[i]];
       if (!st) continue;

@@ -2,7 +2,7 @@
 // 描画側はマップの大きさやゲームの規則を知らないので（RND-10）、ここで絵のキーと重ね描きの情報に置き換える。
 import { LINES, type LineId, type SpecialKind, type Zone } from "@/game/catalog";
 import { LOGISTICS_FLOOR, PLOT_SIZE } from "@/game/config";
-import { buildingSize, landBounds, plotKey, plotOf, tileKey, tileUnlockLevel, type Rect } from "@/game/city/layout";
+import { buildingSize, isPlannedRoad, landBounds, plotKey, plotOf, tileKey, tileUnlockLevel, type Rect } from "@/game/city/layout";
 import type { CityLayout } from "@/game/types";
 import { MIN_ROAD } from "@/components/iso/agents";
 import { hash2, type IsoMap, type IsoObject, type IsoOverlay, tileIndex } from "@/components/iso/map";
@@ -242,11 +242,13 @@ export function cityToIso(input: CityInput): { map: IsoMap; overlay: IsoOverlay 
   const zones: Zone[] = new Array(n);
   const noAutoSet = new Set(input.noAuto ?? []);
   const noAuto: boolean[] = new Array(n).fill(false);
+  const plannedRoads: boolean[] = new Array(n).fill(false);
   for (let y = rect.minY; y <= rect.maxY; y++)
     for (let x = rect.minX; x <= rect.maxX; x++) {
       const i = tileIndex(shape, x, y);
       zones[i] = input.zones[tileKey(x, y)] ?? "none";
       if (noAutoSet.has(tileKey(x, y))) noAuto[i] = true;
+      if (input.layout !== 1 && !locked[i] && !road[i] && !lot[i] && isPlannedRoad(x, y)) plannedRoads[i] = true;
     }
 
   const roadTiles = road.reduce((n, r) => n + (r ? 1 : 0), 0);
@@ -258,6 +260,7 @@ export function cityToIso(input: CityInput): { map: IsoMap; overlay: IsoOverlay 
       zones,
       showZones: input.showZones,
       noAuto: noAutoSet.size ? noAuto : undefined,
+      plannedRoads: plannedRoads.some(Boolean) ? plannedRoads : undefined,
       jobs: input.jobs?.map((j) => ({ x: j.x, y: j.y, size: jobSize(j), startedAt: j.startedAt, finishAt: j.finishAt })),
       highlights: input.highlights ? [...input.highlights] : undefined,
       night: input.hour === undefined ? 0 : nightLevel(input.hour),

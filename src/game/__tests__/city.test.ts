@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { tierDef } from "../catalog";
 import { DAY, HOUR, TICK_MS } from "../config";
-import { manualBuild, manualUpgrade, moveBuilding, placeOffMapSpecials, rushJob, syncParks } from "../city/actions";
+import { demolish, manualBuild, manualUpgrade, moveBuilding, placeOffMapSpecials, rushJob, syncParks } from "../city/actions";
 import { computeMetrics } from "../city/economy";
 import { createCity } from "../city/init";
-import { buildingSize, findSite, isPlaced, isTileUnlocked, normalizeCity, occupancy, placementFor, tileKey, tileUnlockLevel } from "../city/layout";
+import { buildingSize, connected, findSite, footprint, isPlaced, isPlannedRoad, isTileUnlocked, normalizeCity, occupancy, placementFor, roadNetwork, tileKey, tileUnlockLevel } from "../city/layout";
 import { applyTechLevel, simulate } from "../city/sim";
 import { devLevel } from "../levels";
 import type { CityEvent, CityState } from "../types";
@@ -282,7 +282,7 @@ describe("建物の大きさ（docs/map-layout-redesign.md §4）", () => {
     // 土地の南東の角のマスを選ぶと、左上に寄せて (3, 3)〜(4, 4) に置く
     manualBuild(s, { line: "housing", x: 4, y: 4 }, T0, 100);
     expect(s.jobs.at(-1)).toMatchObject({ x: 3, y: 3 });
-    expect(placementFor(s, 2, 4, 4)).toBeNull();
+    expect(placementFor(s, { line: "housing", tier: 0 }, 4, 4)).toBeNull();
     expect(() => manualBuild(s, { line: "housing", x: 4, y: 4 }, T0, 100)).toThrow(/使用中/);
     expect(() => manualBuild(s, { line: "housing", x: 0, y: 0 }, T0, 100)).toThrow(/使用中/);
   });
@@ -297,26 +297,99 @@ describe("建物の大きさ（docs/map-layout-redesign.md §4）", () => {
 
   it("公園は高額（月3,000円以上）になると3×3 にし、場所がなければ空き待ちになる", () => {
     const s = createCity(T0);
-    // 区画 (2, 2)（マス 10〜14）だけを開き、真ん中の (12, 12) に像を置くと、3×3 はどこにも入らない
-    s.plots = ["2,2"];
-    s.buildings.push({ id: "st", special: "statue", refId: "w", tier: 0, level: 0, x: 12, y: 12, locked: false, manual: false, builtAt: T0 });
     syncParks(s, [{ id: "a", name: "A", monthly: 1000, active: true }], T0, []);
     const park = s.buildings.find((b) => b.special === "park")!;
     expect(buildingSize(s, park)).toBe(2);
     expect(isPlaced(park)).toBe(true);
+    // 中心の 10×10 は推奨道路で 2×2 の敷地に分かれていて、3×3 は入らない
     syncParks(s, [{ id: "a", name: "A", monthly: 5000, active: true }], T0, []);
     expect(buildingSize(s, park)).toBe(3);
     expect(isPlaced(park)).toBe(false);
-    // 像をどけると、空き待ちの公園が置かれる
-    s.buildings = s.buildings.filter((b) => b.id !== "st");
+    // 安くなれば、空き待ちから 2×2 で置かれる
+    syncParks(s, [{ id: "a", name: "A", monthly: 1000, active: true }], T0, []);
     placeOffMapSpecials(s);
     expect(isPlaced(park)).toBe(true);
-    expect(park.x).toBeGreaterThanOrEqual(10);
-    expect(park.x).toBeLessThanOrEqual(12);
-    // 安くなったら同じ場所で 2×2 に縮める
-    const at = { x: park.x, y: park.y };
-    syncParks(s, [{ id: "a", name: "A", monthly: 1000, active: true }], T0, []);
-    expect({ x: park.x, y: park.y }).toEqual(at);
-    expect(buildingSize(s, park)).toBe(2);
+    expect(occupancy(s).size).toBe(s.buildings.filter(isPlaced).reduce((n, b) => n + buildingSize(s, b) ** 2, 0));
+  });
+});
+
+describe("道路網（docs/map-layout-redesign.md §5）", () => {
+  /** すべての建物と工事が、銀行まで道路でつながった道路に接している */
+  function expectConnected(s: CityState) {
+    const net = roadNetwork(s);
+    for (const b of s.buildings.filter(isPlaced)) {
+      if (b.line === "road") expect(net.tiles.has(tileKey(b.x, b.y)), `道路 ${b.x},${b.y}`).toBe(true);
+      else expect(connected(s, net, b, b.x, b.y), `${b.line ?? b.special} ${b.x},${b.y}`).toBe(true);
+    }
+    for (const j of s.jobs.filter((j) => j.kind === "build")) expect(connected(s, net, j, j.x, j.y), `工事 ${j.line} ${j.x},${j.y}`).toBe(true);
+  }
+
+  it("初期の街：推奨道路が銀行を囲み、すべての建物がつながっている", () => {
+    const s = createCity(T0);
+    const roads = s.buildings.filter((b) => b.line === "road");
+    expect(roads.length).toBe(36);
+    expect(roads.every((r) => isPlannedRoad(r.x, r.y))).toBe(true);
+    expect(roadNetwork(s).tiles.size).toBe(36);
+    expectConnected(s);
+  });
+
+  it("道路に接しない場所には建てられない。道路は道路網の隣にだけ延ばせる", () => {
+    const s = createCity(T0);
+    s.stock.wood = 1000;
+    // 北西の区画の、道路の十字で区切られた (−5, −5) の敷地から道路を外すと、その敷地は道路に接しない
+    s.buildings = s.buildings.filter((b) => !(b.line === "road" && ((b.x === -3 && b.y <= -4) || (b.y === -3 && b.x <= -4))));
+    expectConnected(s);
+    expect(() => manualBuild(s, { line: "housing", x: -5, y: -5 }, T0, 100)).toThrow(/道路に接していません/);
+    expect(() => manualBuild(s, { line: "road", x: -5, y: -3 }, T0, 100)).toThrow(/道路は/);
+    manualBuild(s, { line: "road", x: -4, y: -3 }, T0, 100);
+    // 建設中の道路も道路網に入るので、続けて延ばせて、建物も建てられる
+    manualBuild(s, { line: "road", x: -5, y: -3 }, T0, 100);
+    manualBuild(s, { line: "housing", x: -5, y: -5 }, T0, 100);
+    expect(s.jobs.at(-1)).toMatchObject({ line: "housing", x: -5, y: -5 });
+  });
+
+  it("銀行とのつながりを切る道路は撤去・移動できない。行き止まりの道路は撤去できる", () => {
+    const s = createCity(T0);
+    // 銀行の東の (2, 0) は、金鉱・製材所の脇を通る道
+    const east = s.buildings.find((b) => b.line === "road" && b.x === 2 && b.y === -3)!;
+    expect(() => demolish(s, east.id, T0, [])).toThrow(/つながらなくなります/);
+    expect(() => moveBuilding(s, east.id, -2, -2, T0, 100, [])).toThrow(/つながらなくなります/);
+    // 外周の行き止まり (4, −3) は、どの建物もこれだけに頼っていない
+    const end = s.buildings.find((b) => b.line === "road" && b.x === 4 && b.y === -3)!;
+    demolish(s, end.id, T0, []);
+    expectConnected(s);
+  });
+
+  it("推奨道路の上には、自動開発は道路しか建てない。放置しても全部つながったまま", () => {
+    const s = createCity(T0);
+    applyTechLevel(s, 3, T0, []);
+    run(s, 5 * DAY);
+    for (const b of s.buildings.filter((o) => isPlaced(o) && o.line !== "road" && !o.manual && !o.special))
+      expect(footprint(b.x, b.y, buildingSize(s, b)).some((t) => isPlannedRoad(t.x, t.y)), `${b.line} ${b.x},${b.y}`).toBe(false);
+    expectConnected(s);
+  });
+
+  it("v1 の街には道路のきまりがない", () => {
+    const s = createCity(T0, "balanced", 1);
+    s.buildings = s.buildings.filter((b) => b.line !== "road");
+    expect(() => manualBuild(s, { line: "housing", x: 4, y: 3 }, T0, 100)).not.toThrow();
+  });
+});
+
+describe("自動開発の道路計画（docs/map-layout-redesign.md §5.3）", () => {
+  it("置き場所がない時は、欠けた推奨道路を道路網の端から延ばす", () => {
+    const s = createCity(T0);
+    // 北西の区画の十字の外側の端（-3, -5）〜（-3, -4）と（-5, -3）〜（-4, -3）を外すと、(-5, -5) の敷地が使えなくなる
+    s.buildings = s.buildings.filter((b) => !(b.line === "road" && ((b.x === -3 && b.y <= -4) || (b.y === -3 && b.x <= -4))));
+    // ほかの空き地は埋めておく
+    for (const [x, y] of [[0, -5], [3, -5], [-5, 3], [0, 3], [3, 3]]) s.buildings.push({ id: `f${x},${y}`, line: "housing", tier: 0, level: 1, x, y, locked: true, manual: true, builtAt: T0 });
+    expect(findSite(s, "housing")).toBeNull();
+    s.stock.wood = 1000;
+    s.treasury = 1000;
+    s.population = 30;
+    const events = run(s, 6 * HOUR);
+    const roads = events.filter((e) => e.type === "BUILD" && (e.payload.building as { line: string }).line === "road").map((e) => e.payload.building as { x: number; y: number });
+    expect(roads.length).toBeGreaterThan(0);
+    expect(roads.every((r) => isPlannedRoad(r.x, r.y))).toBe(true);
   });
 });

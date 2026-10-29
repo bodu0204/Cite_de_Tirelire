@@ -1,10 +1,10 @@
 // プレイヤーの手動操作と、特殊施設（公園・像）の同期。
-import { evolveCost, isTierUnlocked, highestUnlockedTier, LINES, tierDef, upgradeCost, upgradeMinutes, type LineId, type Zone } from "../catalog";
+import { evolveCost, isTierUnlocked, highestUnlockedTier, LINES, SPECIAL_LABELS, tierDef, upgradeCost, upgradeMinutes, type LineId, type Zone } from "../catalog";
 import { FEE_MOVE, FEE_RUSH_PER_10MIN, feeBuild, feeUpgrade, MINUTE } from "../config";
 import { fail } from "../errors";
 import { devLevel, statueRank } from "../levels";
 import { snapBuilding, type Building, type CityEvent, type CityPolicy, type CityState, type NeedKey } from "../types";
-import { buildingSize, findSpecialSite, fits, inBounds, isLegacy, isPlaced, isTileUnlocked, occupancy, placementFor, tileKey } from "./layout";
+import { buildingSize, canPlace, findSpecialSite, inBounds, isLegacy, isPlaced, placeCtx, placementError, placementFor, removalBreaks, tileKey } from "./layout";
 import { buildingName, canAfford, finishJob, levelCap, newId, startJob } from "./sim";
 
 function requireBuilding(s: CityState, id: string): Building {
@@ -21,23 +21,37 @@ function requireMaterials(s: CityState, cost: { wood: number; stone: number }) {
   }
 }
 
+/** 置けない理由の文から、返すエラーの種類を決める */
+function siteCode(message: string): string {
+  if (message.includes("マップの外")) return "bad_tile";
+  if (message.includes("解放")) return "locked_tile";
+  if (message.includes("使用中")) return "occupied";
+  if (message.includes("空き")) return "no_room";
+  return "no_road";
+}
+
 /**
- * 選んだマス (x, y) を含む占有範囲を決める。盤面の中・開いた区画・空きであること。ignore は移動する建物自身。
- * 大きな建物は、選んだマスを左上にできなければ、選んだマスを含むほかの置き方を探す（layout.ts placementFor）
+ * 選んだマス (x, y) を含む占有範囲を決める。開いた区画・空きで、v2 は銀行までつながった道路に接すること。
+ * ignore は移動する建物自身。大きな建物は、選んだマスを左上にできなければ、選んだマスを含むほかの置き方を探す
  */
-function requireSite(s: CityState, x: number, y: number, size: number, ignore?: string): { x: number; y: number } {
+function requireSite(s: CityState, x: number, y: number, b: Pick<Building, "line" | "special" | "tier">, ignore?: string): { x: number; y: number } {
   if (!inBounds(s, x, y)) fail("bad_tile", "マップの外です");
-  const occ = occupancy(s);
-  const at = placementFor(s, size, x, y, occ, ignore);
+  const c = placeCtx(s, ignore);
+  const at = placementFor(s, b, x, y, c);
   if (at) return at;
-  if (size > 1 && isTileUnlocked(s, x, y) && !occ.get(tileKey(x, y))) fail("no_room", `${size}×${size} マスの空きがありません`);
-  for (let dy = 0; dy < size; dy++)
-    for (let dx = 0; dx < size; dx++) {
-      if (!isTileUnlocked(s, x + dx, y + dy)) fail("locked_tile", "まだ解放されていない区画です");
-      const o = occ.get(tileKey(x + dx, y + dy));
-      if (o && o !== ignore) fail("occupied", "そのマスは使用中です");
-    }
-  return fail("occupied", "そのマスは使用中です");
+  const message = placementError(s, b, x, y, c) ?? "そのマスは使用中です";
+  return fail(siteCode(message), message);
+}
+
+/** 道路を外すと銀行とのつながりが切れるなら止める（docs/map-layout-redesign.md §5.2） */
+function requireRoadRemovable(s: CityState, road: Building) {
+  if (road.line !== "road") return;
+  const id = removalBreaks(s, road.id);
+  if (!id) return;
+  const o = s.buildings.find((b) => b.id === id);
+  const job = s.jobs.find((j) => j.buildingId === id);
+  const name = o?.line ? buildingName(o) : o?.special ? SPECIAL_LABELS[o.special] : job ? tierDef(job.line, job.tier).name : "建物";
+  fail("road_needed", `${name}が銀行まで道路でつながらなくなります`);
 }
 
 export interface ManualResult {
@@ -50,7 +64,7 @@ export function manualBuild(s: CityState, input: { line: LineId; tier?: number; 
   const dev = devLevel(s.devPoints);
   const tier = input.tier ?? highestUnlockedTier(input.line, s.techLevel, dev);
   if (tier < 0 || !isTierUnlocked(input.line, tier, s.techLevel, dev)) fail("not_unlocked", "まだ解放されていない建物です");
-  const site = requireSite(s, input.x, input.y, buildingSize(s, { line: input.line, tier }));
+  const site = requireSite(s, input.x, input.y, { line: input.line, tier });
   const t = tierDef(input.line, tier);
   const fee = feeBuild(tier);
   requireSilver(silver, fee);
@@ -97,7 +111,8 @@ export function moveBuilding(s: CityState, id: string, x: number, y: number, now
   if (b.locked && !b.special) fail("locked", "固定された建物は移動できません。固定を解除してください");
   if (b.special === "bank" && !isLegacy(s)) fail("special", "銀行は街の中心に固定です");
   requireIdle(s, b);
-  const site = requireSite(s, x, y, buildingSize(s, b), b.id);
+  requireRoadRemovable(s, b);
+  const site = requireSite(s, x, y, b, b.id);
   requireSilver(silver, FEE_MOVE);
   const from = { x: b.x, y: b.y };
   b.x = site.x;
@@ -114,6 +129,7 @@ export function demolish(s: CityState, id: string, now: number, events: CityEven
   if (b.special === "statue") fail("special", "像はほしい物リストから管理します");
   if (b.special === "park" && !b.closed) fail("special", "契約中のサブスクの公園は撤去できません");
   requireIdle(s, b);
+  requireRoadRemovable(s, b);
   s.buildings = s.buildings.filter((o) => o.id !== id);
   events.push({ at: now, type: "DEMOLISH", auto: false, important: true, payload: { buildingId: id, name: b.line ? buildingName(b) : "閉園した公園" } });
 }
@@ -156,7 +172,7 @@ export function setNoAuto(s: CityState, x: number, y: number, noAuto: boolean) {
 
 /** 特殊施設を置く場所。なければマップ外（区画が開いたら placeOffMapSpecials で置く） */
 function specialSite(s: CityState, b: Pick<Building, "special" | "tier">): Pick<Building, "x" | "y" | "placed"> {
-  const site = findSpecialSite(s, buildingSize(s, b));
+  const site = findSpecialSite(s, b);
   return site ? { x: site.x, y: site.y } : { x: isLegacy(s) ? -1 : 0, y: isLegacy(s) ? -1 : 0, placed: false };
 }
 
@@ -226,11 +242,11 @@ function resizePark(s: CityState, park: Building, tier: number) {
   if (size === before || !isPlaced(park)) return;
   // 公園自身を盤面から外してから空きを調べる（大きくした占有範囲が、隣の建物のマスを上書きしないように）
   park.placed = false;
-  if (size < before || fits(s, park.x, park.y, size)) {
+  if (size < before || canPlace(s, park, park.x, park.y)) {
     delete park.placed;
     return;
   }
-  const site = findSpecialSite(s, size);
+  const site = findSpecialSite(s, park);
   if (!site) return;
   park.x = site.x;
   park.y = site.y;
@@ -294,7 +310,7 @@ export function syncStatues(s: CityState, wishes: StatueSource[], now: number, e
 export function placeOffMapSpecials(s: CityState) {
   for (const b of s.buildings) {
     if (isPlaced(b) || !b.special) continue;
-    const site = findSpecialSite(s, buildingSize(s, b));
+    const site = findSpecialSite(s, b);
     if (!site) continue;
     b.x = site.x;
     b.y = site.y;

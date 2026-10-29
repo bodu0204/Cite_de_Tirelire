@@ -243,7 +243,8 @@ function buildPlan(s: CityState, line: LineId, dev: number): Plan | null {
   const tier = highestUnlockedTier(line, s.techLevel, dev);
   if (tier < 0) return null;
   const site = findSite(s, line);
-  if (!site) return null;
+  // 置き場所がなければ、まず欠けた推奨道路を道路網の端から延ばす（docs/map-layout-redesign.md §5.3）
+  if (!site) return line === "road" || isLegacy(s) ? null : buildPlan(s, "road", dev);
   const t = tierDef(line, tier);
   return { kind: "build", line, tier, level: 1, site, cost: t.cost, minutes: t.buildMinutes };
 }
