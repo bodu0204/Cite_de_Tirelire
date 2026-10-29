@@ -115,14 +115,18 @@ export class ArtBook {
   /**
    * 夜の窓の灯り（OBJ-14）。発光マスク glow/<基のキー> の、つながった灯りのかたまりごとに、
    * 割合 ratio に応じて灯すかを決める（同じ建物はいつも同じ窓が灯る）。マスクがなければ null。
+   * 動く絵は frame にコマの番号を渡す。コマごとのマスク glowanim/<基のキー>/<コマ> があれば、そのコマで窓の前を
+   * 部品が通る画素は灯さない（灯す窓の選び方はコマによらず同じ）
    */
-  glow(key: string, ratio: number): Art | null {
+  glow(key: string, ratio: number, frame?: number): Art | null {
     key = this.resolve(key);
     const at = key.indexOf("@");
     const base = at < 0 ? key : key.slice(0, at);
     const mask = this.loaded.get(`glow/${base}`);
     const shape = this.loaded.get(base);
     if (!mask || !shape || ratio <= 0) return null;
+    const part = frame === undefined ? null : this.loaded.get(`glowanim/${base}/${frame}`);
+    const shown = part?.canvas.getContext("2d", { willReadFrequently: true })!.getImageData(0, 0, part.canvas.width, part.canvas.height).data;
     const { width: w, height: h } = mask.canvas;
     const ctx = mask.canvas.getContext("2d", { willReadFrequently: true })!;
     const src = ctx.getImageData(0, 0, w, h);
@@ -156,10 +160,17 @@ export class ArtBook {
           }
       }
       if ((hashStr(base) ^ Math.imul(start, 2654435761)) >>> 0 > ratio * 0xffffffff) continue;
-      for (const i of comp) out.data.set(d.subarray(i * 4, i * 4 + 4), i * 4);
+      for (const i of comp) if (!shown || shown[i * 4 + 3] >= 128) out.data.set(d.subarray(i * 4, i * 4 + 4), i * 4);
     }
     c.getContext("2d", { willReadFrequently: true })!.putImageData(out, 0, 0);
     return { canvas: c, ax: shape.ax, ay: shape.ay };
+  }
+
+  /** 動く絵に、コマごとの窓の灯りのマスクがあるか */
+  hasGlowFrames(key: string): boolean {
+    key = this.resolve(key);
+    const at = key.indexOf("@");
+    return this.loaded.has(`glowanim/${at < 0 ? key : key.slice(0, at)}/0`);
   }
 
   private props(): (Art | null)[] {

@@ -8,10 +8,12 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { requiredKeys, tierChains } from "./catalog";
+import { fit, room } from "./align";
 import { isSmall } from "./finish";
 import { ANIM_FILE, type AnimDef } from "./import-anim";
 import { PALETTE_FILE } from "./palette";
 import { type Png, readPng, writePng } from "./png";
+import { sideShare } from "./trim-base";
 
 const ROOT = path.resolve(__dirname, "../..");
 const TW = 64;
@@ -23,6 +25,8 @@ const MAX = 2048;
 const PAD = 2;
 /** LINT-07：大きな建物（big/）で、前の段階より低くてもよい高さ（ドット） */
 const BIG_TOLERANCE = 10;
+/** LINT-09：一番下から土の色が3ドット以上続く列がこの割合を超えたら、土台が残っていそうとして警告する */
+const SIDE_SHARE = 0.4;
 
 interface Sprite {
   key: string;
@@ -101,7 +105,7 @@ export function lint(sprites: Map<string, Sprite>, palette: Set<string>, anims: 
       if (s.ax !== png.width / 2 || s.ay < 0 || s.ay >= png.height) errors.push(`LINT-04 基準点 ${s.ax},${s.ay} が足元の中心にない：${key}`);
     }
     // 発光マスクは灯りの画素がまばらなので、拡大の判定から外す
-    if (!key.startsWith("glow/") && looksUpscaled(png)) errors.push(`LINT-05 2倍に拡大された絵に見える：${key}`);
+    if (!/^glow(anim)?\//.test(key) && looksUpscaled(png)) errors.push(`LINT-05 2倍に拡大された絵に見える：${key}`);
   }
   // LINT-06：動きの全コマがあり、同じ大きさで、同じ基準点を持つ
   for (const [key, a] of Object.entries(anims)) {
@@ -117,6 +121,13 @@ export function lint(sprites: Map<string, Sprite>, palette: Set<string>, anims: 
       if (f.ax !== f0.ax || f.ay !== f0.ay) errors.push(`LINT-06 コマの基準点がそろっていません：${f.key}`);
     }
     if (a.fps < 6 || a.fps > 12) errors.push(`LINT-06 コマ送りの速さ ${a.fps}fps が 6〜12 の外：${key}`);
+    // 窓の灯りがある動く絵は、コマごとの灯り（glowanim/。glow-frames.ts で作る）も全コマそろっている
+    const glow = sprites.get(`glow/${key}`);
+    if (glow) {
+      const parts = Array.from({ length: a.frames }, (_, i) => sprites.get(`glowanim/${key}/${i}`));
+      if (parts.some((g) => !g || g.png.width !== glow.png.width || g.png.height !== glow.png.height))
+        errors.push(`LINT-06 コマごとの窓の灯りがそろっていません。glow-frames.ts で作る：${key}`);
+    }
   }
   // LINT-07：段階が上がるほど高くなる
   for (const chain of tierChains()) {
@@ -133,7 +144,29 @@ export function lint(sprites: Map<string, Sprite>, palette: Set<string>, anims: 
       prevKey = k;
     }
   }
+  // LINT-08：大きな建物（big/）が占有範囲のひし形に合っている（scripts/sprites/align.ts と同じ測り方。直すのは align.ts --write）
+  for (const s of sprites.values()) {
+    if (!s.key.startsWith("big/")) continue;
+    const others = [sprites.get(`glow/${s.key}`), ...Array.from({ length: anims[s.key]?.frames ?? 0 }, (_, i) => sprites.get(`anim/${s.key}/${i}`))];
+    const { dx, apex } = fit(s.png, room([s.png, ...others.flatMap((o) => (o ? [o.png] : []))]));
+    const ay = apex - (s.png.width / 4 - 1);
+    if (dx || ay !== s.ay) errors.push(`LINT-08 占有範囲からずれている（横 ${dx}、基準点の高さ ${s.ay} → ${ay}）。align.ts --write で直す：${s.key}`);
+  }
   return errors;
+}
+
+/**
+ * LINT-09（警告だけ）：地面の上に置く絵に、土の側面（土台）が残っていそう。trim-base.ts で削るか、
+ * 目で見て土台でないと確かめたら base-ok.json に理由を書いて外す。大きな絵（big/）がある1マスの絵は代わりにしか使わないので見ない
+ */
+export function warnings(sprites: Map<string, Sprite>, baseOk: Record<string, string> = {}): string[] {
+  const out: string[] = [];
+  for (const s of sprites.values()) {
+    if (!onTile(s.key) || /^(anim|glow|glowanim|ground|road|fx)\//.test(s.key) || sprites.has(`big/${s.key}`) || s.key in baseOk) continue;
+    const share = sideShare(s.png);
+    if (share > SIDE_SHARE) out.push(`LINT-09 土台が残っていそう（下に土の色が続く列 ${Math.round(share * 100)}%）：${s.key}`);
+  }
+  return out;
 }
 
 /** 高さの順に棚へ並べる。入りきらなければ次のアトラスへ */
@@ -188,16 +221,21 @@ function main() {
     const [ax, ay] = (animKey && anims[animKey]?.anchor) || anchors[key] || (onTile(key) ? [png.width / 2, bottom - lift] : [png.width / 2, bottom]);
     sprites.set(key, { key, png, ax, ay });
   }
-  // 発光マスクは元の建物の絵に重ねるので、基準点も元の絵と同じにする
+  // 発光マスクは元の建物の絵に重ねるので、基準点も元の絵と同じにする（コマごとの灯り glowanim/<キー>/<コマ> も止めた絵と同じ）
   for (const s of sprites.values()) {
-    if (!s.key.startsWith("glow/")) continue;
-    const base = sprites.get(s.key.slice(5));
+    const m = /^glow\/(.+)$|^glowanim\/(.+)\/\d+$/.exec(s.key);
+    if (!m) continue;
+    const base = sprites.get(m[1] ?? m[2]);
     if (base) {
       s.ax = base.ax;
       s.ay = base.ay;
     }
   }
   let errors = lint(sprites, palette, anims);
+  const baseOkFile = path.join(SRC, "base-ok.json");
+  const { $comment: _, ...baseOk }: Record<string, string> = existsSync(baseOkFile) ? JSON.parse(readFileSync(baseOkFile, "utf8")) : {};
+  // GitHub Actions では PR の画面に注記として出す
+  for (const w of warnings(sprites, baseOk)) console.warn(process.env.GITHUB_ACTIONS ? `::warning::${w}` : w);
   if (allowMissing) {
     const missing = errors.filter((e) => e.startsWith("LINT-01"));
     if (missing.length) console.warn(`LINT-01：絵が ${missing.length} 枚足りません（仮の絵で描きます）`);

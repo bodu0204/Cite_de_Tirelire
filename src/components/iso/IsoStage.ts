@@ -459,7 +459,10 @@ export class IsoStage {
     const night = this.overlay.night ?? 0;
     // 電気が足りない建物（困りごとアイコンの dark）は窓を灯さない
     const dark = this.darkTiles.has(`${o.x},${o.y}`);
-    const g = night > 0 && !dark ? this.book.getGlow(o.key, this.overlay.lights ?? 1) : null;
+    // 動く絵は、今のコマで窓の前を部品が通る画素を灯さない（コマが変わるたびに灯りも替える）
+    const anim = o.sprite instanceof AnimatedSprite && this.book.hasGlowFrames(o.key) ? o.sprite : null;
+    const g = night > 0 && !dark ? this.book.getGlow(o.key, this.overlay.lights ?? 1, anim?.currentFrame) : null;
+    if (anim) anim.onFrameChange = g ? () => this.updateGlow(o) : undefined;
     if (!g) {
       if (o.glow) {
         o.glow.destroy();

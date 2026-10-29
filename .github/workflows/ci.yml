@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # 絵の LINT（LINT-01〜09。LINT-09 は警告だけで、PR の画面に注記として出る）
+      - run: npx tsx scripts/sprites/build-atlas.ts --check
+      - run: npm run typecheck
+      - run: npm test

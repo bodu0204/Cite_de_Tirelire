@@ -270,5 +270,137 @@
   "road/0/10": [
     32,
     30
+  ],
+  "big/building/commerce/0": [
+    64,
+    77
+  ],
+  "big/building/commerce/1": [
+    64,
+    73
+  ],
+  "big/building/commerce/3": [
+    64,
+    116
+  ],
+  "big/building/commerce/4": [
+    64,
+    165
+  ],
+  "big/building/factory/2": [
+    64,
+    136
+  ],
+  "big/building/farm/0": [
+    64,
+    61
+  ],
+  "big/building/farm/1": [
+    64,
+    66
+  ],
+  "big/building/farm/2": [
+    64,
+    102
+  ],
+  "big/building/farm/3": [
+    64,
+    108
+  ],
+  "big/building/farm/4": [
+    64,
+    112
+  ],
+  "big/building/future/0": [
+    64,
+    185
+  ],
+  "big/building/housing/0": [
+    64,
+    72
+  ],
+  "big/building/housing/2": [
+    64,
+    97
+  ],
+  "big/building/housing/3": [
+    64,
+    129
+  ],
+  "big/building/housing/4": [
+    64,
+    164
+  ],
+  "big/building/housing/5": [
+    64,
+    182
+  ],
+  "big/building/logistics/0": [
+    64,
+    89
+  ],
+  "big/building/lumber/0": [
+    64,
+    88
+  ],
+  "big/building/office/0": [
+    64,
+    147
+  ],
+  "big/building/power/0": [
+    64,
+    93
+  ],
+  "big/building/power/2": [
+    64,
+    165
+  ],
+  "big/building/quarry/0": [
+    64,
+    92
+  ],
+  "big/building/school/1": [
+    64,
+    132
+  ],
+  "big/special/bank/1": [
+    96,
+    116
+  ],
+  "big/special/bank/3": [
+    96,
+    174
+  ],
+  "big/special/bank/4": [
+    96,
+    200
+  ],
+  "big/special/bank/5": [
+    96,
+    216
+  ],
+  "big/special/bank/6": [
+    96,
+    225
+  ],
+  "big/special/gold_mine": [
+    64,
+    101
+  ],
+  "big/special/park/0": [
+    64,
+    49
+  ],
+  "big/special/park/1": [
+    64,
+    76
+  ],
+  "big/special/park/3": [
+    96,
+    137
+  ],
+  "big/special/silver_mine": [
+    64,
+    103
   ]
 }
