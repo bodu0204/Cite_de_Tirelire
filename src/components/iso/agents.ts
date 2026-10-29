@@ -1,5 +1,5 @@
 // 道路を行き交う人と車（OBJ-11）。シード付き乱数で決め、同じシードなら同じ動きになる。
-import { hash2, type IsoMap } from "./map";
+import { hash2, type IsoMap, tileAt, tileIndex } from "./map";
 
 export type AgentKind = "person" | "car";
 
@@ -32,7 +32,8 @@ export const AGENT_VARIANTS = 4;
 export const MIN_ROAD: Record<AgentKind, number> = { person: 1, car: 2 };
 
 function canPass(m: IsoMap, kind: AgentKind, x: number, y: number): boolean {
-  return x >= 0 && y >= 0 && x < m.width && y < m.height && m.road[y * m.width + x] >= MIN_ROAD[kind];
+  const i = tileIndex(m, x, y);
+  return i >= 0 && m.road[i] >= MIN_ROAD[kind];
 }
 
 /**
@@ -48,12 +49,12 @@ export function createAgents(m: IsoMap, people: number, cars = 0, seed = 1): Age
     const tiles = roads[kind];
     if (!tiles.length) return;
     const h = hash2(k, seed, kind === "car" ? 13 : 7);
-    const i = tiles[h % tiles.length];
+    const t = tileAt(m, tiles[h % tiles.length]);
     const a: Agent = {
       kind,
       variant: (h >>> 8) % AGENT_VARIANTS,
-      x: i % m.width,
-      y: Math.floor(i / m.width),
+      x: t.x,
+      y: t.y,
       dx: 0,
       dy: 0,
       speed: kind === "car" ? 1.6 : 0.5 + ((h >> 4) % 4) * 0.1,

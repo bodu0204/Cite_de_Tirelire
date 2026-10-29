@@ -86,21 +86,22 @@ function hitsDiamond(r: Rect, d: [number, number][]): boolean {
 
 /**
  * 見えているチャンクと、その周り `margin` 個分（RND-12 の余白は1）。
+ * tiles は盤面の範囲（マス。負もある）で、その範囲にかかるチャンクだけを返す。
  * 背の高い建物は上へはみ出すので、見えている範囲の下側を `tallMargin` だけ広げて判定する。
  */
-export function visibleChunks(p: Iso, view: Rect, width: number, height: number, tallMargin = 0, margin = 1): ChunkId[] {
+export function visibleChunks(p: Iso, view: Rect, tiles: Rect, tallMargin = 0, margin = 1): ChunkId[] {
   const v: Rect = { ...view, maxY: view.maxY + tallMargin };
-  const nx = Math.ceil(width / CHUNK);
-  const ny = Math.ceil(height / CHUNK);
+  const c0 = chunkOf(tiles.minX, tiles.minY);
+  const c1 = chunkOf(tiles.maxX, tiles.maxY);
   const hit = new Set<string>();
-  for (let cy = 0; cy < ny; cy++)
-    for (let cx = 0; cx < nx; cx++) {
+  for (let cy = c0.cy; cy <= c1.cy; cy++)
+    for (let cx = c0.cx; cx <= c1.cx; cx++) {
       if (!hitsDiamond(v, chunkDiamond(p, { cx, cy }))) continue;
       for (let dy = -margin; dy <= margin; dy++)
         for (let dx = -margin; dx <= margin; dx++) {
           const x = cx + dx;
           const y = cy + dy;
-          if (x >= 0 && y >= 0 && x < nx && y < ny) hit.add(`${x},${y}`);
+          if (x >= c0.cx && y >= c0.cy && x <= c1.cx && y <= c1.cy) hit.add(`${x},${y}`);
         }
     }
   return [...hit].map((k) => {

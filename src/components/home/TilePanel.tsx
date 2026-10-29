@@ -17,7 +17,7 @@ import {
   type Zone,
 } from "@/game/catalog";
 import { buildingOutput } from "@/game/city/economy";
-import { idx, tileUnlockLevel } from "@/game/city/layout";
+import { buildingSize, contains, isLegacy, isNoAuto, isPlaced, isTileUnlocked, jobSize, tileUnlockLevel, zoneAt } from "@/game/city/layout";
 import { FEE_MOVE, FEE_RUSH_PER_10MIN, feeBuild, feeUpgrade, MINUTE } from "@/game/config";
 import { PARK_DESCRIPTION, PARK_SIZE_LABELS, STATUE_DESCRIPTION, statueStageLabel } from "@/game/describe";
 import { STATUE_RANK_LABELS } from "@/game/levels";
@@ -124,16 +124,16 @@ export function TilePanel({
   const city = v.city;
   const silver = v.currencies.silver;
   const dev = v.dev.level;
-  const i = idx(tile.x, tile.y);
-  const b = city.buildings.find((o) => o.x === tile.x && o.y === tile.y);
-  const job = city.jobs.find((j) => j.x === tile.x && j.y === tile.y);
-  const zone = city.zones[i];
-  const unlockAt = tileUnlockLevel(tile.x, tile.y);
+  // 大きな建物は、占有範囲のどのマスを選んでもその建物
+  const b = city.buildings.find((o) => isPlaced(o) && contains(o, buildingSize(city, o), tile.x, tile.y));
+  const job = city.jobs.find((j) => contains(j, j.kind === "build" ? jobSize(city, j) : 1, tile.x, tile.y) && (j.kind === "build" || (j.x === tile.x && j.y === tile.y)));
+  const zone = zoneAt(city, tile.x, tile.y);
   const cityAct = (body: Record<string, unknown>) => act("/api/city", body);
   const [showAll, setShowAll] = useState(false);
 
-  if (unlockAt > dev) {
-    return <p className="text-sm text-muted">この区画は発展Lv{unlockAt}で解放されます。</p>;
+  if (!isTileUnlocked(city, tile.x, tile.y)) {
+    if (isLegacy(city)) return <p className="text-sm text-muted">この区画は発展Lv{tileUnlockLevel(tile.x, tile.y)}で解放されます。</p>;
+    return <p className="text-sm text-muted">まだ開拓されていない土地です。</p>;
   }
 
   const zoneControls = (
@@ -149,7 +149,7 @@ export function TilePanel({
         </select>
       </label>
       <label className="flex items-center gap-1.5 whitespace-nowrap">
-        <input type="checkbox" className="w-auto" checked={!!city.noAuto[i]} onChange={(e) => cityAct({ type: "noAuto", x: tile.x, y: tile.y, noAuto: e.target.checked })} />
+        <input type="checkbox" className="w-auto" checked={isNoAuto(city, tile.x, tile.y)} onChange={(e) => cityAct({ type: "noAuto", x: tile.x, y: tile.y, noAuto: e.target.checked })} />
         自動建設を禁止
       </label>
     </div>

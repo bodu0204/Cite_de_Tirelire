@@ -33,6 +33,8 @@ export default function GoalPage() {
       <CityView
         fixed
         label="完成間近の街"
+        layout={v.city.v}
+        plots={v.city.plots}
         buildings={v.city.buildings}
         jobs={[]}
         zones={v.city.zones}

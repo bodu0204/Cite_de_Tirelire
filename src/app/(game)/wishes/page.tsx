@@ -6,6 +6,8 @@ import { buildingKey } from "@/components/city/toIso";
 import { useGame, useSeasonView } from "@/components/GameProvider";
 import { Button, Card, Empty, Field, Gauge, Modal } from "@/components/ui";
 import { statueStage } from "@/game/city/actions";
+import { tileLabel } from "@/game/city/layout";
+import type { CityLayout } from "@/game/types";
 import { STATUE_DESCRIPTION, statueStageLabel } from "@/game/describe";
 import { STATUE_RANK_LABELS, statueRank } from "@/game/levels";
 import { fmt, yen } from "@/lib/api";
@@ -31,7 +33,7 @@ function StatueIcon({ w }: { w: Wish }) {
 }
 
 /** 像の状態の1行説明 */
-function StatueLine({ w, where }: { w: Wish; where?: { x: number; y: number } }) {
+function StatueLine({ w, where, layout }: { w: Wish; where?: { x: number; y: number; placed?: false }; layout: CityLayout }) {
   const stage = statueStage({ id: w.id, name: w.name, price: w.price, progress: w.reserved / w.price, purchased: !!w.purchasedAt });
   return (
     <p className="mt-1 rounded-md bg-surface-2 px-2 py-1 text-xs">
@@ -39,7 +41,7 @@ function StatueLine({ w, where }: { w: Wish; where?: { x: number; y: number } })
       <span className="text-muted">
         {" ・ "}
         {STATUE_RANK_LABELS[statueRank(w.price)]} ・ {statueStageLabel(stage)}
-        {where && ` ・ ${where.x >= 0 ? `マス(${where.x + 1}, ${where.y + 1})` : "置く場所の空き待ち"}`}
+        {where && ` ・ ${where.placed !== false ? tileLabel({ v: layout }, where.x, where.y) : "置く場所の空き待ち"}`}
         {!w.purchasedAt && stage < 4 && ` ・ 次の段階まであと${fmt(Math.max(0, Math.ceil(((stage + 1) * w.price) / 4) - w.reserved))}G`}
       </span>
     </p>
@@ -144,7 +146,7 @@ export default function WishesPage() {
                     <span className="num shrink-0 text-sm">{yen(w.price)}</span>
                   </div>
                   <Gauge value={w.reserved} max={w.price} color="var(--gold)" label={`${w.name}の積立`} />
-                  <StatueLine w={w} where={statueAt(w.id)} />
+                  <StatueLine w={w} where={statueAt(w.id)} layout={v?.city.v ?? 2} />
                   {w.memo && <p className="mt-1 text-xs whitespace-pre-wrap break-words">メモ：{w.memo}</p>}
                   <div className="mt-0.5 flex justify-between text-xs text-muted">
                     <span>
@@ -186,7 +188,7 @@ export default function WishesPage() {
                     <span className="truncate">{w.name}</span>
                     <span className="num text-muted">{yen(w.price)}</span>
                   </div>
-                  <StatueLine w={w} where={statueAt(w.id)} />
+                  <StatueLine w={w} where={statueAt(w.id)} layout={v?.city.v ?? 2} />
                   {w.memo && <p className="mt-1 text-xs whitespace-pre-wrap break-words">メモ：{w.memo}</p>}
                 </div>
               </li>

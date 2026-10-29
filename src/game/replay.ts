@@ -1,6 +1,6 @@
 // タイムラプス：開始時スナップショット＋イベント履歴から、任意の時刻の街を再構築する。
 import type { Zone } from "./catalog";
-import type { BuildingSnap, CityEventType } from "./types";
+import type { BuildingSnap, CityEventType, CityLayout } from "./types";
 
 export interface ReplayEvent {
   at: number;
@@ -9,17 +9,26 @@ export interface ReplayEvent {
 }
 
 export interface ReplayFrame {
+  layout: CityLayout;
+  plots: string[];
   buildings: Map<string, BuildingSnap>;
-  zones: Zone[];
+  zones: Record<string, Zone>;
   devLevel: number;
   techLevel: number;
   bankLevel: number;
 }
 
 export interface ReplayStart {
+  layout: CityLayout;
+  plots?: string[];
   buildings: BuildingSnap[];
-  zones: Zone[];
+  zones: Record<string, Zone>;
   techLevel: number;
+}
+
+/** v1 の街のイベントは、マップ外を x = −1 で表していた */
+function placedSnap(frame: Pick<ReplayFrame, "layout">, b: BuildingSnap): BuildingSnap {
+  return frame.layout === 1 && b.x < 0 ? { ...b, placed: false } : { ...b };
 }
 
 export function applyEvent(frame: ReplayFrame, e: ReplayEvent) {
@@ -33,7 +42,7 @@ export function applyEvent(frame: ReplayFrame, e: ReplayEvent) {
     case "PARK_CLOSED":
     case "STATUE_PROGRESS":
     case "STATUE_COMPLETED":
-      if (b) frame.buildings.set(b.id, { ...b });
+      if (b) frame.buildings.set(b.id, placedSnap(frame, b));
       break;
     case "DEMOLISH":
       frame.buildings.delete(e.payload.buildingId as string);
@@ -60,7 +69,9 @@ export function createReplay(start: ReplayStart, events: ReplayEvent[]) {
   let cursor = 0;
   const reset = () => {
     frame = {
-      buildings: new Map(start.buildings.map((b) => [b.id, { ...b }])),
+      layout: start.layout,
+      plots: [...(start.plots ?? [])],
+      buildings: new Map(start.buildings.map((b) => [b.id, placedSnap(start, b)])),
       zones: start.zones,
       devLevel: 1,
       techLevel: start.techLevel,

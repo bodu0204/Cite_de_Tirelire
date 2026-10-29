@@ -10,7 +10,13 @@ export const TICK_MS = 10 * MINUTE;
 /** 金鉱の固定小数点：1G = 10^6 単位 */
 export const MICRO_PER_GOLD = 1_000_000n;
 
-export const MAP_SIZE = 10;
+// ---- マップ（docs/map-layout-redesign.md） ----
+/** v1 の街（2026-10 までに始めたシーズン）の盤面の大きさ。v2 の街は大きさを決めない */
+export const LEGACY_MAP_SIZE = 10;
+/** 開拓区画の一辺（マス） */
+export const PLOT_SIZE = 5;
+/** シーズン開始時に開いている区画（中心の 10×10 ＝ マス -5〜4） */
+export const INITIAL_PLOTS = ["-1,-1", "0,-1", "-1,0", "0,0"];
 
 // ---- 銀鉱の記録報酬 ----
 export const REWARD_PURCHASE = 50;

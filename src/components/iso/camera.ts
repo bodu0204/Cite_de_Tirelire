@@ -80,6 +80,21 @@ export function clampCamera(cam: Camera, bounds: Rect): Camera {
   return { ...cam, cx: clamp(cam.cx, bounds.minX, bounds.maxX), cy: clamp(cam.cy, bounds.minY, bounds.maxY) };
 }
 
+/** 開いている土地の端を止める、画面の中での位置（docs/map-layout-redesign.md §6.4、Q5） */
+export const LAND_EDGE = 0.75;
+
+/**
+ * 中心を、開いている土地（land。ワールド座標の矩形）の端が画面の LAND_EDGE の位置に来るところまでに収める。
+ * 右へ動かすと土地の右端が画面の左から 75% の位置で止まり、画面の右 25% に未開放の土地が見える（上下左右とも同じ）。
+ * 画面上の距離で決めるので、倍率を変えても見える未開放の土地は画面の 25% まで。
+ * 土地が画面の半分より小さい向きは、土地の中心に寄せる
+ */
+export function clampToLand(cam: Camera, land: Rect, v: Viewport, edge = LAND_EDGE): Camera {
+  const s = scaleOf(cam.zoom, v.dpr);
+  const axis = (c: number, lo: number, hi: number, m: number) => (lo + m <= hi - m ? clamp(c, lo + m, hi - m) : (lo + hi) / 2);
+  return { ...cam, cx: axis(cam.cx, land.minX, land.maxX, (v.w * (1 - edge)) / s), cy: axis(cam.cy, land.minY, land.maxY, (v.h * (1 - edge)) / s) };
+}
+
 /**
  * 街全体が収まる倍率（CAM-09 のカメラ固定の表示）。1倍以上なら整数に切り捨て、
  * 収まらない時だけ 1倍未満の縮小を許す（§10.1）。

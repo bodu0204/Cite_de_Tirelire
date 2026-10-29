@@ -1,7 +1,7 @@
 // シーズン開始時の街。
-import { INITIAL_POPULATION, INITIAL_STOCK, INITIAL_TREASURY, MAP_SIZE } from "../config";
-import { DEFAULT_PRIORITIES, type Building, type CityPolicy, type CityState, type NeedKey } from "../types";
-import { defaultZones } from "./layout";
+import { INITIAL_PLOTS, INITIAL_POPULATION, INITIAL_STOCK, INITIAL_TREASURY } from "../config";
+import { DEFAULT_PRIORITIES, type Building, type CityLayout, type CityPolicy, type CityState, type NeedKey } from "../types";
+import { initialZones, legacyZones } from "./layout";
 import { alignTick } from "./sim";
 
 export const POLICY_PRESETS: Record<Exclude<CityPolicy["preset"], "custom">, { label: string; priorities: NeedKey[] }> = {
@@ -30,7 +30,10 @@ export const NEED_LABELS: Record<NeedKey, string> = {
   beautify: "余剰資金による景観改善",
 };
 
-export function createCity(startAt: number, preset: CityPolicy["preset"] = "balanced"): CityState {
+/**
+ * シーズン開始時の街。layout 1 は 10×10 固定の古い盤面（テストと、古いシーズンの確認用。docs/map-layout-redesign.md §6.5）
+ */
+export function createCity(startAt: number, preset: CityPolicy["preset"] = "balanced", layout: CityLayout = 2): CityState {
   const t = alignTick(startAt);
   const b = (id: string, x: number, y: number, extra: Partial<Building>): Building => ({
     id,
@@ -43,19 +46,21 @@ export function createCity(startAt: number, preset: CityPolicy["preset"] = "bala
     builtAt: t,
     ...extra,
   });
+  // v1 は 10×10 の (4, 4) に銀行。v2 は銀行の中心が原点
+  const o = layout === 1 ? 4 : 0;
   const buildings: Building[] = [
-    b("bank", 4, 4, { special: "bank", locked: true }),
-    b("gold_mine", 5, 4, { special: "gold_mine", locked: true }),
-    b("silver_mine", 4, 5, { special: "silver_mine", locked: true }),
-    b("b1", 3, 3, { line: "housing" }),
-    b("b2", 3, 4, { line: "housing" }),
-    b("b3", 3, 5, { line: "farm" }),
-    b("b4", 6, 5, { line: "lumber" }),
-    b("b5", 4, 6, { line: "road" }),
+    b("bank", o, o, { special: "bank", locked: true }),
+    b("gold_mine", o + 1, o, { special: "gold_mine", locked: true }),
+    b("silver_mine", o, o + 1, { special: "silver_mine", locked: true }),
+    b("b1", o - 1, o - 1, { line: "housing" }),
+    b("b2", o - 1, o, { line: "housing" }),
+    b("b3", o - 1, o + 1, { line: "farm" }),
+    b("b4", o + 2, o + 1, { line: "lumber" }),
+    b("b5", o, o + 2, { line: "road" }),
   ];
   const priorities = preset === "custom" ? DEFAULT_PRIORITIES : POLICY_PRESETS[preset].priorities;
   return {
-    v: 1,
+    v: layout,
     simTime: t,
     buildings,
     jobs: [],
@@ -67,8 +72,9 @@ export function createCity(startAt: number, preset: CityPolicy["preset"] = "bala
     devPoints: 0,
     // 初期建物は実績に数える（建て直しで稼げないように）
     peaks: { "n:housing": 2, "n:farm": 1, "n:lumber": 1, "n:road": 1 },
-    zones: defaultZones(),
-    noAuto: new Array(MAP_SIZE * MAP_SIZE).fill(false),
+    zones: layout === 1 ? legacyZones() : initialZones(),
+    noAuto: [],
+    ...(layout === 1 ? {} : { plots: [...INITIAL_PLOTS] }),
     policy: { preset, priorities: [...priorities], autoEnabled: true },
     techLevel: 1,
     bankLevel: 1,

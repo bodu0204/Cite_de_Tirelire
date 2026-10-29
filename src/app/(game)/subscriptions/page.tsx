@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useGame, useSeasonView } from "@/components/GameProvider";
 import { Button, Card, Empty, Field, Modal } from "@/components/ui";
 import { parkSize } from "@/game/city/actions";
+import { tileLabel } from "@/game/city/layout";
 import { PARK_DESCRIPTION, PARK_SIZE_LABELS as SIZE } from "@/game/describe";
 import { todayIn, yen } from "@/lib/api";
 import { useList } from "@/lib/useList";
@@ -138,7 +139,7 @@ export default function SubscriptionsPage() {
                       {park ? (park.closed ? "閉園中" : "開園中") : s.startDate > today ? "契約開始日に開園" : "閉園"}
                       {" ・ "}
                       {SIZE[park?.tier ?? parkSize(monthly(s))]}
-                      {park && ` ・ ${park.x >= 0 ? `マス(${park.x + 1}, ${park.y + 1})` : "置く場所の空き待ち"}`}
+                      {park && v && ` ・ ${park.placed !== false ? tileLabel(v.city, park.x, park.y) : "置く場所の空き待ち"}`}
                       {nextSize(monthly(s))}
                     </span>
                   </span>

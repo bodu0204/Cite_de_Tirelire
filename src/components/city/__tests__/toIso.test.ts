@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { MAP_SIZE } from "@/game/config";
-import { defaultZones, tileUnlockLevel } from "@/game/city/layout";
-import { MAX_CARS, MAX_PEOPLE, agentCounts, buildingKey, cityToIso, goldStage, hourIn, lightRatio, nightLevel, troubleIcons } from "../toIso";
+import { INITIAL_PLOTS, LEGACY_MAP_SIZE } from "@/game/config";
+import { legacyZones, tileUnlockLevel } from "@/game/city/layout";
+import { tileIndex } from "@/components/iso/map";
+import { LOCKED_BAND, MAX_CARS, MAX_PEOPLE, agentCounts, buildingKey, cityToIso, goldStage, hourIn, lightRatio, nightLevel, troubleIcons } from "../toIso";
 
 const b = (over: Partial<Parameters<typeof buildingKey>[0]>) => ({ id: "b", tier: 0, level: 1, x: 4, y: 4, ...over });
 
@@ -22,28 +23,56 @@ describe("建物の絵のキー", () => {
   });
 });
 
-describe("盤面の変換", () => {
-  const zones = defaultZones();
+describe("盤面の変換（v1：10×10 固定）", () => {
+  const zones = legacyZones();
 
-  it("道路は地面に、建物は絵に、マップ外（x < 0）は描かない", () => {
+  it("道路は地面に、建物は絵に、マップ外は描かない", () => {
     const { map } = cityToIso({
-      buildings: [b({ id: "r", line: "road", tier: 1, x: 3, y: 4 }), b({ id: "h", line: "housing" }), b({ id: "s", special: "statue", x: -1, y: -1 })],
+      layout: 1,
+      buildings: [b({ id: "r", line: "road", tier: 1, x: 3, y: 4 }), b({ id: "h", line: "housing" }), b({ id: "s", special: "statue", x: -1, y: -1, placed: false })],
       zones,
       devLevel: 6,
       bankLevel: 1,
     });
-    expect(map.width).toBe(MAP_SIZE);
-    expect(map.road[4 * MAP_SIZE + 3]).toBe(2);
+    expect(map.width).toBe(LEGACY_MAP_SIZE);
+    expect(map.road[4 * LEGACY_MAP_SIZE + 3]).toBe(2);
     expect(map.objects.map((o) => o.id)).toEqual(["h"]);
+    expect(map.home).toBeUndefined();
   });
 
   it("未開放の区画は覆い（林・岩・看板）を置く", () => {
-    const { map } = cityToIso({ buildings: [], zones, devLevel: 1, bankLevel: 1 });
+    const { map } = cityToIso({ layout: 1, buildings: [], zones, devLevel: 1, bankLevel: 1 });
     let lockedTiles = 0;
-    for (let y = 0; y < MAP_SIZE; y++) for (let x = 0; x < MAP_SIZE; x++) if (tileUnlockLevel(x, y) > 1) lockedTiles++;
+    for (let y = 0; y < LEGACY_MAP_SIZE; y++) for (let x = 0; x < LEGACY_MAP_SIZE; x++) if (tileUnlockLevel(x, y) > 1) lockedTiles++;
     expect(map.objects.length).toBe(lockedTiles);
     expect(map.objects.every((o) => o.key.startsWith("locked/"))).toBe(true);
     expect(map.locked.reduce((a, v) => a + v, 0)).toBe(lockedTiles);
+  });
+});
+
+describe("盤面の変換（v2：開拓した区画）", () => {
+  it("範囲は開拓した区画に未開放の帯を足したもの。銀行の中心（原点）にカメラを向ける", () => {
+    const { map, overlay } = cityToIso({
+      plots: INITIAL_PLOTS,
+      buildings: [b({ id: "r", line: "road", tier: 0, x: -3, y: 2 }), b({ id: "h", line: "housing", x: -5, y: -5 })],
+      zones: { "-5,-5": "residential" },
+      noAuto: ["4,4"],
+      devLevel: 1,
+      bankLevel: 1,
+    });
+    expect({ x0: map.x0, y0: map.y0, width: map.width, height: map.height }).toEqual({ x0: -5 - LOCKED_BAND, y0: -5 - LOCKED_BAND, width: 10 + LOCKED_BAND * 2, height: 10 + LOCKED_BAND * 2 });
+    expect(map.road[tileIndex(map, -3, 2)]).toBe(1);
+    expect(map.locked[tileIndex(map, -5, -5)]).toBe(0);
+    expect(map.locked[tileIndex(map, 5, 0)]).toBe(1);
+    expect(map.home).toEqual({ x: 0, y: 0 });
+    expect(overlay.zones![tileIndex(map, -5, -5)]).toBe("residential");
+    expect(overlay.zones![tileIndex(map, 0, 0)]).toBe("none");
+    expect(overlay.noAuto![tileIndex(map, 4, 4)]).toBe(true);
+    // 林や岩は開いた区画の隣の区画まで。その外は暗い地面だけ
+    const locked = map.objects.filter((o) => o.key.startsWith("locked/"));
+    expect(locked.some((o) => o.x === 7 && o.y === 0)).toBe(true);
+    expect(locked.some((o) => o.x === 12 && o.y === 0)).toBe(false);
+    expect(locked.length).toBe(20 * 20 - 10 * 10);
   });
 
   it("工事：新築は足場、改築は覆いを手前に。バーは重ね描きに渡す", () => {
@@ -51,7 +80,7 @@ describe("盤面の変換", () => {
       { x: 1, y: 1, kind: "build", startedAt: 0, finishAt: 10 },
       { x: 4, y: 4, kind: "upgrade", startedAt: 0, finishAt: 10 },
     ];
-    const { map, overlay } = cityToIso({ buildings: [b({ id: "h", line: "housing" })], jobs, zones, devLevel: 6, bankLevel: 1, showZones: true, highlights: new Set(["4,4"]) });
+    const { map, overlay } = cityToIso({ buildings: [b({ id: "h", line: "housing" })], jobs, zones: {}, devLevel: 6, bankLevel: 1, showZones: true, highlights: new Set(["4,4"]) });
     expect(map.objects.find((o) => o.id === "job:1,1")?.key).toBe("fx/scaffold");
     expect(map.objects.find((o) => o.id === "job:4,4")).toMatchObject({ key: "fx/cover", dz: 0.25 });
     expect(overlay.jobs).toHaveLength(2);
@@ -86,9 +115,9 @@ describe("OBJ-14 昼夜", () => {
   });
 
   it("時刻がなければ昼のまま", () => {
-    const { overlay } = cityToIso({ buildings: [], zones: defaultZones(), devLevel: 6, bankLevel: 1 });
+    const { overlay } = cityToIso({ buildings: [], layout: 1, zones: legacyZones(), devLevel: 6, bankLevel: 1 });
     expect(overlay.night).toBe(0);
-    expect(cityToIso({ buildings: [], zones: defaultZones(), devLevel: 6, bankLevel: 1, hour: 22 }).overlay.night).toBe(1);
+    expect(cityToIso({ buildings: [], layout: 1, zones: legacyZones(), devLevel: 6, bankLevel: 1, hour: 22 }).overlay.night).toBe(1);
   });
 });
 
@@ -112,11 +141,11 @@ describe("M3 にぎわい", () => {
   });
 
   it("A4 金鉱の前に金貨の山を置く", () => {
-    const zones = defaultZones();
+    const zones = legacyZones();
     const mine = { id: "m", special: "gold_mine" as const, tier: 0, level: 1, x: 3, y: 3 };
-    const { map } = cityToIso({ buildings: [mine], zones, devLevel: 9, bankLevel: 1, gold: { uncollected: 120, ratePerMinute: 1 } });
+    const { map } = cityToIso({ layout: 1, buildings: [mine], zones, devLevel: 9, bankLevel: 1, gold: { uncollected: 120, ratePerMinute: 1 } });
     expect(map.objects.find((o) => o.id === "gold")).toMatchObject({ x: 3, y: 3, key: "props/gold/2" });
-    const none = cityToIso({ buildings: [mine], zones, devLevel: 9, bankLevel: 1, gold: { uncollected: 0, ratePerMinute: 1 } });
+    const none = cityToIso({ layout: 1, buildings: [mine], zones, devLevel: 9, bankLevel: 1, gold: { uncollected: 0, ratePerMinute: 1 } });
     expect(none.map.objects.find((o) => o.id === "gold")).toBeUndefined();
   });
 

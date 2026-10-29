@@ -35,12 +35,12 @@ export function depth(x: number, y: number): number {
   return (x + y) * 1024 + x;
 }
 
-/** マップ全体を囲む矩形（ワールド座標） */
-export function mapBounds(p: Iso, width: number, height: number) {
+/** マスの矩形（minX〜maxX、minY〜maxY）の地面を囲む矩形（ワールド座標） */
+export function mapBounds(p: Iso, tiles: { minX: number; minY: number; maxX: number; maxY: number }) {
   return {
-    minX: -(height - 1) * (p.tw / 2) - p.tw / 2,
-    maxX: (width - 1) * (p.tw / 2) + p.tw / 2,
-    minY: -p.th / 2,
-    maxY: (width - 1 + height - 1) * (p.th / 2) + p.th / 2,
+    minX: toScreen(p, tiles.minX, tiles.maxY).sx - p.tw / 2,
+    maxX: toScreen(p, tiles.maxX, tiles.minY).sx + p.tw / 2,
+    minY: toScreen(p, tiles.minX, tiles.minY).sy - p.th / 2,
+    maxY: toScreen(p, tiles.maxX, tiles.maxY).sy + p.th / 2,
   };
 }

@@ -4,7 +4,7 @@ import { type Agent, agentFacing, createAgents, stepAgent } from "./agents";
 import {
   type Camera,
   type Viewport,
-  clampCamera,
+  clampToLand,
   decay,
   defaultZoom,
   fitZoom,
@@ -17,10 +17,10 @@ import {
   zoomAt,
   zoomRange,
 } from "./camera";
-import { type ChunkId, CHUNK, chunkKey, chunkRect, visibleChunks } from "./chunks";
+import { type ChunkId, type Rect, CHUNK, chunkKey, chunkOf, chunkRect, visibleChunks } from "./chunks";
 import { nightColor } from "./compose";
 import { type EffectKind, EFFECT_MS, MAX_EFFECTS, effectKind, flashAlpha, particles, popScale } from "./effects";
-import { type IsoMap, type IsoObject, type IsoOverlay, groundKey, hash2 } from "./map";
+import { type IsoMap, type IsoObject, type IsoOverlay, groundKey, hash2, mapRect, tileAt, tileIndex } from "./map";
 import { type Iso, depth, iso, mapBounds, toScreen, toTile } from "./projection";
 import { type ArtSource, type Entry, TextureBook } from "./textures";
 
@@ -105,6 +105,10 @@ export class IsoStage {
   private groundKeys: string[] = [];
   private chunkSig = new Map<string, string>();
   private map!: IsoMap;
+  /** 盤面の範囲（マス） */
+  private tiles: Rect = { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+  /** 開いている土地を囲む矩形（ワールド座標。カメラの移動範囲を決める） */
+  private land: Rect = { minX: 0, minY: 0, maxX: 0, maxY: 0 };
   private chunkObjects = new Map<string, Placed[]>();
   private baked = new Map<string, Sprite>();
   private shown = new Set<string>();
@@ -220,10 +224,11 @@ export class IsoStage {
     if (this.opts.interactive === false) {
       this.fitAll();
     } else if (this.opts.camera) {
-      this.cam = clampCamera({ ...this.opts.camera, zoom: snapZoom(this.opts.camera.zoom, v.dpr) }, this.bounds());
+      this.setCamera({ ...this.opts.camera, zoom: snapZoom(this.opts.camera.zoom, v.dpr) });
     } else {
-      const c = toScreen(this.p, (map.width - 1) / 2, (map.height - 1) / 2);
-      this.cam = { cx: c.sx, cy: c.sy, zoom: defaultZoom(v.dpr, this.p.tw) };
+      // 盤面の指定がなければ、開いている土地の中心
+      const c = map.home ? toScreen(this.p, map.home.x, map.home.y) : { sx: (this.land.minX + this.land.maxX) / 2, sy: (this.land.minY + this.land.maxY) / 2 };
+      this.setCamera({ cx: c.sx, cy: c.sy, zoom: defaultZoom(v.dpr, this.p.tw) });
     }
 
     if (this.opts.interactive !== false) {
@@ -243,24 +248,40 @@ export class IsoStage {
    * 地面は絵のキーが変わったマスのチャンクだけ焼き直し、建物はチャンクごとに中身が変わった時だけ作り直す。
    */
   setMap(map: IsoMap) {
-    const resized = !this.map || this.map.width !== map.width || this.map.height !== map.height;
+    const rect = mapRect(map);
+    const prev = this.tiles;
+    const resized = !this.map || rect.minX !== prev.minX || rect.minY !== prev.minY || rect.maxX !== prev.maxX || rect.maxY !== prev.maxY;
     this.map = map;
+    this.tiles = rect;
+    // 範囲が変わると配列の番号がずれるので、地面を全部焼き直す（開拓した時だけ）
     if (resized) {
       for (const s of this.baked.values()) s.destroy({ texture: true, textureSource: true });
       this.baked.clear();
       this.groundKeys = [];
       this.bakeQueue = [];
     }
-    // 地面
+    // 地面と、開いている土地の範囲
     const keys = new Array<string>(map.width * map.height);
     const dirty = new Set<string>();
-    for (let y = 0; y < map.height; y++)
-      for (let x = 0; x < map.width; x++) {
-        const i = y * map.width + x;
-        keys[i] = groundKey(map, x, y);
-        if (keys[i] !== this.groundKeys[i]) dirty.add(chunkKey({ cx: Math.floor(x / CHUNK), cy: Math.floor(y / CHUNK) }));
-      }
+    const open = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+    for (let i = 0; i < keys.length; i++) {
+      const { x, y } = tileAt(map, i);
+      keys[i] = groundKey(map, x, y);
+      if (keys[i] !== this.groundKeys[i]) dirty.add(chunkKey(chunkOf(x, y)));
+      if (map.locked[i]) continue;
+      open.minX = Math.min(open.minX, x);
+      open.minY = Math.min(open.minY, y);
+      open.maxX = Math.max(open.maxX, x);
+      open.maxY = Math.max(open.maxY, y);
+    }
     this.groundKeys = keys;
+    const land = mapBounds(this.p, open.minX === Infinity ? rect : open);
+    const landChanged = land.minX !== this.land.minX || land.minY !== this.land.minY || land.maxX !== this.land.maxX || land.maxY !== this.land.maxY;
+    this.land = land;
+    if (landChanged && this.inited && !this.destroyed) {
+      if (this.opts.interactive === false) this.fitAll();
+      else this.setCamera(this.cam);
+    }
     for (const k of dirty) {
       this.baked.get(k)?.destroy({ texture: true, textureSource: true });
       this.baked.delete(k);
@@ -268,7 +289,7 @@ export class IsoStage {
     // 建物などの絵
     const byChunk = new Map<string, IsoObject[]>();
     for (const o of map.objects) {
-      const k = chunkKey({ cx: Math.floor(o.x / CHUNK), cy: Math.floor(o.y / CHUNK) });
+      const k = chunkKey(chunkOf(o.x, o.y));
       const list = byChunk.get(k) ?? [];
       list.push(o);
       byChunk.set(k, list);
@@ -530,25 +551,25 @@ export class IsoStage {
     const { zones, showZones } = this.overlay;
     if (!showZones || !zones) return;
     const u = this.p.tw / 64;
-    for (let y = 0; y < this.map.height; y++)
-      for (let x = 0; x < this.map.width; x++) {
-        const st = ZONE_STYLE[zones[y * this.map.width + x]];
-        if (!st) continue;
-        this.diamond(g, x, y, 0.92);
-        g.fill({ color: st.color, alpha: 0.45 });
-        // 記号はマスの左の角寄りに小さく描く（建物に隠れにくい）
-        const c = toScreen(this.p, x, y);
-        const mx = c.sx - 18 * u;
-        const my = c.sy;
-        const r = 3 * u;
-        if (st.mark === "house") g.poly([mx - r, my + r, mx - r, my, mx, my - r, mx + r, my, mx + r, my + r]);
-        else if (st.mark === "circle") g.circle(mx, my, r);
-        else if (st.mark === "square") g.rect(mx - r, my - r, r * 2, r * 2);
-        else if (st.mark === "plus") g.rect(mx - r, my - u, r * 2, 2 * u).rect(mx - u, my - r, 2 * u, r * 2);
-        else if (st.mark === "diamond") g.poly([mx, my - r, mx + r, my, mx, my + r, mx - r, my]);
-        else g.star(mx, my, 5, r * 1.3, r * 0.6);
-        g.fill({ color: 0x3e2723, alpha: 0.85 });
-      }
+    for (let i = 0; i < zones.length; i++) {
+      const st = ZONE_STYLE[zones[i]];
+      if (!st) continue;
+      const { x, y } = tileAt(this.map, i);
+      this.diamond(g, x, y, 0.92);
+      g.fill({ color: st.color, alpha: 0.45 });
+      // 記号はマスの左の角寄りに小さく描く（建物に隠れにくい）
+      const c = toScreen(this.p, x, y);
+      const mx = c.sx - 18 * u;
+      const my = c.sy;
+      const r = 3 * u;
+      if (st.mark === "house") g.poly([mx - r, my + r, mx - r, my, mx, my - r, mx + r, my, mx + r, my + r]);
+      else if (st.mark === "circle") g.circle(mx, my, r);
+      else if (st.mark === "square") g.rect(mx - r, my - r, r * 2, r * 2);
+      else if (st.mark === "plus") g.rect(mx - r, my - u, r * 2, 2 * u).rect(mx - u, my - r, 2 * u, r * 2);
+      else if (st.mark === "diamond") g.poly([mx, my - r, mx + r, my, mx, my + r, mx - r, my]);
+      else g.star(mx, my, 5, r * 1.3, r * 0.6);
+      g.fill({ color: 0x3e2723, alpha: 0.85 });
+    }
   }
 
   /** 工事のバーと対象外の印（毎フレーム。工事中だけ） */
@@ -561,7 +582,8 @@ export class IsoStage {
       noAuto.forEach((on, i) => {
         if (!on) return;
         // ひし形の左の角に、鍵の形の印（OBJ-09）
-        const c = toScreen(this.p, i % this.map.width, Math.floor(i / this.map.width));
+        const t = tileAt(this.map, i);
+        const c = toScreen(this.p, t.x, t.y);
         const x = c.sx - 26 * u;
         const y = c.sy - 2 * u;
         g.roundRect(x - 3 * u, y - u, 6 * u, 5 * u, u).fill(0x5d4037);
@@ -634,8 +656,7 @@ export class IsoStage {
     const s = toScreen(this.p, t.x, t.y);
     this.selectGhost.position.set(s.sx, s.sy);
     this.selectLayer.addChild(this.selectGhost);
-    const k = chunkKey({ cx: Math.floor(t.x / CHUNK), cy: Math.floor(t.y / CHUNK) });
-    for (const o of this.chunkObjects.get(k) ?? []) {
+    for (const o of this.chunkObjects.get(chunkKey(chunkOf(t.x, t.y))) ?? []) {
       if (o.x !== t.x || o.y !== t.y) continue;
       const e = this.book.getOutline(o.key);
       const sp = new Sprite(e.texture);
@@ -674,8 +695,9 @@ export class IsoStage {
     return { ...this.cam };
   }
 
-  get mapSize() {
-    return { width: this.map.width, height: this.map.height };
+  /** 盤面の範囲（マス） */
+  get mapRect(): Rect {
+    return { ...this.tiles };
   }
 
   /** 何度呼んでもよい。作成の途中なら、作成が終わった時点で片付ける */
@@ -701,18 +723,14 @@ export class IsoStage {
 
   // ---- カメラ ----
 
-  private bounds() {
-    return mapBounds(this.p, this.map.width, this.map.height);
-  }
-
   private setCamera(c: Camera) {
-    this.cam = clampCamera(c, this.bounds());
+    this.cam = clampToLand(c, this.land, this.viewport);
     this.camDirty = true;
   }
 
   private fitAll() {
-    // 背の高い建物が上にはみ出す分も収める
-    const b = { ...this.bounds() };
+    // 開いている土地を、背の高い建物が上にはみ出す分も含めて収める
+    const b = { ...this.land };
     b.minY -= (TALL * this.p.tw) / 64 / 2;
     this.cam = { cx: (b.minX + b.maxX) / 2, cy: (b.minY + b.maxY) / 2, zoom: fitZoom(b, this.viewport) };
     this.camDirty = true;
@@ -733,8 +751,8 @@ export class IsoStage {
   private updateVisible() {
     const r = viewRect(this.cam, this.viewport);
     const tall = (TALL * this.p.tw) / 64;
-    const keep = visibleChunks(this.p, r, this.map.width, this.map.height, tall, 1);
-    const draw = visibleChunks(this.p, r, this.map.width, this.map.height, tall, 0);
+    const keep = visibleChunks(this.p, r, this.tiles, tall, 1);
+    const draw = visibleChunks(this.p, r, this.tiles, tall, 0);
     const drawKeys = new Set(draw.map(chunkKey));
 
     // 見えている分はすぐ焼く。余白の分は1フレームに1つずつ焼き、パン中の引っかかりを防ぐ（NF-01）
@@ -771,8 +789,8 @@ export class IsoStage {
     const tmp = new Container();
     const x0 = c.cx * CHUNK;
     const y0 = c.cy * CHUNK;
-    for (let y = y0; y < Math.min(y0 + CHUNK, this.map.height); y++)
-      for (let x = x0; x < Math.min(x0 + CHUNK, this.map.width); x++) {
+    for (let y = Math.max(y0, this.tiles.minY); y < Math.min(y0 + CHUNK, this.tiles.maxY + 1); y++)
+      for (let x = Math.max(x0, this.tiles.minX); x < Math.min(x0 + CHUNK, this.tiles.maxX + 1); x++) {
         const e = this.book.get(groundKey(this.map, x, y));
         const s = new Sprite(e.texture);
         const p = toScreen(this.p, x, y);
@@ -991,13 +1009,12 @@ export class IsoStage {
       if (o.entry.mask[ly * o.entry.w + lx]) return { x: o.x, y: o.y };
     }
     const t = toTile(this.p, w.x, w.y);
-    if (t.x < 0 || t.y < 0 || t.x >= this.map.width || t.y >= this.map.height) return null;
-    return t;
+    return tileIndex(this.map, t.x, t.y) < 0 ? null : t;
   }
 
   private onResize = () => {
     if (this.opts.interactive === false) this.fitAll();
-    this.camDirty = true;
+    else this.setCamera(this.cam);
   };
 
   private onVisibility = () => {

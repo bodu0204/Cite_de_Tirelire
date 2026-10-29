@@ -145,9 +145,9 @@ export function IsoCity({ map, overlay, serverOffset, tw = 64, art, agents = 0, 
     else if (e.key === "-") s.zoomBy(-1);
     if (!step) return;
     e.preventDefault();
-    const { width, height } = s.mapSize;
-    const cur = selected ?? { x: Math.floor(width / 2), y: Math.floor(height / 2) };
-    const next = { x: Math.max(0, Math.min(width - 1, cur.x + step[0])), y: Math.max(0, Math.min(height - 1, cur.y + step[1])) };
+    const r = s.mapRect;
+    const cur = selected ?? map.home ?? { x: Math.floor((r.minX + r.maxX) / 2), y: Math.floor((r.minY + r.maxY) / 2) };
+    const next = { x: Math.max(r.minX, Math.min(r.maxX, cur.x + step[0])), y: Math.max(r.minY, Math.min(r.maxY, cur.y + step[1])) };
     onSelect(next);
     s.follow(next.x, next.y);
   }

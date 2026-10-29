@@ -42,7 +42,14 @@ export interface IsoOverlay {
   troubles?: { x: number; y: number; kind: string; dark?: boolean }[];
 }
 
+/**
+ * 盤面。範囲は左上のマス (x0, y0) から width × height（負の座標もある。docs/map-layout-redesign.md §6.4）。
+ * 配列はこの範囲の行優先で、マス (x, y) は (y − y0) × width + (x − x0) 番目
+ */
 export interface IsoMap {
+  /** 範囲の左上のマス（省略すると 0） */
+  x0?: number;
+  y0?: number;
   width: number;
   height: number;
   /** 行優先。0 = 道路なし、1〜4 = 道路の段階＋1 */
@@ -50,6 +57,27 @@ export interface IsoMap {
   /** 行優先。1 = 未開放の区画 */
   locked: Uint8Array;
   objects: IsoObject[];
+  /** カメラを最初に向けるマス（省略すると開いている土地の中心） */
+  home?: { x: number; y: number };
+}
+
+/** 範囲の左上と右下のマス */
+export function mapRect(m: Pick<IsoMap, "x0" | "y0" | "width" | "height">) {
+  const minX = m.x0 ?? 0;
+  const minY = m.y0 ?? 0;
+  return { minX, minY, maxX: minX + m.width - 1, maxY: minY + m.height - 1 };
+}
+
+/** マスの配列の番号。範囲の外は −1 */
+export function tileIndex(m: Pick<IsoMap, "x0" | "y0" | "width" | "height">, x: number, y: number): number {
+  const lx = x - (m.x0 ?? 0);
+  const ly = y - (m.y0 ?? 0);
+  return lx >= 0 && ly >= 0 && lx < m.width && ly < m.height ? ly * m.width + lx : -1;
+}
+
+/** 配列の番号からマス */
+export function tileAt(m: Pick<IsoMap, "x0" | "y0" | "width">, i: number): { x: number; y: number } {
+  return { x: (i % m.width) + (m.x0 ?? 0), y: Math.floor(i / m.width) + (m.y0 ?? 0) };
 }
 
 /** 座標から決まる乱数（同じ街はいつも同じ見た目。OBJ-01） */
@@ -60,7 +88,8 @@ export function hash2(x: number, y: number, seed = 0): number {
 }
 
 export function isRoad(m: IsoMap, x: number, y: number): boolean {
-  return x >= 0 && y >= 0 && x < m.width && y < m.height && m.road[y * m.width + x] > 0;
+  const i = tileIndex(m, x, y);
+  return i >= 0 && m.road[i] > 0;
 }
 
 /** 道路のつながり：北（y−1）=1、東（x+1）=2、南（y+1）=4、西（x−1）=8 */
@@ -71,7 +100,7 @@ export function roadMask(m: IsoMap, x: number, y: number): number {
 export const GRASS_VARIANTS = 4;
 
 export function groundKey(m: IsoMap, x: number, y: number): string {
-  const i = y * m.width + x;
+  const i = tileIndex(m, x, y);
   if (m.locked[i]) return "ground/locked";
   if (m.road[i]) return `road/${m.road[i] - 1}/${roadMask(m, x, y)}`;
   return `ground/grass/${hash2(x, y) % GRASS_VARIANTS}`;

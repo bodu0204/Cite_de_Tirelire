@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { agentFacing, createAgents, stepAgent } from "../agents";
 import { effectKind, flashAlpha, particles, popScale } from "../effects";
-import { clampCamera, fitZoom, screenToWorld, snapZoom, stepZoom, worldOffset, zoomAt, zoomRange } from "../camera";
-import { CHUNK, chunkRect, visibleChunks } from "../chunks";
-import { BUILDING_LINES, dummyMap, groundKey, isRoad, roadMask } from "../map";
+import { clampCamera, clampToLand, fitZoom, scaleOf, screenToWorld, snapZoom, stepZoom, viewRect, worldOffset, zoomAt, zoomRange } from "../camera";
+import { CHUNK, chunkKey, chunkRect, visibleChunks } from "../chunks";
+import { BUILDING_LINES, dummyMap, groundKey, isRoad, mapRect, roadMask, tileAt, tileIndex } from "../map";
 import { depth, iso, mapBounds, toScreen, toTile } from "../projection";
 
 const P = iso(64);
+/** (0, 0) から w × h マスの範囲 */
+const R = (w: number, h: number) => ({ minX: 0, minY: 0, maxX: w - 1, maxY: h - 1 });
 
 describe("RND-01 座標変換", () => {
   it("sx = (x − y) × 32、sy = (x + y) × 16", () => {
@@ -62,16 +64,55 @@ describe("RND-11・12 チャンク", () => {
   });
 
   it("画面に入るチャンクと、その周り1つ分だけを返す", () => {
-    const all = visibleChunks(P, mapBounds(P, 128, 128), 128, 128);
+    const all = visibleChunks(P, mapBounds(P, R(128, 128)), R(128, 128));
     expect(all.length).toBe(64);
     const { sx, sy } = toScreen(P, 64, 64);
     const view = { minX: sx - 200, maxX: sx + 200, minY: sy - 400, maxY: sy + 400 };
-    const seen = visibleChunks(P, view, 128, 128, 0, 0);
-    const near = visibleChunks(P, view, 128, 128);
+    const seen = visibleChunks(P, view, R(128, 128), 0, 0);
+    const near = visibleChunks(P, view, R(128, 128));
     expect(seen.length).toBeGreaterThan(0);
     expect(seen.length).toBeLessThanOrEqual(6);
     expect(near.length).toBeGreaterThan(seen.length);
     expect(near.length).toBeLessThan(32);
+  });
+
+  it("負の座標の範囲も、その範囲にかかるチャンクだけを返す", () => {
+    const tiles = { minX: -20, minY: -20, maxX: 19, maxY: 19 };
+    const all = visibleChunks(P, mapBounds(P, tiles), tiles);
+    expect(all.map(chunkKey).sort()).toEqual(["-1,-1", "-1,0", "-2,-1", "-2,-2", "-2,0", "-1,-2", "0,-1", "0,-2", "0,0", "0,1", "1,-1", "1,-2", "1,0", "1,1", "-1,1", "-2,1"].sort());
+    const { sx, sy } = toScreen(P, -10, -10);
+    const seen = visibleChunks(P, { minX: sx - 10, maxX: sx + 10, minY: sy - 10, maxY: sy + 10 }, tiles, 0, 0);
+    expect(seen.map(chunkKey)).toEqual(["-1,-1"]);
+  });
+});
+
+describe("盤面の範囲（docs/map-layout-redesign.md §6.4）", () => {
+  it("左上のマスがずれた盤面でも、マスと配列の番号が行き来できる", () => {
+    const m = { x0: -7, y0: -3, width: 10, height: 6 };
+    expect(mapRect(m)).toEqual({ minX: -7, minY: -3, maxX: 2, maxY: 2 });
+    expect(tileIndex(m, -7, -3)).toBe(0);
+    expect(tileIndex(m, 2, 2)).toBe(59);
+    expect(tileIndex(m, 3, 2)).toBe(-1);
+    expect(tileIndex(m, -8, 0)).toBe(-1);
+    for (const i of [0, 13, 59]) expect(tileIndex(m, tileAt(m, i).x, tileAt(m, i).y)).toBe(i);
+  });
+
+  it("道路と地面のキーは、ずれた範囲のマスで引く", () => {
+    const m = { x0: -2, y0: -2, width: 3, height: 3, road: new Uint8Array(9), locked: new Uint8Array(9), objects: [] };
+    m.road[tileIndex(m, -1, -2)] = 1;
+    m.road[tileIndex(m, -1, -1)] = 2;
+    expect(isRoad(m, -1, -1)).toBe(true);
+    expect(isRoad(m, 0, 0)).toBe(false);
+    expect(groundKey(m, -1, -1)).toBe("road/1/1");
+  });
+
+  it("人と車は、ずれた範囲の道路の上に置く", () => {
+    const m = { x0: -5, y0: -5, width: 4, height: 1, road: new Uint8Array([1, 1, 1, 1]), locked: new Uint8Array(4), objects: [] };
+    for (const a of createAgents(m, 5)) {
+      expect(a.y).toBe(-5);
+      expect(a.x).toBeGreaterThanOrEqual(-5);
+      expect(a.x).toBeLessThanOrEqual(-2);
+    }
   });
 });
 
@@ -103,15 +144,37 @@ describe("CAM-03・04 カメラ", () => {
   });
 
   it("中心はマップの外へ出ない", () => {
-    const b = mapBounds(P, 10, 10);
+    const b = mapBounds(P, R(10, 10));
     const c = clampCamera({ cx: 1e6, cy: -1e6, zoom: 1 }, b);
     expect(c.cx).toBe(b.maxX);
     expect(c.cy).toBe(b.minY);
   });
 
+  it("Q5：土地の端は画面の 75% の位置までしか動かない（倍率を変えても同じ）", () => {
+    const land = mapBounds(P, { minX: -30, minY: -30, maxX: 29, maxY: 29 });
+    for (const zoom of [1, 2, 3]) {
+      const s = scaleOf(zoom, v.dpr);
+      // 右へ行き過ぎると、土地の右端が画面の左から 75% で止まる
+      const right = clampToLand({ cx: 1e6, cy: 0, zoom }, land, v);
+      // 位置は物理ピクセルに丸めるので、ずれは1物理ピクセル未満
+      expect(Math.abs((land.maxX - viewRect(right, v).minX) * s - v.w * 0.75)).toBeLessThan(1 / v.dpr);
+      // 上へ行き過ぎると、土地の上端が画面の上から 25% で止まる
+      const up = clampToLand({ cx: 0, cy: -1e6, zoom }, land, v);
+      expect(Math.abs((land.minY - viewRect(up, v).minY) * s - v.h * 0.25)).toBeLessThan(1 / v.dpr);
+      // 範囲の中なら動かさない
+      expect(clampToLand({ cx: 10, cy: 20, zoom }, land, v)).toEqual({ cx: 10, cy: 20, zoom });
+    }
+  });
+
+  it("Q5：土地が画面の半分より小さい向きは、土地の中心に寄せる", () => {
+    const land = mapBounds(P, { minX: -5, minY: -5, maxX: 4, maxY: 4 });
+    const c = clampToLand({ cx: 500, cy: -500, zoom: 9 }, { ...land, maxY: land.minY + 10 }, v);
+    expect(c.cy).toBe(land.minY + 5);
+  });
+
   it("街全体を収める倍率：収まれば整数、収まらなければ 1/n", () => {
-    expect(Number.isInteger(fitZoom(mapBounds(P, 10, 10), v))).toBe(true);
-    const z = fitZoom(mapBounds(P, 128, 128), v);
+    expect(Number.isInteger(fitZoom(mapBounds(P, R(10, 10)), v))).toBe(true);
+    const z = fitZoom(mapBounds(P, R(128, 128)), v);
     expect(z).toBeLessThan(1);
     expect(Number.isInteger(1 / z)).toBe(true);
   });

@@ -21,9 +21,11 @@ export interface Building {
   refId?: string;
   tier: number;
   level: number;
-  /** -1 はマップ外（土地が足りない特殊施設） */
+  /** 占有範囲の左上のマス（docs/map-layout-redesign.md §4.2）。v1 の街は 0〜9、v2 の街は銀行の中心が原点で負もある */
   x: number;
   y: number;
+  /** false はマップ外（土地が足りない特殊施設）。x, y は意味を持たない */
+  placed?: false;
   /** 固定：自動開発の対象外、移動不可 */
   locked: boolean;
   /** 手動で配置・編集された（自動配置変更の対象外） */
@@ -69,8 +71,15 @@ export interface CityPolicy {
   autoEnabled: boolean;
 }
 
+/**
+ * 街の盤面の版（docs/map-layout-redesign.md §6.5）。
+ * 1：10×10 固定・全建物1マス・発展Lvで区画が開く（2026-10 までに始めたシーズン）。
+ * 2：銀行の中心が原点・建物の大きさ・道路網・資源で開拓する無限のマップ
+ */
+export type CityLayout = 1 | 2;
+
 export interface CityState {
-  v: 1;
+  v: CityLayout;
   /** シミュレーション済みの時刻（TICK_MS に揃う） */
   simTime: number;
   buildings: Building[];
@@ -83,9 +92,12 @@ export interface CityState {
   devPoints: number;
   /** 建築実績の最高記録。重複計上を防ぐ（"line:tier" → 棟数, "lv:line" → Lv合計） */
   peaks: Record<string, number>;
-  zones: Zone[];
-  /** 自動建設を禁止したマス */
-  noAuto: boolean[];
+  /** マスの土地用途（キーは "x,y"）。書いていないマスは未指定 */
+  zones: Record<string, Zone>;
+  /** 自動建設を禁止したマス（"x,y"） */
+  noAuto: string[];
+  /** 開拓した区画（"px,py"。v2 のみ。区画 (px, py) はマス x = 5px〜5px+4、y = 5py〜5py+4） */
+  plots?: string[];
   policy: CityPolicy;
   techLevel: number;
   /** 銀行Lv（達成率から決まる。タイムラプスの外観用に街の状態にも持つ） */
@@ -131,7 +143,7 @@ export interface CityEvent {
 }
 
 /** タイムラプス再生用の建物の要約 */
-export type BuildingSnap = Pick<Building, "id" | "line" | "special" | "refId" | "tier" | "level" | "x" | "y" | "closed">;
+export type BuildingSnap = Pick<Building, "id" | "line" | "special" | "refId" | "tier" | "level" | "x" | "y" | "closed" | "placed">;
 
 export function snapBuilding(b: Building): BuildingSnap {
   const s: BuildingSnap = { id: b.id, tier: b.tier, level: b.level, x: b.x, y: b.y };
@@ -139,5 +151,6 @@ export function snapBuilding(b: Building): BuildingSnap {
   if (b.special) s.special = b.special;
   if (b.refId) s.refId = b.refId;
   if (b.closed) s.closed = true;
+  if (b.placed === false) s.placed = false;
   return s;
 }

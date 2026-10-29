@@ -33,7 +33,7 @@ import { devLevel } from "../levels";
 import { coverPlans, firstShort, type PlanQueue, type QueuePlan } from "../planQueue";
 import { snapBuilding, type Building, type CityEvent, type CityState, type Gains, type Job, type NeedKey } from "../types";
 import { computeMetrics, type Metrics } from "./economy";
-import { DISTRICT_NAMES, findSite } from "./layout";
+import { DISTRICT_NAMES, findSite, isLegacy } from "./layout";
 
 export const alignTick = (t: number) => Math.floor(t / TICK_MS) * TICK_MS;
 
@@ -118,7 +118,8 @@ export function emitDevLevel(s: CityState, before: number, at: number, events: C
   const after = devLevel(s.devPoints);
   for (let lv = before + 1; lv <= after; lv++) {
     events.push({ at, type: "DEV_LEVEL", auto: true, important: true, payload: { level: lv } });
-    if (DISTRICT_NAMES[lv]) {
+    // v1 の街だけ、発展Lvで区画が開く
+    if (isLegacy(s) && DISTRICT_NAMES[lv]) {
       events.push({ at, type: "DISTRICT_UNLOCKED", auto: true, important: true, payload: { level: lv, name: DISTRICT_NAMES[lv] } });
     }
   }
@@ -241,7 +242,7 @@ const countLine = (s: CityState, line: LineId) =>
 function buildPlan(s: CityState, line: LineId, dev: number): Plan | null {
   const tier = highestUnlockedTier(line, s.techLevel, dev);
   if (tier < 0) return null;
-  const site = findSite(s, line, dev);
+  const site = findSite(s, line);
   if (!site) return null;
   const t = tierDef(line, tier);
   return { kind: "build", line, tier, level: 1, site, cost: t.cost, minutes: t.buildMinutes };

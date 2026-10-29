@@ -9,6 +9,7 @@ import { DevGauge, SavingsGauge, TechGauge, WishSavingsGauge } from "@/component
 import { Onboarding } from "@/components/home/Onboarding";
 import { TilePanel } from "@/components/home/TilePanel";
 import { BondIcon, Button, Card, Coin, CustomIcon, LinkButton, Modal, Stat } from "@/components/ui";
+import { tileLabel } from "@/game/city/layout";
 import { devLevel } from "@/game/levels";
 import { fmt } from "@/lib/api";
 
@@ -75,6 +76,8 @@ export default function HomePage() {
         <div>
           <CityView
             label={`${v.dev.name}の街。人口${Math.floor(m.population)}人、建物${c.buildings.length}棟。矢印キーでマスを選べます`}
+            layout={c.v}
+            plots={c.plots}
             buildings={c.buildings}
             jobs={c.jobs}
             zones={c.zones}
@@ -109,7 +112,7 @@ export default function HomePage() {
         </div>
 
         {tile && (
-          <Card title={`マス (${tile.x + 1}, ${tile.y + 1})`} action={<button className="text-sm text-muted" onClick={() => (setTile(null), setMoving(null))}>閉じる</button>}>
+          <Card title={tileLabel(c, tile.x, tile.y)} action={<button className="text-sm text-muted" onClick={() => (setTile(null), setMoving(null))}>閉じる</button>}>
             <TilePanel v={v} tile={tile} moving={moving} setMoving={setMoving} />
           </Card>
         )}

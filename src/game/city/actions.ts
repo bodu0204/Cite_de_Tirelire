@@ -4,7 +4,7 @@ import { FEE_MOVE, FEE_RUSH_PER_10MIN, feeBuild, feeUpgrade, MINUTE } from "../c
 import { fail } from "../errors";
 import { devLevel, statueRank } from "../levels";
 import { snapBuilding, type Building, type CityEvent, type CityPolicy, type CityState, type NeedKey } from "../types";
-import { findSpecialSite, idx, inBounds, isTileUnlocked, occupancy } from "./layout";
+import { buildingSize, findSpecialSite, fits, inBounds, isLegacy, isPlaced, isTileUnlocked, occupancy, tileKey } from "./layout";
 import { buildingName, canAfford, finishJob, levelCap, newId, startJob } from "./sim";
 
 function requireBuilding(s: CityState, id: string): Building {
@@ -21,10 +21,17 @@ function requireMaterials(s: CityState, cost: { wood: number; stone: number }) {
   }
 }
 
-function requireFreeTile(s: CityState, x: number, y: number) {
-  if (!inBounds(x, y)) fail("bad_tile", "マップの外です");
-  if (!isTileUnlocked(x, y, devLevel(s.devPoints))) fail("locked_tile", "まだ解放されていない区画です");
-  if (occupancy(s)[idx(x, y)]) fail("occupied", "そのマスは使用中です");
+/** 占有範囲が盤面の中・開いた区画・空きであること。ignore は移動する建物自身 */
+function requireSite(s: CityState, x: number, y: number, size: number, ignore?: string) {
+  if (!inBounds(s, x, y)) fail("bad_tile", "マップの外です");
+  const occ = occupancy(s);
+  if (fits(s, x, y, size, occ, ignore)) return;
+  for (let dy = 0; dy < size; dy++)
+    for (let dx = 0; dx < size; dx++) {
+      if (!isTileUnlocked(s, x + dx, y + dy)) fail("locked_tile", "まだ解放されていない区画です");
+      const o = occ.get(tileKey(x + dx, y + dy));
+      if (o && o !== ignore) fail("occupied", "そのマスは使用中です");
+    }
 }
 
 export interface ManualResult {
@@ -37,7 +44,7 @@ export function manualBuild(s: CityState, input: { line: LineId; tier?: number; 
   const dev = devLevel(s.devPoints);
   const tier = input.tier ?? highestUnlockedTier(input.line, s.techLevel, dev);
   if (tier < 0 || !isTierUnlocked(input.line, tier, s.techLevel, dev)) fail("not_unlocked", "まだ解放されていない建物です");
-  requireFreeTile(s, input.x, input.y);
+  requireSite(s, input.x, input.y, buildingSize(s, { line: input.line, tier }));
   const t = tierDef(input.line, tier);
   const fee = feeBuild(tier);
   requireSilver(silver, fee);
@@ -82,12 +89,14 @@ export function manualEvolve(s: CityState, id: string, now: number, silver: numb
 export function moveBuilding(s: CityState, id: string, x: number, y: number, now: number, silver: number, events: CityEvent[]): ManualResult {
   const b = requireBuilding(s, id);
   if (b.locked && !b.special) fail("locked", "固定された建物は移動できません。固定を解除してください");
+  if (b.special === "bank" && !isLegacy(s)) fail("special", "銀行は街の中心に固定です");
   requireIdle(s, b);
-  requireFreeTile(s, x, y);
+  requireSite(s, x, y, buildingSize(s, b), b.id);
   requireSilver(silver, FEE_MOVE);
   const from = { x: b.x, y: b.y };
   b.x = x;
   b.y = y;
+  delete b.placed;
   b.manual = true;
   events.push({ at: now, type: "MOVE", auto: false, important: false, payload: { building: snapBuilding(b), from } });
   return { silverFee: FEE_MOVE };
@@ -126,14 +135,23 @@ export function setLocked(s: CityState, id: string, locked: boolean) {
 const ZONES: Zone[] = ["residential", "commercial", "industrial", "agricultural", "public", "special", "none"];
 
 export function setZone(s: CityState, x: number, y: number, zone: Zone) {
-  if (!inBounds(x, y)) fail("bad_tile", "マップの外です");
+  if (!inBounds(s, x, y)) fail("bad_tile", "マップの外です");
   if (!ZONES.includes(zone)) fail("bad_zone", "土地用途が不正です");
-  s.zones[idx(x, y)] = zone;
+  if (zone === "none") delete s.zones[tileKey(x, y)];
+  else s.zones[tileKey(x, y)] = zone;
 }
 
 export function setNoAuto(s: CityState, x: number, y: number, noAuto: boolean) {
-  if (!inBounds(x, y)) fail("bad_tile", "マップの外です");
-  s.noAuto[idx(x, y)] = noAuto;
+  if (!inBounds(s, x, y)) fail("bad_tile", "マップの外です");
+  const k = tileKey(x, y);
+  const rest = s.noAuto.filter((o) => o !== k);
+  s.noAuto = noAuto ? [...rest, k] : rest;
+}
+
+/** 特殊施設を置く場所。なければマップ外（区画が開いたら placeOffMapSpecials で置く） */
+function specialSite(s: CityState, b: Pick<Building, "special" | "tier">): Pick<Building, "x" | "y" | "placed"> {
+  const site = findSpecialSite(s, buildingSize(s, b));
+  return site ? { x: site.x, y: site.y } : { x: isLegacy(s) ? -1 : 0, y: isLegacy(s) ? -1 : 0, placed: false };
 }
 
 const NEEDS: NeedKey[] = ["shortage", "jobs", "housing", "logistics", "efficiency", "industry", "beautify"];
@@ -165,7 +183,6 @@ export function parkSize(monthly: number): number {
 }
 
 export function syncParks(s: CityState, subs: ParkSource[], now: number, events: CityEvent[]) {
-  const dev = devLevel(s.devPoints);
   const ids = new Set(subs.map((x) => x.id));
   for (const b of s.buildings.filter((b) => b.special === "park" && b.refId && !ids.has(b.refId))) {
     s.buildings = s.buildings.filter((o) => o.id !== b.id);
@@ -176,8 +193,7 @@ export function syncParks(s: CityState, subs: ParkSource[], now: number, events:
     const tier = parkSize(sub.monthly);
     if (!park) {
       if (!sub.active) continue;
-      const site = findSpecialSite(s, dev) ?? { x: -1, y: -1 };
-      const b: Building = { id: newId(s), special: "park", refId: sub.id, tier, level: 1, x: site.x, y: site.y, locked: false, manual: false, builtAt: now };
+      const b: Building = { id: newId(s), special: "park", refId: sub.id, tier, level: 1, ...specialSite(s, { special: "park", tier }), locked: false, manual: false, builtAt: now };
       s.buildings.push(b);
       events.push({ at: now, type: "PARK_OPENED", auto: false, important: true, payload: { building: snapBuilding(b), name: sub.name } });
       continue;
@@ -213,7 +229,6 @@ export function statueStage(src: StatueSource): number {
 }
 
 export function syncStatues(s: CityState, wishes: StatueSource[], now: number, events: CityEvent[]) {
-  const dev = devLevel(s.devPoints);
   const ids = new Set(wishes.map((w) => w.id));
   for (const b of s.buildings.filter((b) => b.special === "statue" && b.refId && !ids.has(b.refId))) {
     s.buildings = s.buildings.filter((o) => o.id !== b.id);
@@ -224,8 +239,7 @@ export function syncStatues(s: CityState, wishes: StatueSource[], now: number, e
     const tier = RANKS.indexOf(statueRank(w.price));
     const stage = statueStage(w);
     if (!statue) {
-      const site = findSpecialSite(s, dev) ?? { x: -1, y: -1 };
-      statue = { id: newId(s), special: "statue", refId: w.id, tier, level: 0, x: site.x, y: site.y, locked: false, manual: false, builtAt: now };
+      statue = { id: newId(s), special: "statue", refId: w.id, tier, level: 0, ...specialSite(s, { special: "statue", tier }), locked: false, manual: false, builtAt: now };
       s.buildings.push(statue);
       events.push({ at: now, type: "STATUE_PROGRESS", auto: false, important: false, payload: { building: snapBuilding(statue), name: w.name, progress: 0 } });
     }
@@ -250,12 +264,12 @@ export function syncStatues(s: CityState, wishes: StatueSource[], now: number, e
 
 /** マップ外に置かれた特殊施設を、区画が解放されたら配置する */
 export function placeOffMapSpecials(s: CityState) {
-  const dev = devLevel(s.devPoints);
   for (const b of s.buildings) {
-    if (b.x >= 0 || !b.special) continue;
-    const site = findSpecialSite(s, dev);
-    if (!site) return;
+    if (isPlaced(b) || !b.special) continue;
+    const site = findSpecialSite(s, buildingSize(s, b));
+    if (!site) continue;
     b.x = site.x;
     b.y = site.y;
+    delete b.placed;
   }
 }

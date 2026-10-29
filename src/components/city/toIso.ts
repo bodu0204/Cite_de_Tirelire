@@ -1,10 +1,11 @@
 // ゲームの盤面を、アイソメトリック描画（src/components/iso）の形に変える。
 // 描画側はマップの大きさやゲームの規則を知らないので（RND-10）、ここで絵のキーと重ね描きの情報に置き換える。
 import { LINES, type LineId, type SpecialKind, type Zone } from "@/game/catalog";
-import { LOGISTICS_FLOOR, MAP_SIZE } from "@/game/config";
-import { tileUnlockLevel } from "@/game/city/layout";
+import { LOGISTICS_FLOOR, PLOT_SIZE } from "@/game/config";
+import { landBounds, plotKey, plotOf, tileKey, tileUnlockLevel, type Rect } from "@/game/city/layout";
+import type { CityLayout } from "@/game/types";
 import { MIN_ROAD } from "@/components/iso/agents";
-import { hash2, type IsoMap, type IsoObject, type IsoOverlay } from "@/components/iso/map";
+import { hash2, type IsoMap, type IsoObject, type IsoOverlay, tileIndex } from "@/components/iso/map";
 
 export interface CityBuilding {
   id: string;
@@ -15,6 +16,7 @@ export interface CityBuilding {
   x: number;
   y: number;
   closed?: boolean;
+  placed?: false;
 }
 
 export interface CityJob {
@@ -26,10 +28,16 @@ export interface CityJob {
 }
 
 export interface CityInput {
+  /** 盤面の版（docs/map-layout-redesign.md §6.5）。省略すると 2 */
+  layout?: CityLayout;
+  /** v2：開拓した区画（"px,py"） */
+  plots?: string[];
   buildings: Iterable<CityBuilding>;
   jobs?: CityJob[];
-  zones: Zone[];
-  noAuto?: boolean[];
+  /** マスの土地用途（"x,y"） */
+  zones: Record<string, Zone>;
+  /** 自動建設を禁止したマス（"x,y"） */
+  noAuto?: string[];
   devLevel: number;
   bankLevel: number;
   highlights?: Set<string>;
@@ -79,7 +87,7 @@ export function troubleIcons(buildings: Iterable<CityBuilding>, supply: { power:
   const out: NonNullable<IsoOverlay["troubles"]> = [];
   const short = (ratio: number) => Math.max(0, Math.min(1, 1 - ratio));
   for (const b of buildings) {
-    if (b.x < 0 || !b.line || b.line === "road") continue;
+    if (b.placed === false || !b.line || b.line === "road") continue;
     const t = LINES[b.line].tiers[b.tier];
     if (!t) continue;
     const pick = (salt: number) => hash2(b.x, b.y, salt) / 0xffffffff;
@@ -136,18 +144,51 @@ export function buildingKey(b: CityBuilding, bankLevel: number): string {
   return `building/${b.line}/${b.tier}${lv}`;
 }
 
+/** v2 の盤面で、開いている土地の外に描く未開放の帯（マス）。カメラは土地の端が画面の 75% に来るまで動くので、その外を埋める */
+export const LOCKED_BAND = 12;
+
+/** 盤面の範囲と、マスが開いているか */
+function landOf(input: CityInput): { rect: Rect; open: (x: number, y: number) => boolean; near: (x: number, y: number) => boolean } {
+  if (input.layout === 1) {
+    return {
+      rect: landBounds({ v: 1 }),
+      open: (x, y) => tileUnlockLevel(x, y) <= input.devLevel,
+      near: () => true,
+    };
+  }
+  const plots = new Set(input.plots ?? []);
+  const land = landBounds({ v: 2, plots: input.plots });
+  const hasPlot = (x: number, y: number) => {
+    const { px, py } = plotOf(x, y);
+    return plots.has(plotKey(px, py));
+  };
+  return {
+    rect: { minX: land.minX - LOCKED_BAND, minY: land.minY - LOCKED_BAND, maxX: land.maxX + LOCKED_BAND, maxY: land.maxY + LOCKED_BAND },
+    open: hasPlot,
+    // 林や岩は、開いている区画の隣の区画まで（その外は暗い地面だけ）
+    near: (x, y) => {
+      for (let dy = -PLOT_SIZE; dy <= PLOT_SIZE; dy += PLOT_SIZE) for (let dx = -PLOT_SIZE; dx <= PLOT_SIZE; dx += PLOT_SIZE) if (hasPlot(x + dx, y + dy)) return true;
+      return false;
+    },
+  };
+}
+
 export function cityToIso(input: CityInput): { map: IsoMap; overlay: IsoOverlay } {
-  const size = MAP_SIZE;
-  const road = new Uint8Array(size * size);
-  const locked = new Uint8Array(size * size);
+  const { rect, open, near } = landOf(input);
+  const shape = { x0: rect.minX, y0: rect.minY, width: rect.maxX - rect.minX + 1, height: rect.maxY - rect.minY + 1 };
+  const n = shape.width * shape.height;
+  const road = new Uint8Array(n);
+  const locked = new Uint8Array(n);
   const objects: IsoObject[] = [];
 
   // 2回たどる（建物と困りごと）ので、一度だけ取り出す
   const buildings = [...input.buildings];
   for (const b of buildings) {
-    if (b.x < 0) continue;
+    if (b.placed === false) continue;
+    const i = tileIndex(shape, b.x, b.y);
+    if (i < 0) continue;
     if (b.line === "road") {
-      road[b.y * size + b.x] = b.tier + 1;
+      road[i] = b.tier + 1;
       continue;
     }
     objects.push({ id: b.id, x: b.x, y: b.y, key: buildingKey(b, input.bankLevel) });
@@ -157,13 +198,14 @@ export function cityToIso(input: CityInput): { map: IsoMap; overlay: IsoOverlay 
   }
 
   // 未開放の区画（OBJ-02）：林か岩で覆い、次に開く区画にはところどころ看板を立てる
-  for (let y = 0; y < size; y++)
-    for (let x = 0; x < size; x++) {
-      const need = tileUnlockLevel(x, y);
-      if (need <= input.devLevel) continue;
-      locked[y * size + x] = 1;
+  for (let y = rect.minY; y <= rect.maxY; y++)
+    for (let x = rect.minX; x <= rect.maxX; x++) {
+      if (open(x, y)) continue;
+      locked[tileIndex(shape, x, y)] = 1;
+      if (!near(x, y)) continue;
       const h = hash2(x, y, 11);
-      const key = need === input.devLevel + 1 && h % 3 === 0 ? "locked/sign" : h % 4 === 0 ? "locked/rocks" : "locked/forest";
+      const next = input.layout === 1 && tileUnlockLevel(x, y) === input.devLevel + 1;
+      const key = next && h % 3 === 0 ? "locked/sign" : h % 4 === 0 ? "locked/rocks" : "locked/forest";
       objects.push({ id: `locked:${x},${y}`, x, y, key });
     }
 
@@ -174,15 +216,26 @@ export function cityToIso(input: CityInput): { map: IsoMap; overlay: IsoOverlay 
     );
   }
 
+  // 重ね描きの配列は、盤面の範囲の行優先
+  const zones: Zone[] = new Array(n);
+  const noAutoSet = new Set(input.noAuto ?? []);
+  const noAuto: boolean[] = new Array(n).fill(false);
+  for (let y = rect.minY; y <= rect.maxY; y++)
+    for (let x = rect.minX; x <= rect.maxX; x++) {
+      const i = tileIndex(shape, x, y);
+      zones[i] = input.zones[tileKey(x, y)] ?? "none";
+      if (noAutoSet.has(tileKey(x, y))) noAuto[i] = true;
+    }
+
   const roadTiles = road.reduce((n, r) => n + (r ? 1 : 0), 0);
   const paved = road.reduce((n, r) => n + (r >= MIN_ROAD.car ? 1 : 0), 0);
   const agents = input.population === undefined ? undefined : agentCounts(input.population, input.logistics ?? 1, roadTiles, paved);
   return {
-    map: { width: size, height: size, road, locked, objects },
+    map: { ...shape, road, locked, objects, home: input.layout === 1 ? undefined : { x: 0, y: 0 } },
     overlay: {
-      zones: input.zones,
+      zones,
       showZones: input.showZones,
-      noAuto: input.noAuto,
+      noAuto: noAutoSet.size ? noAuto : undefined,
       jobs: input.jobs?.map((j) => ({ x: j.x, y: j.y, startedAt: j.startedAt, finishAt: j.finishAt })),
       highlights: input.highlights ? [...input.highlights] : undefined,
       night: input.hour === undefined ? 0 : nightLevel(input.hour),
