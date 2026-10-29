@@ -14,13 +14,13 @@ const base = (key: string) => key.split("@")[0];
 
 /**
  * 前の盤面の絵のキー（id → キー）と今のキーから演出の種類を決める。
- * 建物・特殊施設だけが対象で、林や足場などは演出しない。
+ * 建物・特殊施設（大きな建物の big/ を含む）だけが対象で、林や足場などは演出しない。
  *   新しく建った・像が完成した → build（跳ねて現れ、土ぼこりと金の粒）
  *   段階が変わった（キーの @ より前が変わった） → evolve（建物が光り、きらめきが上る）
  *   建物Lv・像の段階が上がった → level（小さなきらめき）。閉園は演出しない
  */
 export function effectKind(prev: string | undefined, next: string): EffectKind | null {
-  if (!/^(building|special)\//.test(next)) return null;
+  if (!/^(big\/)?(building|special)\//.test(next)) return null;
   if (prev === undefined) return "build";
   if (prev === next) return null;
   if (base(prev) !== base(next)) return "evolve";

@@ -83,10 +83,21 @@ export class ArtBook {
   }
 
   /**
+   * 大きな建物の絵（big/…。docs/map-layout-redesign.md §4.5）がなければ、1マスの絵のキーにする
+   * （絵の生成が済むまでの仮の見た目。1マスの絵を占有範囲の中央に置く）
+   */
+  protected resolve(key: string): string {
+    if (!key.startsWith("big/")) return key;
+    const at = key.indexOf("@");
+    return this.loaded.has(at < 0 ? key : key.slice(0, at)) ? key : key.slice(4);
+  }
+
+  /**
    * 動く絵のコマ（OBJ-12）。基の絵に動きがなければ null。建物Lv の小物（@lv）は各コマに重ねる。
    * 閉園・建設途中など、止まっているはずの見た目には動きを付けない。
    */
   frames(key: string): { arts: Art[]; fps: number } | null {
+    key = this.resolve(key);
     const at = key.indexOf("@");
     const base = at < 0 ? key : key.slice(0, at);
     const mod = at < 0 ? "" : key.slice(at + 1);
@@ -106,6 +117,7 @@ export class ArtBook {
    * 割合 ratio に応じて灯すかを決める（同じ建物はいつも同じ窓が灯る）。マスクがなければ null。
    */
   glow(key: string, ratio: number): Art | null {
+    key = this.resolve(key);
     const at = key.indexOf("@");
     const base = at < 0 ? key : key.slice(0, at);
     const mask = this.loaded.get(`glow/${base}`);
@@ -156,6 +168,7 @@ export class ArtBook {
 
   /** キーの絵（組み合わせも含む）を canvas で返す。PixiJS を使わない画面向け */
   art(key: string): Art {
+    key = this.resolve(key);
     return this.composed(key) ?? this.loadedArt(key) ?? drawArt(key, this.tw) ?? missingArt(this.tw);
   }
 
@@ -201,7 +214,9 @@ export class ArtBook {
         c.getContext("2d", { willReadFrequently: true })!.drawImage(img, 0, 0);
         // 小物・人と車・アイコンは地面のひし形に乗らないので、不透明な画素の一番下を基準点にする
         const small = /^(props|agent|icons)\//.test(key);
-        const [ax, ay] = src.anchors?.[key] ?? [c.width / 2, opaqueBottom(c) - (small ? 0 : this.tw / 4 - 1)];
+        // 大きな建物（big/）は、占有範囲全体のひし形の中心（幅の 1/4 上）
+        const lift = small ? 0 : key.startsWith("big/") ? c.width / 4 - 1 : this.tw / 4 - 1;
+        const [ax, ay] = src.anchors?.[key] ?? [c.width / 2, opaqueBottom(c) - lift];
         this.loaded.set(key, { canvas: c, ax, ay });
       }),
     );

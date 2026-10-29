@@ -15,10 +15,12 @@ type Props = CityInput & {
   fixed?: boolean;
   /** 昼夜をこのタイムゾーンの時刻に合わせる（OBJ-14）。省略すると昼のまま */
   timezone?: string;
+  /** 時刻を固定する（0〜24 時。開発用の確認ページ）。timezone より優先する */
+  fixedHour?: number;
   className?: string;
 };
 
-export function CityView({ label, selected, onSelect, serverOffset = 0, fixed = false, timezone, className, ...input }: Props) {
+export function CityView({ label, selected, onSelect, serverOffset = 0, fixed = false, timezone, fixedHour, className, ...input }: Props) {
   const { layout, plots, expandable, buildings, jobs, zones, noAuto, devLevel, bankLevel, highlights, showZones, occupancy, population, logistics } = input;
   // 毎回作り直される入れ物は、中の値で見比べる
   const [power, workers, food] = [input.supply?.power, input.supply?.workers, input.supply?.food];
@@ -26,7 +28,8 @@ export function CityView({ label, selected, onSelect, serverOffset = 0, fixed = 
   // 開拓できる区画は描くたびに計算し直されるので、中身で見比べる
   const expandableKey = expandable?.join("|");
   // 時刻は1分ごとに見直す（暗さは2時間かけて変わるので、それで十分なめらか）
-  const [hour, setHour] = useState<number | undefined>(undefined);
+  const [clockHour, setHour] = useState<number | undefined>(undefined);
+  const hour = fixedHour ?? clockHour;
   useEffect(() => {
     if (!timezone) {
       setHour(undefined);

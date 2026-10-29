@@ -132,8 +132,16 @@ const STATUE_RANKS = ["bronze", "silver", "gold"];
 /** 像の段階（statueStage）：5 で完成 */
 const STATUE_DONE = 5;
 
-/** 建物1棟の絵のキー。建物Lv は @lv で小物を重ねる（OBJ-05） */
-export function buildingKey(b: CityBuilding, bankLevel: number): string {
+/**
+ * 建物1棟の絵のキー。建物Lv は @lv で小物を重ねる（OBJ-05）。
+ * 2×2・3×3 の建物（v2）は big/ の付いた大きな絵を使う（docs/map-layout-redesign.md §4.5。なければ描画側が1マスの絵で代える）
+ */
+export function buildingKey(b: CityBuilding, bankLevel: number, size = 1): string {
+  const key = smallKey(b, bankLevel);
+  return size > 1 ? `big/${key}` : key;
+}
+
+function smallKey(b: CityBuilding, bankLevel: number): string {
   const lv = b.level > 1 ? `@lv${Math.min(6, b.level)}` : "";
   switch (b.special) {
     case "bank":
@@ -211,7 +219,7 @@ export function cityToIso(input: CityInput): { map: IsoMap; overlay: IsoOverlay 
     }
     const size = buildingSize(layout, b);
     markLot(b.x, b.y, size);
-    objects.push({ id: b.id, x: b.x, y: b.y, key: buildingKey(b, input.bankLevel), ...(size > 1 ? { size } : {}) });
+    objects.push({ id: b.id, x: b.x, y: b.y, key: buildingKey(b, input.bankLevel, size), ...(size > 1 ? { size } : {}) });
     // 金鉱の前に、未回収の金の量に応じた金貨の山（A4）
     const stage = b.special === "gold_mine" && input.gold ? goldStage(input.gold.uncollected, input.gold.ratePerMinute) : 0;
     if (stage) objects.push({ id: "gold", x: b.x, y: b.y, key: `props/gold/${stage}`, dz: 0.3, ox: 14, oy: 7 });

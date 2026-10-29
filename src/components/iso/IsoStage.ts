@@ -331,7 +331,7 @@ export class IsoStage {
       this.visibleObjects = [...this.shown].flatMap((k) => this.chunkObjects.get(k) ?? []);
       this.cover.clear();
       for (const o of this.placedById.values()) {
-        if (!/^(building|special)\//.test(o.key)) continue;
+        if (!/^(big\/)?(building|special)\//.test(o.key)) continue;
         for (let dy = 0; dy < o.size; dy++) for (let dx = 0; dx < o.size; dx++) this.cover.set(`${o.x + dx},${o.y + dy}`, o);
       }
       // 建物が変わると屋根の高さも変わるので、アイコンと選択の輪郭を置き直す

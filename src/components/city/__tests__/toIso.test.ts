@@ -23,6 +23,19 @@ describe("建物の絵のキー", () => {
   });
 });
 
+describe("大きな建物の絵のキー（docs/map-layout-redesign.md §4.5）", () => {
+  it("2×2・3×3 は big/ を付ける。1×1 と v1 はそのまま", () => {
+    expect(buildingKey(b({ line: "housing", tier: 2, level: 3 }), 1, 2)).toBe("big/building/housing/2@lv3");
+    expect(buildingKey(b({ special: "bank" }), 4, 3)).toBe("big/special/bank/4");
+    expect(buildingKey(b({ special: "park", tier: 1, closed: true }), 1, 2)).toBe("big/special/park/1@closed");
+    expect(buildingKey(b({ special: "statue", tier: 0, level: 5 }), 1, 1)).toBe("special/statue/bronze");
+    const { map } = cityToIso({ plots: INITIAL_PLOTS, buildings: [b({ id: "h", line: "housing", x: -5, y: -5 }), b({ id: "r", line: "road", x: -3, y: -3 })], zones: {}, devLevel: 1, bankLevel: 1 });
+    expect(map.objects.find((o) => o.id === "h")?.key).toBe("big/building/housing/0");
+    const v1 = cityToIso({ layout: 1, buildings: [b({ id: "h", line: "housing" })], zones: {}, devLevel: 6, bankLevel: 1 });
+    expect(v1.map.objects[0].key).toBe("building/housing/0");
+  });
+});
+
 describe("盤面の変換（v1：10×10 固定）", () => {
   const zones = legacyZones();
 

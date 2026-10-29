@@ -27,6 +27,8 @@ interface SpriteDef {
   size?: [number, number];
   /** 動きの1コマ目の上に足す透明な行の数（煙など、上へはみ出す動き） */
   padTop?: number;
+  /** reference_images に添える説明（省略すると「1つ前の段階」の説明） */
+  refUsage?: string;
 }
 
 interface Manifest {
@@ -103,7 +105,9 @@ export function buildBody(def: SpriteDef, style: string, tw: number, styleKey?: 
   Object.assign(body, def.body);
   for (const [field, key] of Object.entries(def.refs ?? {})) {
     if (field === "reference_images")
-      body[field] = [referenceImage(tw, key, "the previous, smaller stage of the same building line: keep its materials and identity colors, but make this one clearly bigger, taller and more developed")];
+      body[field] = [
+        referenceImage(tw, key, def.refUsage ?? "the previous, smaller stage of the same building line: keep its materials and identity colors, but make this one clearly bigger, taller and more developed"),
+      ];
     else {
       let buf: Buffer = readFileSync(path.join(SELECTED, String(tw), `${key}.png`));
       // 煙などが上へはみ出す動きは、1コマ目の上に透明な余白を足して描く場所を作る

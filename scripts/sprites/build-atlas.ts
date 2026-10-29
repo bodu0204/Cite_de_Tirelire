@@ -21,6 +21,8 @@ const OUT = path.join(ROOT, "public/sprites");
 const MAX = 2048;
 /** NF-04：絵の間の余白 */
 const PAD = 2;
+/** LINT-07：大きな建物（big/）で、前の段階より低くてもよい高さ（ドット） */
+const BIG_TOLERANCE = 10;
 
 interface Sprite {
   key: string;
@@ -125,7 +127,8 @@ export function lint(sprites: Map<string, Sprite>, palette: Set<string>, anims: 
       if (!s) continue;
       const [top] = opaqueRows(s.png);
       const h = s.ay - top;
-      if (h < prev) errors.push(`LINT-07 ${k} の高さ ${h} が前の段階 ${prevKey}（${prev}）より低い`);
+      // 大きな建物（big/）は敷地の小物の置き方で高さが揺れるので、BIG_TOLERANCE ドットまで低くてもよい
+      if (h < prev - (k.startsWith("big/") ? BIG_TOLERANCE : 0)) errors.push(`LINT-07 ${k} の高さ ${h} が前の段階 ${prevKey}（${prev}）より低い`);
       prev = h;
       prevKey = k;
     }
@@ -180,7 +183,9 @@ function main() {
     const bottom = opaqueRows(png)[1];
     // 動きのコマは anim.json の基準点（全コマ共通）
     const animKey = key.startsWith("anim/") ? key.slice(5, key.lastIndexOf("/")) : null;
-    const [ax, ay] = (animKey && anims[animKey]?.anchor) || anchors[key] || (onTile(key) ? [png.width / 2, bottom - (TW / 4 - 1)] : [png.width / 2, bottom]);
+    // 大きな建物（big/。2×2・3×3）は占有範囲全体のひし形の中心なので、幅の 1/4 上
+    const lift = key.startsWith("big/") || animKey?.startsWith("big/") ? png.width / 4 - 1 : TW / 4 - 1;
+    const [ax, ay] = (animKey && anims[animKey]?.anchor) || anchors[key] || (onTile(key) ? [png.width / 2, bottom - lift] : [png.width / 2, bottom]);
     sprites.set(key, { key, png, ax, ay });
   }
   // 発光マスクは元の建物の絵に重ねるので、基準点も元の絵と同じにする

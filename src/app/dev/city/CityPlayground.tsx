@@ -28,6 +28,7 @@ export function CityPlayground() {
   const [days, setDays] = useState(7);
   const [layout, setLayout] = useState<CityLayout>(2);
   const [showZones, setShowZones] = useState(false);
+  const [night, setNight] = useState(false);
   const [selected, setSelected] = useState<{ x: number; y: number } | null>(null);
   const city = useMemo(() => cityAfter(days, layout), [days, layout]);
   const m = computeMetrics(city);
@@ -55,6 +56,10 @@ export function CityPlayground() {
           <input type="checkbox" className="w-auto" checked={showZones} onChange={(e) => setShowZones(e.target.checked)} />
           土地用途
         </label>
+        <label className="flex items-center gap-1">
+          <input type="checkbox" className="w-auto" checked={night} onChange={(e) => setNight(e.target.checked)} />
+          夜
+        </label>
         <span data-testid="stats">
           発展Lv{devLevel(city.devPoints)} ・ 人口{Math.floor(city.population)} ・ 建物{city.buildings.length}棟 ・ 区画{city.plots?.length ?? "-"} ・ 工事{city.jobs.length}
         </span>
@@ -72,6 +77,8 @@ export function CityPlayground() {
         devLevel={devLevel(city.devPoints)}
         bankLevel={city.bankLevel}
         showZones={showZones}
+        fixedHour={night ? 22 : undefined}
+        occupancy={0.8}
         selected={selected}
         onSelect={setSelected}
         population={m.population}

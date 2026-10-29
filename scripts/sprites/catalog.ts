@@ -32,6 +32,20 @@ export function requiredKeys(): string[] {
   for (let v = 0; v < AGENT_VARIANTS; v++) keys.push(`agent/person/${v}/se`, `agent/person/${v}/ne`, `agent/car/${v}/sw`, `agent/car/${v}/ne`);
   for (const t of TROUBLES) keys.push(`icons/${t}`);
   for (let s = 1; s <= GOLD_STAGES; s++) keys.push(`props/gold/${s}`);
+  keys.push(...bigKeys());
+  return keys;
+}
+
+/**
+ * 2×2・3×3 の建物の絵（docs/map-layout-redesign.md §4.5）。v2 の街の、道路・像以外の建物と特殊施設。
+ * 1マスの絵のキーに big/ を付ける
+ */
+export function bigKeys(): string[] {
+  const keys: string[] = [];
+  for (const line of LINE_IDS) if (line !== "road") for (let t = 0; t < LINES[line].tiers.length; t++) keys.push(`big/building/${line}/${t}`);
+  for (let lv = 1; lv <= BANK_LEVELS; lv++) keys.push(`big/special/bank/${lv}`);
+  keys.push("big/special/gold_mine", "big/special/silver_mine");
+  for (let t = 0; t < PARK_TIERS; t++) keys.push(`big/special/park/${t}`);
   return keys;
 }
 
@@ -40,5 +54,7 @@ export function tierChains(): string[][] {
   const chains = LINE_IDS.filter((l) => l !== "road" && LINES[l].tiers.length > 1).map((l) => LINES[l].tiers.map((_, t) => `building/${l}/${t}`));
   chains.push(Array.from({ length: BANK_LEVELS }, (_, i) => `special/bank/${i + 1}`));
   chains.push(Array.from({ length: PARK_TIERS }, (_, i) => `special/park/${i}`));
+  // 大きな建物も同じ並び（公園の4段階目だけ 3×3 なので、2×2 の3段階で比べる）
+  for (const c of [...chains]) chains.push(c.filter((k) => k !== "special/park/3").map((k) => `big/${k}`));
   return chains;
 }

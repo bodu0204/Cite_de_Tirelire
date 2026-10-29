@@ -3,13 +3,15 @@
 //
 //   npx tsx scripts/sprites/night.ts gen <キー…>        夜の版を生成する（同じ大きさの絵をまとめて1回で送る）
 //   npx tsx scripts/sprites/night.ts import <フォルダ>    夜の版から発光マスクを作り、art/sprites/64/glow/<キー>.png に書く
+//   npx tsx scripts/sprites/night.ts gen-tiled <キー…>  大きな絵（big/）を 128×128 に切り分け、4枚ずつまとめて夜の版を作る
+//                                                       （128px を超える絵は1回に1枚しか送れず高くつくため。import で継ぎ合わせる）
 //
 // 発光マスクは灯りの画素だけを不透明にした絵。描画側はこれを夜だけ加算で重ね、人口に応じて窓の一部だけ灯す。
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { loadPalette, nearest } from "./palette";
 import { generate, imageParam, findImages, stripImages } from "./pixellab";
-import { readPng, writePng } from "./png";
+import { type Png, readPng, writePng } from "./png";
 
 const ROOT = path.resolve(__dirname, "../..");
 const SRC = path.join(ROOT, "art/sprites/64");
@@ -72,6 +74,82 @@ async function gen(keys: string[]) {
   }
 }
 
+/** 切り分ける大きさ（edit-images-v2 が1回で4枚を受け付ける上限） */
+const TILE = 128;
+
+/** 絵を TILE×TILE の格子に切り分ける。下と左にそろえ、足りない分は上と右を透明で埋める。全部透明な区画は除く */
+export function splitTiles(p: Png): { row: number; col: number; buf: Buffer }[] {
+  const cols = Math.ceil(p.width / TILE);
+  const rows = Math.ceil(p.height / TILE);
+  const top = rows * TILE - p.height;
+  const out: { row: number; col: number; buf: Buffer }[] = [];
+  for (let row = 0; row < rows; row++)
+    for (let col = 0; col < cols; col++) {
+      const rgba = new Uint8Array(TILE * TILE * 4);
+      let any = false;
+      for (let y = 0; y < TILE; y++)
+        for (let x = 0; x < TILE; x++) {
+          const sx = col * TILE + x;
+          const sy = row * TILE + y - top;
+          if (sx >= p.width || sy < 0 || sy >= p.height) continue;
+          const o = (sy * p.width + sx) * 4;
+          if (p.rgba[o + 3] >= 128) any = true;
+          rgba.set(p.rgba.subarray(o, o + 4), (y * TILE + x) * 4);
+        }
+      if (any) out.push({ row, col, buf: writePng(TILE, TILE, rgba) });
+    }
+  return out;
+}
+
+/** 切り分けた夜の版を元の大きさに継ぎ合わせる（ない区画は透明） */
+export function joinTiles(width: number, height: number, tiles: { row: number; col: number; png: Png }[]): Png {
+  const rows = Math.ceil(height / TILE);
+  const top = rows * TILE - height;
+  const rgba = new Uint8Array(width * height * 4);
+  for (const t of tiles)
+    for (let y = 0; y < TILE; y++)
+      for (let x = 0; x < TILE; x++) {
+        const dx = t.col * TILE + x;
+        const dy = t.row * TILE + y - top;
+        if (dx >= width || dy < 0 || dy >= height) continue;
+        const o = (y * t.png.width + x) * 4;
+        rgba.set(t.png.rgba.subarray(o, o + 4), (dy * width + dx) * 4);
+      }
+  const alpha = new Uint8Array(width * height);
+  for (let i = 0; i < alpha.length; i++) alpha[i] = rgba[i * 4 + 3];
+  return { width, height, rgba, alpha };
+}
+
+async function genTiled(keys: string[]) {
+  const tiles = keys.flatMap((key) => splitTiles(readPng(readFileSync(path.join(SRC, `${key}.png`)))).map((t) => ({ ...t, key })));
+  const run = new Date().toISOString().replace(/[:.]/g, "-");
+  for (let i = 0; i < tiles.length; i += 4) {
+    const batch = tiles.slice(i, i + 4);
+    const body = {
+      method: "edit_with_text",
+      edit_images: batch.map((b) => ({ image: imageParam(b.buf), width: TILE, height: TILE })),
+      image_size: { width: TILE, height: TILE },
+      description: DESCRIPTION,
+      no_background: true,
+    };
+    const names = batch.map((b) => `${b.key.replace(/\//g, "__")}~${b.row}_${b.col}`);
+    console.log(`▶ ${names.join(" ")}`);
+    const dir = path.join(CANDIDATES, run, `tiled-${i / 4}`);
+    mkdirSync(dir, { recursive: true });
+    try {
+      const res = await generate("edit-images-v2", body, {
+        onJob: (ids) => writeFileSync(path.join(dir, "job.json"), JSON.stringify({ ...ids, keys: names }, null, 2)),
+      });
+      const images = findImages(res);
+      batch.forEach((_, k) => images[k] && writeFileSync(path.join(dir, `${names[k]}.png`), images[k]));
+      console.log(`  ${images.length} 枚を保存：${path.relative(ROOT, dir)}`);
+    } catch (e) {
+      console.error(`  失敗：${e instanceof Error ? e.message : e}`);
+      process.exitCode = 1;
+    }
+  }
+}
+
 /**
  * 夜の版から灯りの画素を取り出す。夜の版で「明るく、暖かい色（赤・緑が青より十分強い）」画素のうち、
  * 昼の版でも不透明な所だけを灯りとみなす（夜の版で形がずれても、建物の外には灯りを出さない）。
@@ -93,13 +171,33 @@ export function glowMask(day: ReturnType<typeof readPng>, night: ReturnType<type
 }
 
 function importDir(dir: string) {
+  // 切り分けて送った夜の版（<キー>~<行>_<列>.png）は、キーごとに継ぎ合わせる
+  const pieces = new Map<string, { row: number; col: number; png: Png }[]>();
+  const whole: [string, () => Png][] = [];
   for (const sub of readdirSync(dir)) {
     const d = path.join(dir, sub);
     if (!existsSync(path.join(d, "job.json"))) continue;
     for (const f of readdirSync(d).filter((x) => x.endsWith(".png"))) {
-      const key = f.slice(0, -4).replace(/__/g, "/");
+      const [name, at] = f.slice(0, -4).split("~");
+      const key = name.replace(/__/g, "/");
+      if (!at) {
+        whole.push([key, () => readPng(readFileSync(path.join(d, f)))]);
+        continue;
+      }
+      const [row, col] = at.split("_").map(Number);
+      const list = pieces.get(key) ?? [];
+      list.push({ row, col, png: readPng(readFileSync(path.join(d, f))) });
+      pieces.set(key, list);
+    }
+  }
+  for (const [key, list] of pieces) {
+    const day = readPng(readFileSync(path.join(SRC, `${key}.png`)));
+    whole.push([key, () => joinTiles(day.width, day.height, list)]);
+  }
+  {
+    for (const [key, load] of whole) {
       const day = readPng(readFileSync(path.join(SRC, `${key}.png`)));
-      const night = readPng(readFileSync(path.join(d, f)));
+      const night = load();
       if (night.width !== day.width || night.height !== day.height) {
         console.error(`${key}：大きさが違います`);
         continue;
@@ -127,6 +225,7 @@ async function main() {
     // .env がなければ環境変数をそのまま使う
   }
   if (cmd === "gen") await gen(rest);
+  else if (cmd === "gen-tiled") await genTiled(rest);
   else if (cmd === "import") for (const d of rest) importDir(d);
   else throw new Error("使い方はファイル先頭のコメントを見てください");
 }

@@ -44,7 +44,8 @@ function main() {
   // 基準点は1コマ目の足元（不透明な画素の一番下）から求め、全コマで同じにする
   let bottom = 0;
   for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) if (frames[0].alpha[y * width + x]) bottom = y;
-  const anchor: [number, number] = [width / 2, bottom - 15];
+  // 大きな建物（big/。2×2・3×3）は占有範囲全体のひし形の中心なので、幅の 1/4 上
+  const anchor: [number, number] = [width / 2, bottom - (key.startsWith("big/") ? width / 4 - 1 : 15)];
 
   const outDir = path.join(OUT, "anim", key);
   if (existsSync(outDir)) rmSync(outDir, { recursive: true });
