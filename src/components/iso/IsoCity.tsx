@@ -110,7 +110,10 @@ export function IsoCity({ map, overlay, serverOffset, tw = 64, art, agents = 0, 
         s.setSelected(latest.current.selected ?? null);
         latest.current.onReady?.(s);
       })
-      .catch(() => alive && setFailed("nowebgl"));
+      .catch((e) => {
+        console.error(e);
+        if (alive) setFailed("nowebgl");
+      });
     return () => {
       alive = false;
       clearTimeout(saveTimer);

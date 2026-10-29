@@ -20,7 +20,7 @@ import {
 import { type ChunkId, type Rect, CHUNK, chunkKey, chunkOf, chunkRect, visibleChunks } from "./chunks";
 import { nightColor } from "./compose";
 import { type EffectKind, EFFECT_MS, MAX_EFFECTS, effectKind, flashAlpha, particles, popScale } from "./effects";
-import { type IsoMap, type IsoObject, type IsoOverlay, groundKey, hash2, mapRect, tileAt, tileIndex } from "./map";
+import { type IsoMap, type IsoObject, type IsoOverlay, groundKey, hash2, mapRect, objectCenter, tileAt, tileIndex } from "./map";
 import { type Iso, depth, iso, mapBounds, toScreen, toTile } from "./projection";
 import { type ArtSource, type Entry, TextureBook } from "./textures";
 
@@ -55,8 +55,10 @@ interface Placed {
   flash: Sprite | null;
   key: string;
   entry: Entry;
+  /** 占有範囲の左上のマスと一辺 */
   x: number;
   y: number;
+  size: number;
 }
 
 /** 用途の色と記号（OBJ-08：色だけに頼らない） */
@@ -123,6 +125,8 @@ export class IsoStage {
   private objKeys: Map<string, string> | null = null;
   private effects: Effect[] = [];
   private placedById = new Map<string, Placed>();
+  /** マス（"x,y"）→ そのマスを占める建物（大きな建物は占有範囲のすべてのマス） */
+  private cover = new Map<string, Placed>();
   /** 困りごとアイコン（A3）。建物の上に出し、夜の色は掛けない */
   private troubleLayer = new Container();
   private troubleSprites: { sp: Sprite; y: number }[] = [];
@@ -325,6 +329,11 @@ export class IsoStage {
     }
     if (changed) {
       this.visibleObjects = [...this.shown].flatMap((k) => this.chunkObjects.get(k) ?? []);
+      this.cover.clear();
+      for (const o of this.placedById.values()) {
+        if (!/^(building|special)\//.test(o.key)) continue;
+        for (let dy = 0; dy < o.size; dy++) for (let dx = 0; dx < o.size; dx++) this.cover.set(`${o.x + dx},${o.y + dy}`, o);
+      }
       // 建物が変わると屋根の高さも変わるので、アイコンと選択の輪郭を置き直す
       this.troubleSig = "";
       this.drawTroubles();
@@ -336,7 +345,8 @@ export class IsoStage {
       this.effects = this.effects.filter((e) => e.id !== o.id);
       if (this.effects.length >= MAX_EFFECTS) break;
       const pl = this.placedById.get(o.id);
-      this.effects.push({ kind, id: o.id, x: o.x, y: o.y, height: pl ? (this.artHeight(o.key) * 64) / this.p.tw : 32, seed: hash2(o.x, o.y, 5), t0: now });
+      const c = objectCenter(o);
+      this.effects.push({ kind, id: o.id, x: c.x, y: c.y, height: pl ? (this.artHeight(o.key) * 64) / this.p.tw : 32, seed: hash2(o.x, o.y, 5), t0: now });
     }
     // 道路が変わったら人と車を置き直す（道路の上にしかいられないため）
     const roadSig = map.road.join("");
@@ -407,7 +417,8 @@ export class IsoStage {
       const a = new AnimatedSprite(anim.entries.map((e) => e.texture));
       a.animationSpeed = anim.fps / 60;
       // 同じ絵が並んでも揃って動かないよう、マスごとに始めのコマをずらす
-      a.gotoAndPlay((o.x * 3 + o.y * 5) % anim.entries.length);
+      const n = anim.entries.length;
+      a.gotoAndPlay((((o.x * 3 + o.y * 5) % n) + n) % n);
       sprite = a;
       this.animCount++;
     } else sprite = new Sprite(entry.texture);
@@ -415,11 +426,13 @@ export class IsoStage {
     sprite.tint = this.nightTint;
     const node = new Container();
     node.addChild(sprite);
-    const s = toScreen(this.p, o.x, o.y);
+    // 大きな建物は占有範囲の中心に置き、重なり順も中心で決める（隣の道路を通る人や車が建物の手前に出る）
+    const c = objectCenter(o);
+    const s = toScreen(this.p, c.x, c.y);
     const u = this.p.tw / 64;
     node.position.set(Math.round(s.sx + (o.ox ?? 0) * u), Math.round(s.sy + (o.oy ?? 0) * u));
-    node.zIndex = depth(o.x, o.y) + (o.dz ?? 0);
-    const placed: Placed = { id: o.id, node, sprite, glow: null, flash: null, key: o.key, entry, x: o.x, y: o.y };
+    node.zIndex = depth(c.x, c.y) + (o.dz ?? 0);
+    const placed: Placed = { id: o.id, node, sprite, glow: null, flash: null, key: o.key, entry, x: o.x, y: o.y, size: o.size ?? 1 };
     this.updateGlow(placed);
     return placed;
   }
@@ -523,15 +536,15 @@ export class IsoStage {
     this.troubleSig = sig;
     for (const t of this.troubleSprites) t.sp.destroy();
     const u = this.p.tw / 64;
-    const tops = new Map<string, number>();
-    for (const l of this.chunkObjects.values()) for (const o of l) tops.set(`${o.x},${o.y}`, Math.max(tops.get(`${o.x},${o.y}`) ?? 0, this.artHeight(o.key)));
     this.troubleSprites = list.map((t) => {
       const e = this.book.get(`icons/${t.kind}`);
       const sp = new Sprite(e.texture);
       sp.anchor.set(e.ax / e.w, e.ay / e.h);
-      const s = toScreen(this.p, t.x, t.y);
+      // 建物の絵の位置（大きな建物は占有範囲の中心）
+      const pl = this.cover.get(`${t.x},${t.y}`);
+      const s = pl ? { sx: pl.node.x, sy: pl.node.y } : toScreen(this.p, t.x, t.y);
       // 屋根の一番上に少し重ねる（離れて浮くと、どの建物のアイコンか分かりにくい）
-      const y = Math.round(s.sy - (tops.get(`${t.x},${t.y}`) ?? 16 * u) + 4 * u);
+      const y = Math.round(s.sy - (pl ? this.artHeight(pl.key) : 16 * u) + 4 * u);
       sp.position.set(Math.round(s.sx), y);
       this.troubleLayer.addChild(sp);
       return { sp, y };
@@ -591,7 +604,8 @@ export class IsoStage {
       });
     for (const j of jobs ?? []) {
       const ratio = Math.max(0, Math.min(1, (now - j.startedAt) / Math.max(1, j.finishAt - j.startedAt)));
-      const c = toScreen(this.p, j.x, j.y);
+      const jc = objectCenter(j);
+      const c = toScreen(this.p, jc.x, jc.y);
       const w = 36 * u;
       const x = Math.round(c.sx - w / 2);
       const y = Math.round(c.sy + 6 * u);
@@ -640,30 +654,32 @@ export class IsoStage {
 
   setSelected(tile: { x: number; y: number } | null) {
     this.selected = tile;
-    this.select.visible = !!tile;
-    if (tile) {
-      const s = toScreen(this.p, tile.x, tile.y);
-      this.select.position.set(s.sx, s.sy);
-    }
     this.drawSelection();
   }
 
-  /** 建物の上に重ねる選択の印を作り直す（選んだマスか、そのマスの建物が変わった時） */
+  /**
+   * 選択の印を作り直す（選んだマスか、そのマスの建物が変わった時）。大きな建物のマスを選んだら、
+   * 印を占有範囲の大きさにし、建物の輪郭を光らせる
+   */
   private drawSelection() {
     for (const c of this.selectLayer.removeChildren()) if (c !== this.selectGhost) c.destroy();
     const t = this.selected;
+    this.select.visible = !!t;
     if (!t || !this.map) return;
-    const s = toScreen(this.p, t.x, t.y);
-    this.selectGhost.position.set(s.sx, s.sy);
-    this.selectLayer.addChild(this.selectGhost);
-    for (const o of this.chunkObjects.get(chunkKey(chunkOf(t.x, t.y))) ?? []) {
-      if (o.x !== t.x || o.y !== t.y) continue;
-      const e = this.book.getOutline(o.key);
-      const sp = new Sprite(e.texture);
-      sp.anchor.set(e.ax / e.w, e.ay / e.h);
-      sp.position.copyFrom(o.node.position);
-      this.selectLayer.addChild(sp);
+    const pl = this.cover.get(`${t.x},${t.y}`);
+    const c = pl ? objectCenter(pl) : t;
+    const s = toScreen(this.p, c.x, c.y);
+    for (const sp of [this.select, this.selectGhost]) {
+      sp.position.set(s.sx, s.sy);
+      sp.scale.set(pl?.size ?? 1);
     }
+    this.selectLayer.addChild(this.selectGhost);
+    if (!pl) return;
+    const e = this.book.getOutline(pl.key);
+    const sp = new Sprite(e.texture);
+    sp.anchor.set(e.ax / e.w, e.ay / e.h);
+    sp.position.copyFrom(pl.node.position);
+    this.selectLayer.addChild(sp);
   }
 
   /** ＋−ボタン（CAM-02）。画面の中心を基準にする */

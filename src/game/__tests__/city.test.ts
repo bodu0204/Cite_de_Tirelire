@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { tierDef } from "../catalog";
 import { DAY, HOUR, TICK_MS } from "../config";
-import { manualBuild, manualUpgrade, rushJob, syncParks } from "../city/actions";
+import { manualBuild, manualUpgrade, moveBuilding, placeOffMapSpecials, rushJob, syncParks } from "../city/actions";
 import { computeMetrics } from "../city/economy";
 import { createCity } from "../city/init";
-import { findSite, isTileUnlocked, normalizeCity, occupancy, tileKey, tileUnlockLevel } from "../city/layout";
+import { buildingSize, findSite, isPlaced, isTileUnlocked, normalizeCity, occupancy, placementFor, tileKey, tileUnlockLevel } from "../city/layout";
 import { applyTechLevel, simulate } from "../city/sim";
 import { devLevel } from "../levels";
 import type { CityEvent, CityState } from "../types";
@@ -86,9 +86,10 @@ describe("AT-010 貯金による技術解放", () => {
     // 工場（工業系 段階1）が手動で建てられる
     s.stock.wood = 1000;
     s.stock.stone = 1000;
-    const free = findSite(s, "factory")!;
-    expect(free).not.toBeNull();
-    expect(() => manualBuild(s, { line: "factory", tier: 1, ...free }, s.simTime, 1000)).not.toThrow();
+    // 住宅を1棟どけて、その敷地に建てる
+    const house = s.buildings.find((b) => b.line === "housing" && !s.jobs.some((j) => j.buildingId === b.id))!;
+    s.buildings = s.buildings.filter((b) => b !== house);
+    expect(() => manualBuild(s, { line: "factory", tier: 1, x: house.x, y: house.y }, s.simTime, 1000)).not.toThrow();
   });
 });
 
@@ -127,7 +128,8 @@ describe("AT-013 銀貨が0の場合", () => {
 
 describe("AT-014 技術解放後の建物進化", () => {
   it("技術Lv2の農場が、技術Lv3で機械化農場へ自動進化する", () => {
-    const s = createCity(T0);
+    // TODO(S4)：開拓が入るまで v2 の街は 2×2 の建物で土地が埋まり、発電所が建たなくなるので、v1 の街で確かめる
+    const s = createCity(T0, "balanced", 1);
     applyTechLevel(s, 2, T0, []);
     run(s, 4 * DAY);
     const farm = s.buildings.find((b) => b.line === "farm" && b.tier === 1);
@@ -249,5 +251,72 @@ describe("公園", () => {
     syncParks(s, [{ id: "a", name: "A", monthly: 1000, active: false }], T0, ev);
     expect(ev.map((e) => e.type)).toEqual(["PARK_OPENED", "PARK_CLOSED"]);
     expect(s.buildings.find((b) => b.special === "park")?.closed).toBe(true);
+  });
+});
+
+describe("建物の大きさ（docs/map-layout-redesign.md §4）", () => {
+  it("道路・像は1×1、銀行と高額なサブスクの公園は3×3、ほかは2×2。v1 はすべて1マス", () => {
+    const v2 = { v: 2 as const };
+    expect(buildingSize(v2, { line: "road", tier: 0 })).toBe(1);
+    expect(buildingSize(v2, { special: "statue", tier: 2 })).toBe(1);
+    expect(buildingSize(v2, { special: "bank", tier: 0 })).toBe(3);
+    expect(buildingSize(v2, { special: "park", tier: 3 })).toBe(3);
+    expect(buildingSize(v2, { special: "park", tier: 2 })).toBe(2);
+    expect(buildingSize(v2, { line: "rail", tier: 0 })).toBe(2);
+    expect(buildingSize(v2, { special: "gold_mine", tier: 0 })).toBe(2);
+    expect(buildingSize(v2, { line: "housing", tier: 5 })).toBe(2);
+    expect(buildingSize({ v: 1 }, { special: "bank", tier: 0 })).toBe(1);
+  });
+
+  it("初期の街：銀行は原点を中心にした3×3。建物の占有範囲は重ならない", () => {
+    const s = createCity(T0);
+    const bank = s.buildings.find((b) => b.special === "bank")!;
+    expect({ x: bank.x, y: bank.y }).toEqual({ x: -1, y: -1 });
+    const tiles = s.buildings.reduce((n, b) => n + buildingSize(s, b) ** 2, 0);
+    expect(occupancy(s).size).toBe(tiles);
+  });
+
+  it("2×2 は選んだマスを含む空きに置く", () => {
+    const s = createCity(T0);
+    s.stock.wood = 1000;
+    // 土地の南東の角のマスを選ぶと、左上に寄せて (3, 3)〜(4, 4) に置く
+    manualBuild(s, { line: "housing", x: 4, y: 4 }, T0, 100);
+    expect(s.jobs.at(-1)).toMatchObject({ x: 3, y: 3 });
+    expect(placementFor(s, 2, 4, 4)).toBeNull();
+    expect(() => manualBuild(s, { line: "housing", x: 4, y: 4 }, T0, 100)).toThrow(/使用中/);
+    expect(() => manualBuild(s, { line: "housing", x: 0, y: 0 }, T0, 100)).toThrow(/使用中/);
+  });
+
+  it("移動は占有範囲ごと。銀行は動かせない", () => {
+    const s = createCity(T0);
+    const house = s.buildings.find((b) => b.id === "b1")!;
+    moveBuilding(s, house.id, 4, 4, T0, 100, []);
+    expect({ x: house.x, y: house.y }).toEqual({ x: 3, y: 3 });
+    expect(() => moveBuilding(s, "bank", -5, -5, T0, 100, [])).toThrow(/銀行/);
+  });
+
+  it("公園は高額（月3,000円以上）になると3×3 にし、場所がなければ空き待ちになる", () => {
+    const s = createCity(T0);
+    // 区画 (2, 2)（マス 10〜14）だけを開き、真ん中の (12, 12) に像を置くと、3×3 はどこにも入らない
+    s.plots = ["2,2"];
+    s.buildings.push({ id: "st", special: "statue", refId: "w", tier: 0, level: 0, x: 12, y: 12, locked: false, manual: false, builtAt: T0 });
+    syncParks(s, [{ id: "a", name: "A", monthly: 1000, active: true }], T0, []);
+    const park = s.buildings.find((b) => b.special === "park")!;
+    expect(buildingSize(s, park)).toBe(2);
+    expect(isPlaced(park)).toBe(true);
+    syncParks(s, [{ id: "a", name: "A", monthly: 5000, active: true }], T0, []);
+    expect(buildingSize(s, park)).toBe(3);
+    expect(isPlaced(park)).toBe(false);
+    // 像をどけると、空き待ちの公園が置かれる
+    s.buildings = s.buildings.filter((b) => b.id !== "st");
+    placeOffMapSpecials(s);
+    expect(isPlaced(park)).toBe(true);
+    expect(park.x).toBeGreaterThanOrEqual(10);
+    expect(park.x).toBeLessThanOrEqual(12);
+    // 安くなったら同じ場所で 2×2 に縮める
+    const at = { x: park.x, y: park.y };
+    syncParks(s, [{ id: "a", name: "A", monthly: 1000, active: true }], T0, []);
+    expect({ x: park.x, y: park.y }).toEqual(at);
+    expect(buildingSize(s, park)).toBe(2);
   });
 });

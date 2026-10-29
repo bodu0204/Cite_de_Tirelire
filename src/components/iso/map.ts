@@ -12,6 +12,17 @@ export interface IsoObject {
   /** マスの中心からずらして置く（ドット、64px タイル基準。金鉱の前の金貨の山など） */
   ox?: number;
   oy?: number;
+  /**
+   * 占有範囲の一辺（省略すると 1）。x, y は左上のマスで、絵は占有範囲の中心に置き、
+   * 重なり順も中心で決める（docs/map-layout-redesign.md §4.5）
+   */
+  size?: number;
+}
+
+/** 占有範囲の中心のマス座標（1×1 ならマスそのもの） */
+export function objectCenter(o: Pick<IsoObject, "x" | "y" | "size">): { x: number; y: number } {
+  const h = ((o.size ?? 1) - 1) / 2;
+  return { x: o.x + h, y: o.y + h };
 }
 
 /** 土地用途（ゲームの Zone と同じ値。描画側は文字列として扱う） */
@@ -24,8 +35,8 @@ export interface IsoOverlay {
   showZones?: boolean;
   /** 行優先。自動開発の対象外（OBJ-09） */
   noAuto?: boolean[];
-  /** 工事の進み具合のバー（OBJ-07）。時刻はミリ秒 */
-  jobs?: { x: number; y: number; startedAt: number; finishAt: number }[];
+  /** 工事の進み具合のバー（OBJ-07）。時刻はミリ秒。size は占有範囲の一辺（バーを中心に出す） */
+  jobs?: { x: number; y: number; size?: number; startedAt: number; finishAt: number }[];
   /** 点滅させるマス（"x,y"。B6 の強調） */
   highlights?: string[];
   /** 夜の暗さ（0 = 昼、1 = 夜。OBJ-14） */
@@ -56,6 +67,8 @@ export interface IsoMap {
   road: Uint8Array;
   /** 行優先。1 = 未開放の区画 */
   locked: Uint8Array;
+  /** 行優先。1 = 大きな建物の敷地（地面を敷地の絵にする）。省略すると敷地なし */
+  lot?: Uint8Array;
   objects: IsoObject[];
   /** カメラを最初に向けるマス（省略すると開いている土地の中心） */
   home?: { x: number; y: number };
@@ -103,6 +116,7 @@ export function groundKey(m: IsoMap, x: number, y: number): string {
   const i = tileIndex(m, x, y);
   if (m.locked[i]) return "ground/locked";
   if (m.road[i]) return `road/${m.road[i] - 1}/${roadMask(m, x, y)}`;
+  if (m.lot?.[i]) return "ground/lot";
   return `ground/grass/${hash2(x, y) % GRASS_VARIANTS}`;
 }
 

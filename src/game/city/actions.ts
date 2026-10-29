@@ -4,7 +4,7 @@ import { FEE_MOVE, FEE_RUSH_PER_10MIN, feeBuild, feeUpgrade, MINUTE } from "../c
 import { fail } from "../errors";
 import { devLevel, statueRank } from "../levels";
 import { snapBuilding, type Building, type CityEvent, type CityPolicy, type CityState, type NeedKey } from "../types";
-import { buildingSize, findSpecialSite, fits, inBounds, isLegacy, isPlaced, isTileUnlocked, occupancy, tileKey } from "./layout";
+import { buildingSize, findSpecialSite, fits, inBounds, isLegacy, isPlaced, isTileUnlocked, occupancy, placementFor, tileKey } from "./layout";
 import { buildingName, canAfford, finishJob, levelCap, newId, startJob } from "./sim";
 
 function requireBuilding(s: CityState, id: string): Building {
@@ -21,17 +21,23 @@ function requireMaterials(s: CityState, cost: { wood: number; stone: number }) {
   }
 }
 
-/** 占有範囲が盤面の中・開いた区画・空きであること。ignore は移動する建物自身 */
-function requireSite(s: CityState, x: number, y: number, size: number, ignore?: string) {
+/**
+ * 選んだマス (x, y) を含む占有範囲を決める。盤面の中・開いた区画・空きであること。ignore は移動する建物自身。
+ * 大きな建物は、選んだマスを左上にできなければ、選んだマスを含むほかの置き方を探す（layout.ts placementFor）
+ */
+function requireSite(s: CityState, x: number, y: number, size: number, ignore?: string): { x: number; y: number } {
   if (!inBounds(s, x, y)) fail("bad_tile", "マップの外です");
   const occ = occupancy(s);
-  if (fits(s, x, y, size, occ, ignore)) return;
+  const at = placementFor(s, size, x, y, occ, ignore);
+  if (at) return at;
+  if (size > 1 && isTileUnlocked(s, x, y) && !occ.get(tileKey(x, y))) fail("no_room", `${size}×${size} マスの空きがありません`);
   for (let dy = 0; dy < size; dy++)
     for (let dx = 0; dx < size; dx++) {
       if (!isTileUnlocked(s, x + dx, y + dy)) fail("locked_tile", "まだ解放されていない区画です");
       const o = occ.get(tileKey(x + dx, y + dy));
       if (o && o !== ignore) fail("occupied", "そのマスは使用中です");
     }
+  return fail("occupied", "そのマスは使用中です");
 }
 
 export interface ManualResult {
@@ -44,12 +50,12 @@ export function manualBuild(s: CityState, input: { line: LineId; tier?: number; 
   const dev = devLevel(s.devPoints);
   const tier = input.tier ?? highestUnlockedTier(input.line, s.techLevel, dev);
   if (tier < 0 || !isTierUnlocked(input.line, tier, s.techLevel, dev)) fail("not_unlocked", "まだ解放されていない建物です");
-  requireSite(s, input.x, input.y, buildingSize(s, { line: input.line, tier }));
+  const site = requireSite(s, input.x, input.y, buildingSize(s, { line: input.line, tier }));
   const t = tierDef(input.line, tier);
   const fee = feeBuild(tier);
   requireSilver(silver, fee);
   requireMaterials(s, t.cost);
-  startJob(s, { kind: "build", line: input.line, tier, level: 1, site: { x: input.x, y: input.y }, cost: t.cost, minutes: t.buildMinutes }, now, false);
+  startJob(s, { kind: "build", line: input.line, tier, level: 1, site, cost: t.cost, minutes: t.buildMinutes }, now, false);
   return { silverFee: fee };
 }
 
@@ -91,11 +97,11 @@ export function moveBuilding(s: CityState, id: string, x: number, y: number, now
   if (b.locked && !b.special) fail("locked", "固定された建物は移動できません。固定を解除してください");
   if (b.special === "bank" && !isLegacy(s)) fail("special", "銀行は街の中心に固定です");
   requireIdle(s, b);
-  requireSite(s, x, y, buildingSize(s, b), b.id);
+  const site = requireSite(s, x, y, buildingSize(s, b), b.id);
   requireSilver(silver, FEE_MOVE);
   const from = { x: b.x, y: b.y };
-  b.x = x;
-  b.y = y;
+  b.x = site.x;
+  b.y = site.y;
   delete b.placed;
   b.manual = true;
   events.push({ at: now, type: "MOVE", auto: false, important: false, payload: { building: snapBuilding(b), from } });
@@ -198,7 +204,7 @@ export function syncParks(s: CityState, subs: ParkSource[], now: number, events:
       events.push({ at: now, type: "PARK_OPENED", auto: false, important: true, payload: { building: snapBuilding(b), name: sub.name } });
       continue;
     }
-    park.tier = tier;
+    if (park.tier !== tier) resizePark(s, park, tier);
     if (park.closed && sub.active) {
       park.closed = false;
       events.push({ at: now, type: "PARK_OPENED", auto: false, important: true, payload: { building: snapBuilding(park), name: sub.name } });
@@ -207,6 +213,28 @@ export function syncParks(s: CityState, subs: ParkSource[], now: number, events:
       events.push({ at: now, type: "PARK_CLOSED", auto: false, important: true, payload: { building: snapBuilding(park), name: sub.name } });
     }
   }
+}
+
+/**
+ * 公園の段階を変える。3×3（高額なサブスク）と 2×2 をまたぐ時は置き直す（docs/map-layout-redesign.md §4.4）：
+ * 今の場所で収まればそのまま、収まらなければ空きを探し、なければマップ外にして開拓で場所ができるのを待つ
+ */
+function resizePark(s: CityState, park: Building, tier: number) {
+  const before = buildingSize(s, park);
+  park.tier = tier;
+  const size = buildingSize(s, park);
+  if (size === before || !isPlaced(park)) return;
+  // 公園自身を盤面から外してから空きを調べる（大きくした占有範囲が、隣の建物のマスを上書きしないように）
+  park.placed = false;
+  if (size < before || fits(s, park.x, park.y, size)) {
+    delete park.placed;
+    return;
+  }
+  const site = findSpecialSite(s, size);
+  if (!site) return;
+  park.x = site.x;
+  park.y = site.y;
+  delete park.placed;
 }
 
 // ---- 像（ほしい物） ----

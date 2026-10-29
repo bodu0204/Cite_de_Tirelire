@@ -118,6 +118,11 @@ export function drawGroundArt(key: string, tw: number): Art {
     diamond(ctx, cx, cy, tw / 2, "#3b4a3a", "#344233");
     ctx.fillStyle = "#2b3a2a";
     for (let k = 0; k < 5; k++) ctx.fillRect(cx - tw / 4 + ((k * 7) % (tw / 2)), cy - 3 + ((k * 5) % 6), 3, 2);
+  } else if (key === "ground/lot") {
+    // 大きな建物の敷地：踏み固めた土に、ところどころ石畳
+    diamond(ctx, cx, cy, tw / 2, "#cdb98f", "#bba67c");
+    ctx.fillStyle = "#a99470";
+    for (let k = 0; k < 6; k++) ctx.fillRect(cx - tw / 4 + ((k * 11) % (tw / 2)), cy - 4 + ((k * 7) % 8), 2, 1);
   } else if (key.startsWith("ground/grass")) {
     const v = Number(a) || 0;
     diamond(ctx, cx, cy, tw / 2, GRASS[v % GRASS.length]);

@@ -75,6 +75,36 @@ describe("盤面の変換（v2：開拓した区画）", () => {
     expect(locked.length).toBe(20 * 20 - 10 * 10);
   });
 
+  it("大きな建物は占有範囲の一辺を渡し、その地面を敷地にする。道路と像は1マス", () => {
+    const { map, overlay } = cityToIso({
+      plots: INITIAL_PLOTS,
+      buildings: [
+        b({ id: "bank", special: "bank", x: -1, y: -1 }),
+        b({ id: "h", line: "housing", x: -5, y: -5 }),
+        b({ id: "st", special: "statue", x: -2, y: -2 }),
+        b({ id: "r", line: "road", x: -3, y: -3 }),
+      ],
+      jobs: [
+        { x: 3, y: 3, kind: "build", line: "factory", tier: 0, startedAt: 0, finishAt: 10 },
+        { x: -5, y: -5, kind: "upgrade", startedAt: 0, finishAt: 10 },
+      ],
+      zones: {},
+      devLevel: 1,
+      bankLevel: 1,
+    });
+    const size = (id: string) => map.objects.find((o) => o.id === id)?.size ?? 1;
+    expect([size("bank"), size("h"), size("st"), size("job:3,3"), size("job:-5,-5")]).toEqual([3, 2, 1, 2, 2]);
+    const lot = (x: number, y: number) => map.lot![tileIndex(map, x, y)];
+    expect([lot(-1, -1), lot(1, 1), lot(-4, -4), lot(4, 4), lot(-2, -2), lot(-3, -3), lot(2, 2)]).toEqual([1, 1, 1, 1, 0, 0, 0]);
+    expect(overlay.jobs?.map((j) => j.size)).toEqual([2, 2]);
+  });
+
+  it("v1 の盤面では、どの建物も1マス", () => {
+    const { map } = cityToIso({ layout: 1, buildings: [b({ id: "bank", special: "bank" })], zones: {}, devLevel: 6, bankLevel: 1 });
+    expect(map.objects[0].size).toBeUndefined();
+    expect(map.lot!.every((v) => v === 0)).toBe(true);
+  });
+
   it("工事：新築は足場、改築は覆いを手前に。バーは重ね描きに渡す", () => {
     const jobs = [
       { x: 1, y: 1, kind: "build", startedAt: 0, finishAt: 10 },

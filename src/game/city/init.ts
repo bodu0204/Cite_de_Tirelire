@@ -46,18 +46,30 @@ export function createCity(startAt: number, preset: CityPolicy["preset"] = "bala
     builtAt: t,
     ...extra,
   });
-  // v1 は 10×10 の (4, 4) に銀行。v2 は銀行の中心が原点
-  const o = layout === 1 ? 4 : 0;
-  const buildings: Building[] = [
-    b("bank", o, o, { special: "bank", locked: true }),
-    b("gold_mine", o + 1, o, { special: "gold_mine", locked: true }),
-    b("silver_mine", o, o + 1, { special: "silver_mine", locked: true }),
-    b("b1", o - 1, o - 1, { line: "housing" }),
-    b("b2", o - 1, o, { line: "housing" }),
-    b("b3", o - 1, o + 1, { line: "farm" }),
-    b("b4", o + 2, o + 1, { line: "lumber" }),
-    b("b5", o, o + 2, { line: "road" }),
-  ];
+  // v1 は 10×10 の (4, 4) に銀行、まわりに1マスずつ。
+  // v2 は銀行（3×3）の中心が原点で、2×2 の建物を区画の四隅（docs/map-layout-redesign.md §7.1）に置く
+  const buildings: Building[] =
+    layout === 1
+      ? [
+          b("bank", 4, 4, { special: "bank", locked: true }),
+          b("gold_mine", 5, 4, { special: "gold_mine", locked: true }),
+          b("silver_mine", 4, 5, { special: "silver_mine", locked: true }),
+          b("b1", 3, 3, { line: "housing" }),
+          b("b2", 3, 4, { line: "housing" }),
+          b("b3", 3, 5, { line: "farm" }),
+          b("b4", 6, 5, { line: "lumber" }),
+          b("b5", 4, 6, { line: "road" }),
+        ]
+      : [
+          b("bank", -1, -1, { special: "bank", locked: true }),
+          b("gold_mine", 3, -2, { special: "gold_mine", locked: true }),
+          b("silver_mine", -2, 3, { special: "silver_mine", locked: true }),
+          b("b1", -5, -2, { line: "housing" }),
+          b("b2", -2, -5, { line: "housing" }),
+          b("b3", -5, 0, { line: "farm" }),
+          b("b4", 3, 0, { line: "lumber" }),
+          b("b5", 2, 1, { line: "road" }),
+        ];
   const priorities = preset === "custom" ? DEFAULT_PRIORITIES : POLICY_PRESETS[preset].priorities;
   return {
     v: layout,

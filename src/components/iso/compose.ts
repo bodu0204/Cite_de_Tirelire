@@ -63,6 +63,16 @@ export function dimmed(base: Art, gray: number, dark: number): Art {
   return { canvas: c, ax: base.ax, ay: base.ay };
 }
 
+/** 色を rgb に k の割合で寄せる（大きな建物の敷地：草を踏み固めた土の色にする） */
+export function blended(base: Art, rgb: [number, number, number], k: number): Art {
+  const [c, ctx] = copy(base);
+  const img = ctx.getImageData(0, 0, c.width, c.height);
+  const d = img.data;
+  for (let i = 0; i < d.length; i += 4) for (let j = 0; j < 3; j++) d[i + j] = Math.round(d[i + j] * (1 - k) + rgb[j] * k);
+  ctx.putImageData(img, 0, 0);
+  return { canvas: c, ax: base.ax, ay: base.ay };
+}
+
 /**
  * 絵の外側を1ドット囲む輪郭だけの絵（選んだ建物を光らせる。OBJ-10）。
  * 上下左右に不透明な画素がある透明な画素を塗る。絵より上下左右1ドットずつ大きい

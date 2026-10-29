@@ -2,7 +2,7 @@
 // 先に引き、組み合わせの絵（compose.ts）を作り、なければ仮の絵を描いて返す。
 import { LINES, type LineId } from "@/game/catalog";
 import { type AnimIndex, loadAtlas, loadImage } from "./atlas";
-import { dimmed, statueInProgress, withLevel } from "./compose";
+import { blended, dimmed, statueInProgress, withLevel } from "./compose";
 import { type Art, drawAgentArt, drawBuildingArt, drawGroundArt, drawSelectArt } from "./placeholder";
 
 function drawArt(key: string, tw: number): Art | null {
@@ -165,6 +165,11 @@ export class ArtBook {
     if (key === "ground/locked") {
       const g = this.loaded.get("ground/grass/0");
       return g ? dimmed(g, 0.5, 0.55) : null;
+    }
+    // 大きな建物の敷地（生成した絵がなければ、草を土の色に寄せて作る）
+    if (key === "ground/lot" && !this.loaded.has(key)) {
+      const g = this.loaded.get("ground/grass/0");
+      return g ? blended(g, [0xc9, 0xb3, 0x86], 0.72) : null;
     }
     if (at < 0) return null;
     const baseKey = key.slice(0, at);

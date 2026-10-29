@@ -26,9 +26,19 @@ export function tileLabel(s: Pick<CityState, "v">, x: number, y: number): string
 
 // ---- 建物の大きさ ----
 
-/** 建物の一辺のマス数 */
-export function buildingSize(_s: Pick<CityState, "v">, _b: Pick<Building, "line" | "special" | "tier">): number {
-  return 1;
+/** 高額なサブスクの公園（3×3）になる公園の段階（月額 3,000円以上。Q1） */
+export const BIG_PARK_TIER = 3;
+
+/**
+ * 建物の一辺のマス数（docs/map-layout-redesign.md §4.1）。v1 の街はすべて1マス。
+ * v2 は道路・像が 1×1、銀行と高額なサブスクの公園が 3×3、それ以外（鉄道・金鉱・銀鉱・ほかの公園を含む）が 2×2
+ */
+export function buildingSize(s: Pick<CityState, "v">, b: Pick<Building, "line" | "special" | "tier">): number {
+  if (isLegacy(s)) return 1;
+  if (b.line === "road" || b.special === "statue") return 1;
+  if (b.special === "bank") return 3;
+  if (b.special === "park") return b.tier >= BIG_PARK_TIER ? 3 : 2;
+  return 2;
 }
 
 /** 占有範囲のマス */
@@ -171,14 +181,17 @@ export function legacyZones(): Record<string, Zone> {
   return zones;
 }
 
-/** v2：初期の土地用途の提案。原点のまわりが特殊地区、四象限に住宅・商業・農業・工業 */
+/**
+ * v2：初期の土地用途の提案。中心の 10×10 の四つの区画を住宅（北西）・商業（北東）・農業（南西）・工業（南東）にし、
+ * 銀行のまわりの街区（−2〜1）と、金鉱・銀鉱の敷地を特殊地区にする
+ */
 export function initialZones(): Record<string, Zone> {
   const zones: Record<string, Zone> = {};
+  const special = (x: number, y: number) =>
+    (x >= -2 && x <= 1 && y >= -2 && y <= 1) || (x >= 3 && x <= 4 && y >= -2 && y <= -1) || (x >= -2 && x <= -1 && y >= 3 && y <= 4);
   for (let y = -PLOT_SIZE; y < PLOT_SIZE; y++)
-    for (let x = -PLOT_SIZE; x < PLOT_SIZE; x++) {
-      const center = Math.abs(x) <= 1 && Math.abs(y) <= 1;
-      zones[tileKey(x, y)] = center ? "special" : y < 0 ? (x < 0 ? "residential" : "commercial") : x < 0 ? "agricultural" : "industrial";
-    }
+    for (let x = -PLOT_SIZE; x < PLOT_SIZE; x++)
+      zones[tileKey(x, y)] = special(x, y) ? "special" : y < 0 ? (x < 0 ? "residential" : "commercial") : x < 0 ? "agricultural" : "industrial";
   return zones;
 }
 
@@ -231,6 +244,20 @@ export function fits(s: CityState, x: number, y: number, size: number, occ = occ
     if (o && o !== ignore) return false;
   }
   return true;
+}
+
+/**
+ * 選んだマス（tx, ty）を含むように size×size を置ける左上のマス。選んだマスを左上にできればそれを、
+ * できなければ占有範囲が選んだマスを含むほかの置き方を、左上から順に試す
+ */
+export function placementFor(s: CityState, size: number, tx: number, ty: number, occ = occupancy(s), ignore?: string): { x: number; y: number } | null {
+  if (fits(s, tx, ty, size, occ, ignore)) return { x: tx, y: ty };
+  for (let dy = 0; dy < size; dy++)
+    for (let dx = 0; dx < size; dx++) {
+      if (!dx && !dy) continue;
+      if (fits(s, tx - dx, ty - dy, size, occ, ignore)) return { x: tx - dx, y: ty - dy };
+    }
+  return null;
 }
 
 /** 建てられる場所（左上のマス）。size×size が収まるところ */

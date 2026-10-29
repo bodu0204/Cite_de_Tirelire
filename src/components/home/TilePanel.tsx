@@ -17,7 +17,7 @@ import {
   type Zone,
 } from "@/game/catalog";
 import { buildingOutput } from "@/game/city/economy";
-import { buildingSize, contains, isLegacy, isNoAuto, isPlaced, isTileUnlocked, jobSize, tileUnlockLevel, zoneAt } from "@/game/city/layout";
+import { buildingSize, contains, isLegacy, isNoAuto, isPlaced, isTileUnlocked, jobSize, occupancy, placementFor, tileUnlockLevel, zoneAt } from "@/game/city/layout";
 import { FEE_MOVE, FEE_RUSH_PER_10MIN, feeBuild, feeUpgrade, MINUTE } from "@/game/config";
 import { PARK_DESCRIPTION, PARK_SIZE_LABELS, STATUE_DESCRIPTION, statueStageLabel } from "@/game/describe";
 import { STATUE_RANK_LABELS } from "@/game/levels";
@@ -157,19 +157,21 @@ export function TilePanel({
 
   if (moving) {
     const target = city.buildings.find((o) => o.id === moving);
+    const room = target ? placementFor(city, buildingSize(city, target), tile.x, tile.y, occupancy(city), target.id) : null;
     return (
       <div className="space-y-2 text-sm">
         <p>
           {target?.line ? tierDef(target.line, target.tier).name : target?.special ? SPECIAL_LABELS[target.special] : "建物"}の移動先を選んでください（銀貨{FEE_MOVE}S）。
         </p>
         <div className="flex gap-2">
-          <Button disabled={busy || !!b || !!job} onClick={() => cityAct({ type: "move", buildingId: moving, x: tile.x, y: tile.y }).then(() => setMoving(null))}>
+          <Button disabled={busy || !room} onClick={() => cityAct({ type: "move", buildingId: moving, x: tile.x, y: tile.y }).then(() => setMoving(null))}>
             ここへ移動
           </Button>
           <Button variant="secondary" onClick={() => setMoving(null)}>
             やめる
           </Button>
         </div>
+        {!room && target && <p className="text-xs text-muted">{buildingSize(city, target) > 1 ? `ここには ${buildingSize(city, target)}×${buildingSize(city, target)} マスの空きがありません。` : "このマスは使えません。"}</p>}
       </div>
     );
   }
@@ -281,8 +283,13 @@ export function TilePanel({
     );
   }
 
-  // 空き地：建設メニュー
-  const lines = LINE_IDS.map((line) => ({ line, tier: highestUnlockedTier(line, city.techLevel, dev) })).filter((x) => x.tier >= 0);
+  // 空き地：建設メニュー。大きな建物は、選んだマスを含む空きがあるものだけ建てられる
+  const occ = occupancy(city);
+  const lines = LINE_IDS.map((line) => {
+    const tier = highestUnlockedTier(line, city.techLevel, dev);
+    const size = buildingSize(city, { line, tier });
+    return { line, tier, size, room: tier >= 0 && !!placementFor(city, size, tile.x, tile.y, occ) };
+  }).filter((x) => x.tier >= 0);
   const suggested = lines.filter((l) => LINES[l.line].zone === zone || LINES[l.line].zone === "any");
   const list = showAll || suggested.length === 0 ? lines : suggested;
   return (
@@ -291,10 +298,10 @@ export function TilePanel({
         空き地（{ZONE_LABELS[zone]}）。手動建設は資材と銀貨で支払います。
       </p>
       <ul className="grid gap-2 sm:grid-cols-2">
-        {list.map(({ line, tier }) => {
+        {list.map(({ line, tier, size, room }) => {
           const t = tierDef(line, tier);
           const fee = feeBuild(tier);
-          const ok = city.stock.wood >= t.cost.wood && city.stock.stone >= t.cost.stone && silver >= fee;
+          const ok = room && city.stock.wood >= t.cost.wood && city.stock.stone >= t.cost.stone && silver >= fee;
           return (
             <li key={line}>
               <button
@@ -307,6 +314,7 @@ export function TilePanel({
                   <span className="ml-1 text-xs text-muted">{LINES[line].label}</span>
                 </span>
                 <CostLine cost={t.cost} fee={fee} />
+                {size > 1 && <span className="text-xs text-muted">{room ? `${size}×${size} マス` : `${size}×${size} マスの空きがありません`}</span>}
               </button>
             </li>
           );

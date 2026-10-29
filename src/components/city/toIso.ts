@@ -2,7 +2,7 @@
 // 描画側はマップの大きさやゲームの規則を知らないので（RND-10）、ここで絵のキーと重ね描きの情報に置き換える。
 import { LINES, type LineId, type SpecialKind, type Zone } from "@/game/catalog";
 import { LOGISTICS_FLOOR, PLOT_SIZE } from "@/game/config";
-import { landBounds, plotKey, plotOf, tileKey, tileUnlockLevel, type Rect } from "@/game/city/layout";
+import { buildingSize, landBounds, plotKey, plotOf, tileKey, tileUnlockLevel, type Rect } from "@/game/city/layout";
 import type { CityLayout } from "@/game/types";
 import { MIN_ROAD } from "@/components/iso/agents";
 import { hash2, type IsoMap, type IsoObject, type IsoOverlay, tileIndex } from "@/components/iso/map";
@@ -23,6 +23,9 @@ export interface CityJob {
   x: number;
   y: number;
   kind: string;
+  /** 新築の大きさを決める（v2） */
+  line?: LineId;
+  tier?: number;
   startedAt: number;
   finishAt: number;
 }
@@ -179,7 +182,18 @@ export function cityToIso(input: CityInput): { map: IsoMap; overlay: IsoOverlay 
   const n = shape.width * shape.height;
   const road = new Uint8Array(n);
   const locked = new Uint8Array(n);
+  const lot = new Uint8Array(n);
   const objects: IsoObject[] = [];
+  const layout = { v: input.layout ?? 2 };
+  /** 大きな建物の占有範囲の地面を敷地にする */
+  const markLot = (x: number, y: number, size: number) => {
+    if (size < 2) return;
+    for (let dy = 0; dy < size; dy++)
+      for (let dx = 0; dx < size; dx++) {
+        const i = tileIndex(shape, x + dx, y + dy);
+        if (i >= 0) lot[i] = 1;
+      }
+  };
 
   // 2回たどる（建物と困りごと）ので、一度だけ取り出す
   const buildings = [...input.buildings];
@@ -191,7 +205,9 @@ export function cityToIso(input: CityInput): { map: IsoMap; overlay: IsoOverlay 
       road[i] = b.tier + 1;
       continue;
     }
-    objects.push({ id: b.id, x: b.x, y: b.y, key: buildingKey(b, input.bankLevel) });
+    const size = buildingSize(layout, b);
+    markLot(b.x, b.y, size);
+    objects.push({ id: b.id, x: b.x, y: b.y, key: buildingKey(b, input.bankLevel), ...(size > 1 ? { size } : {}) });
     // 金鉱の前に、未回収の金の量に応じた金貨の山（A4）
     const stage = b.special === "gold_mine" && input.gold ? goldStage(input.gold.uncollected, input.gold.ratePerMinute) : 0;
     if (stage) objects.push({ id: "gold", x: b.x, y: b.y, key: `props/gold/${stage}`, dz: 0.3, ox: 14, oy: 7 });
@@ -210,9 +226,15 @@ export function cityToIso(input: CityInput): { map: IsoMap; overlay: IsoOverlay 
     }
 
   // 工事（OBJ-07）：新築は足場、改築・進化は建物の手前に覆い
+  // 改築・進化の覆いは、建物と同じ大きさで建物の手前に重ねる
+  const sizeAt = new Map(buildings.filter((b) => b.placed !== false).map((b) => [tileKey(b.x, b.y), buildingSize(layout, b)]));
+  const jobSize = (j: CityJob) => (j.kind === "build" ? (j.line ? buildingSize(layout, { line: j.line, tier: j.tier ?? 0 }) : 1) : (sizeAt.get(tileKey(j.x, j.y)) ?? 1));
   for (const j of input.jobs ?? []) {
+    const size = jobSize(j);
+    const sz = size > 1 ? { size } : {};
+    if (j.kind === "build") markLot(j.x, j.y, size);
     objects.push(
-      j.kind === "build" ? { id: `job:${j.x},${j.y}`, x: j.x, y: j.y, key: "fx/scaffold" } : { id: `job:${j.x},${j.y}`, x: j.x, y: j.y, key: "fx/cover", dz: 0.25 },
+      j.kind === "build" ? { id: `job:${j.x},${j.y}`, x: j.x, y: j.y, key: "fx/scaffold", ...sz } : { id: `job:${j.x},${j.y}`, x: j.x, y: j.y, key: "fx/cover", dz: 0.25, ...sz },
     );
   }
 
@@ -231,12 +253,12 @@ export function cityToIso(input: CityInput): { map: IsoMap; overlay: IsoOverlay 
   const paved = road.reduce((n, r) => n + (r >= MIN_ROAD.car ? 1 : 0), 0);
   const agents = input.population === undefined ? undefined : agentCounts(input.population, input.logistics ?? 1, roadTiles, paved);
   return {
-    map: { ...shape, road, locked, objects, home: input.layout === 1 ? undefined : { x: 0, y: 0 } },
+    map: { ...shape, road, locked, lot, objects, home: input.layout === 1 ? undefined : { x: 0, y: 0 } },
     overlay: {
       zones,
       showZones: input.showZones,
       noAuto: noAutoSet.size ? noAuto : undefined,
-      jobs: input.jobs?.map((j) => ({ x: j.x, y: j.y, startedAt: j.startedAt, finishAt: j.finishAt })),
+      jobs: input.jobs?.map((j) => ({ x: j.x, y: j.y, size: jobSize(j), startedAt: j.startedAt, finishAt: j.finishAt })),
       highlights: input.highlights ? [...input.highlights] : undefined,
       night: input.hour === undefined ? 0 : nightLevel(input.hour),
       lights: lightRatio(input.occupancy),
