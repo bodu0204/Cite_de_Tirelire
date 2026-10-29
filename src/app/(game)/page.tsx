@@ -2,14 +2,14 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { CityCanvas } from "@/components/city/CityCanvas";
+import { CityView } from "@/components/city/CityView";
 import { useGame, useSeasonView } from "@/components/GameProvider";
 import { EventLog } from "@/components/home/EventLog";
 import { DevGauge, SavingsGauge, TechGauge, WishSavingsGauge } from "@/components/home/Gauges";
 import { Onboarding } from "@/components/home/Onboarding";
 import { TilePanel } from "@/components/home/TilePanel";
 import { BondIcon, Button, Card, Coin, CustomIcon, LinkButton, Modal, Stat } from "@/components/ui";
-import { devLevel } from "@/game/levels";
+import { expandablePlots, tileLabel } from "@/game/city/layout";
 import { fmt } from "@/lib/api";
 
 /** ホームに最初から出すユーザ通貨の数（残りは折りたたむ） */
@@ -21,12 +21,29 @@ export default function HomePage() {
   const [tile, setTile] = useState<{ x: number; y: number } | null>(null);
   const [moving, setMoving] = useState<string | null>(null);
   const [showZones, setShowZones] = useState(false);
+  // 昼夜を時刻に合わせるか（OBJ-14）。端末ごとに覚える。読めなければ合わせる
+  const [dayNight, setDayNight] = useState(true);
+  useEffect(() => {
+    try {
+      setDayNight(localStorage.getItem("city-daynight") !== "off");
+    } catch {
+      // 保存できない環境では既定のまま
+    }
+  }, []);
+  const toggleDayNight = (on: boolean) => {
+    setDayNight(on);
+    try {
+      localStorage.setItem("city-daynight", on ? "on" : "off");
+    } catch {
+      // 保存できなくても表示は切り替わる
+    }
+  };
   const [away, setAway] = useState<NonNullable<NonNullable<typeof v>["away"]> | null>(null);
   const [highlights, setHighlights] = useState<Set<string>>(new Set());
   const [allCurrencies, setAllCurrencies] = useState(false);
 
   useEffect(() => {
-    if (v?.away && (v.away.built || v.away.upgraded || v.away.evolved || v.away.population || v.away.devPoints)) {
+    if (v?.away && (v.away.built || v.away.upgraded || v.away.evolved || v.away.expanded || v.away.population || v.away.devPoints)) {
       setAway(v.away);
       setHighlights(new Set(v.away.tiles.map(([x, y]) => `${x},${y}`)));
       const t = setTimeout(() => setHighlights(new Set()), 20_000);
@@ -43,6 +60,8 @@ export default function HomePage() {
 
   const m = v.metrics;
   const c = v.city;
+  // 開拓できる区画には看板を立てる
+  const expandable = expandablePlots(c);
   const uncollected = Math.floor(v.mine.uncollected);
 
   return (
@@ -56,31 +75,44 @@ export default function HomePage() {
         )}
 
         <div>
-          <CityCanvas
+          <CityView
             label={`${v.dev.name}の街。人口${Math.floor(m.population)}人、建物${c.buildings.length}棟。矢印キーでマスを選べます`}
+            plots={c.plots}
+            expandable={expandable}
             buildings={c.buildings}
             jobs={c.jobs}
             zones={c.zones}
             noAuto={c.noAuto}
-            devLevel={devLevel(c.devPoints)}
             bankLevel={c.bankLevel}
             selected={tile}
             highlights={highlights}
             showZones={showZones}
             serverOffset={offset}
             onSelect={setTile}
+            timezone={dayNight ? view.user.timezone : undefined}
+            occupancy={m.housingCap > 0 ? m.population / m.housingCap : 0}
+            population={m.population}
+            logistics={m.logistics}
+            supply={{ power: m.powerRatio, workers: m.laborRatio, food: m.foodRatio }}
+            gold={{ uncollected: v.mine.uncollected, ratePerMinute: v.mine.ratePerMinute }}
           />
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
             <span>マスを選ぶと建物の操作ができます。街は操作しなくても自動で発展します。</span>
-            <label className="flex shrink-0 items-center gap-1.5 whitespace-nowrap">
-              <input type="checkbox" className="w-auto" checked={showZones} onChange={(e) => setShowZones(e.target.checked)} />
-              土地用途を表示
-            </label>
+            <span className="flex shrink-0 flex-wrap items-center gap-3">
+              <label className="flex items-center gap-1.5 whitespace-nowrap">
+                <input type="checkbox" className="w-auto" checked={showZones} onChange={(e) => setShowZones(e.target.checked)} />
+                土地用途を表示
+              </label>
+              <label className="flex items-center gap-1.5 whitespace-nowrap">
+                <input type="checkbox" className="w-auto" checked={dayNight} onChange={(e) => toggleDayNight(e.target.checked)} />
+                時刻に合わせて昼夜を表示
+              </label>
+            </span>
           </div>
         </div>
 
         {tile && (
-          <Card title={`マス (${tile.x + 1}, ${tile.y + 1})`} action={<button className="text-sm text-muted" onClick={() => (setTile(null), setMoving(null))}>閉じる</button>}>
+          <Card title={tileLabel(tile.x, tile.y)} action={<button className="text-sm text-muted" onClick={() => (setTile(null), setMoving(null))}>閉じる</button>}>
             <TilePanel v={v} tile={tile} moving={moving} setMoving={setMoving} />
           </Card>
         )}
@@ -180,6 +212,7 @@ export default function HomePage() {
               {away.built > 0 && <li>建物 {away.built}棟を建設</li>}
               {away.upgraded > 0 && <li>建物 {away.upgraded}件をアップグレード</li>}
               {away.evolved > 0 && <li>建物 {away.evolved}棟が進化</li>}
+              {away.expanded > 0 && <li>区画を {away.expanded}つ開拓</li>}
               <li>発展ポイント +{fmt(away.devPoints)}</li>
               <li>都市資金 {away.treasury >= 0 ? "+" : ""}{fmt(away.treasury)}</li>
               {away.bondResources.wood + away.bondResources.stone + away.bondResources.food + away.bondResources.treasury > 0 && (

@@ -6,6 +6,7 @@ import {
   demolish,
   manualBuild,
   manualEvolve,
+  manualExpand,
   manualUpgrade,
   moveBuilding,
   rushJob,
@@ -482,10 +483,11 @@ export function cityAction(ctx: GameCtx, body: Body) {
   const silver = ctx.balances.silver;
   const type = oneOf(
     body.type,
-    ["build", "upgrade", "evolve", "move", "demolish", "rush", "lock", "zone", "noAuto", "policy"] as const,
+    ["build", "upgrade", "evolve", "move", "demolish", "rush", "lock", "zone", "noAuto", "policy", "expand"] as const,
     "操作",
   );
-  const xy = () => ({ x: int(body.x, "X", { max: 9 }), y: int(body.y, "Y", { max: 9 }) });
+  // 範囲の確かめは actions.ts で行う（銀行の中心が原点なので負の座標もある）
+  const xy = () => ({ x: int(body.x, "X", { min: -100_000, max: 100_000 }), y: int(body.y, "Y", { min: -100_000, max: 100_000 }) });
   const id = () => str(body.buildingId ?? body.jobId, "対象");
   let fee = 0;
   switch (type) {
@@ -509,6 +511,12 @@ export function cityAction(ctx: GameCtx, body: Body) {
     case "demolish":
       demolish(city, id(), ctx.now, ctx.events);
       break;
+    case "expand": {
+      // 選んだマスの区画を開拓する（docs/map-layout-redesign.md §7.2）
+      const { x, y } = xy();
+      fee = manualExpand(city, x, y, ctx.now, silver).silverFee;
+      break;
+    }
     case "rush":
       fee = rushJob(city, id(), ctx.now, silver, ctx.events).silverFee;
       break;
@@ -536,6 +544,7 @@ export function cityAction(ctx: GameCtx, body: Body) {
         patch.preset = "custom";
       }
       if (body.autoEnabled !== undefined) patch.autoEnabled = bool(body.autoEnabled);
+      if (body.autoExpand !== undefined) patch.autoExpand = bool(body.autoExpand);
       setPolicy(city, patch);
       break;
     }

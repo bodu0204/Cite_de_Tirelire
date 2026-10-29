@@ -21,9 +21,11 @@ export interface Building {
   refId?: string;
   tier: number;
   level: number;
-  /** -1 はマップ外（土地が足りない特殊施設） */
+  /** 占有範囲の左上のマス（docs/map-layout-redesign.md §4.2）。銀行の中心が原点で、負もある */
   x: number;
   y: number;
+  /** false はマップ外（土地が足りない特殊施設）。x, y は意味を持たない */
+  placed?: false;
   /** 固定：自動開発の対象外、移動不可 */
   locked: boolean;
   /** 手動で配置・編集された（自動配置変更の対象外） */
@@ -33,7 +35,8 @@ export interface Building {
   builtAt: number;
 }
 
-export type JobKind = "build" | "upgrade" | "evolve";
+/** expand は区画の開拓（docs/map-layout-redesign.md §7.2） */
+export type JobKind = "build" | "upgrade" | "evolve" | "expand";
 
 export interface Job {
   id: string;
@@ -42,10 +45,14 @@ export interface Job {
   line: LineId;
   tier: number;
   level: number;
-  /** upgrade / evolve の対象。build ならジョブ完了時に作られる建物ID */
+  /** upgrade / evolve の対象。build ならジョブ完了時に作られる建物ID。expand は "plot:px,py" */
   buildingId: string;
+  /** 対象のマス。expand は区画の左上のマス */
   x: number;
   y: number;
+  /** expand：開く区画（"px,py"）と、その土地用途（自動開発が土地を求めた建物の用途。手動は未指定） */
+  plot?: string;
+  zone?: Zone;
   startedAt: number;
   finishAt: number;
 }
@@ -67,6 +74,8 @@ export interface CityPolicy {
   priorities: NeedKey[];
   /** false で自動開発を止める */
   autoEnabled: boolean;
+  /** false で自動開発の開拓を止める（省略すると開拓する。Q9） */
+  autoExpand?: boolean;
 }
 
 export interface CityState {
@@ -83,9 +92,12 @@ export interface CityState {
   devPoints: number;
   /** 建築実績の最高記録。重複計上を防ぐ（"line:tier" → 棟数, "lv:line" → Lv合計） */
   peaks: Record<string, number>;
-  zones: Zone[];
-  /** 自動建設を禁止したマス */
-  noAuto: boolean[];
+  /** マスの土地用途（キーは "x,y"）。書いていないマスは未指定 */
+  zones: Record<string, Zone>;
+  /** 自動建設を禁止したマス（"x,y"） */
+  noAuto: string[];
+  /** 開拓した区画（"px,py"。区画 (px, py) はマス x = 5px〜5px+4、y = 5py〜5py+4） */
+  plots: string[];
   policy: CityPolicy;
   techLevel: number;
   /** 銀行Lv（達成率から決まる。タイムラプスの外観用に街の状態にも持つ） */
@@ -106,7 +118,7 @@ export type CityEventType =
   | "MOVE"
   | "TECH_UNLOCKED"
   | "DEV_LEVEL"
-  | "DISTRICT_UNLOCKED"
+  | "PLOT_EXPANDED"
   | "POPULATION"
   | "SHORTAGE_STARTED"
   | "SHORTAGE_RESOLVED"
@@ -131,7 +143,7 @@ export interface CityEvent {
 }
 
 /** タイムラプス再生用の建物の要約 */
-export type BuildingSnap = Pick<Building, "id" | "line" | "special" | "refId" | "tier" | "level" | "x" | "y" | "closed">;
+export type BuildingSnap = Pick<Building, "id" | "line" | "special" | "refId" | "tier" | "level" | "x" | "y" | "closed" | "placed">;
 
 export function snapBuilding(b: Building): BuildingSnap {
   const s: BuildingSnap = { id: b.id, tier: b.tier, level: b.level, x: b.x, y: b.y };
@@ -139,5 +151,6 @@ export function snapBuilding(b: Building): BuildingSnap {
   if (b.special) s.special = b.special;
   if (b.refId) s.refId = b.refId;
   if (b.closed) s.closed = true;
+  if (b.placed === false) s.placed = false;
   return s;
 }

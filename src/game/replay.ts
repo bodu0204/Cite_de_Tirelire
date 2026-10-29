@@ -9,16 +9,18 @@ export interface ReplayEvent {
 }
 
 export interface ReplayFrame {
+  plots: string[];
   buildings: Map<string, BuildingSnap>;
-  zones: Zone[];
+  zones: Record<string, Zone>;
   devLevel: number;
   techLevel: number;
   bankLevel: number;
 }
 
 export interface ReplayStart {
+  plots: string[];
   buildings: BuildingSnap[];
-  zones: Zone[];
+  zones: Record<string, Zone>;
   techLevel: number;
 }
 
@@ -38,6 +40,13 @@ export function applyEvent(frame: ReplayFrame, e: ReplayEvent) {
     case "DEMOLISH":
       frame.buildings.delete(e.payload.buildingId as string);
       break;
+    case "PLOT_EXPANDED": {
+      // 区画を開き、十字の道路を敷く（土地用途は描画に使わないので持たない）
+      const plot = e.payload.plot as string;
+      if (!frame.plots.includes(plot)) frame.plots = [...frame.plots, plot];
+      for (const r of (e.payload.roads as BuildingSnap[] | undefined) ?? []) frame.buildings.set(r.id, { ...r });
+      break;
+    }
     case "DEV_LEVEL":
       frame.devLevel = Math.max(frame.devLevel, e.payload.level as number);
       break;
@@ -60,6 +69,7 @@ export function createReplay(start: ReplayStart, events: ReplayEvent[]) {
   let cursor = 0;
   const reset = () => {
     frame = {
+      plots: [...start.plots],
       buildings: new Map(start.buildings.map((b) => [b.id, { ...b }])),
       zones: start.zones,
       devLevel: 1,

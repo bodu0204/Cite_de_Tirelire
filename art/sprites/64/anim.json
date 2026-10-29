@@ -1,0 +1,210 @@
+{
+  "building/factory/0": {
+    "fps": 8,
+    "frames": 8,
+    "anchor": [
+      32,
+      81
+    ]
+  },
+  "building/factory/1": {
+    "fps": 8,
+    "frames": 8,
+    "anchor": [
+      32,
+      92
+    ]
+  },
+  "building/factory/2": {
+    "fps": 8,
+    "frames": 8,
+    "anchor": [
+      32,
+      100
+    ]
+  },
+  "building/factory/3": {
+    "fps": 8,
+    "frames": 8,
+    "anchor": [
+      32,
+      140
+    ]
+  },
+  "building/power/1": {
+    "fps": 8,
+    "frames": 8,
+    "anchor": [
+      32,
+      99
+    ]
+  },
+  "building/power/2": {
+    "fps": 8,
+    "frames": 8,
+    "anchor": [
+      32,
+      117
+    ]
+  },
+  "building/lumber/0": {
+    "fps": 8,
+    "frames": 8,
+    "anchor": [
+      32,
+      80
+    ]
+  },
+  "special/park/3": {
+    "fps": 10,
+    "frames": 8,
+    "anchor": [
+      32,
+      88
+    ]
+  },
+  "special/bank/6": {
+    "fps": 10,
+    "frames": 8,
+    "anchor": [
+      32,
+      144
+    ]
+  },
+  "special/gold_mine": {
+    "fps": 10,
+    "frames": 8,
+    "anchor": [
+      32,
+      56
+    ]
+  },
+  "special/silver_mine": {
+    "fps": 10,
+    "frames": 8,
+    "anchor": [
+      32,
+      56
+    ]
+  },
+  "building/power/0": {
+    "fps": 8,
+    "frames": 8,
+    "anchor": [
+      32,
+      88
+    ]
+  },
+  "building/future/0": {
+    "fps": 8,
+    "frames": 8,
+    "anchor": [
+      32,
+      142
+    ]
+  },
+  "big/building/factory/0": {
+    "fps": 8,
+    "frames": 8,
+    "anchor": [
+      64,
+      113
+    ]
+  },
+  "big/building/factory/1": {
+    "fps": 8,
+    "frames": 8,
+    "anchor": [
+      64,
+      127
+    ]
+  },
+  "big/building/factory/2": {
+    "fps": 8,
+    "frames": 8,
+    "anchor": [
+      64,
+      159
+    ]
+  },
+  "big/building/factory/3": {
+    "fps": 8,
+    "frames": 8,
+    "anchor": [
+      64,
+      175
+    ]
+  },
+  "big/building/power/1": {
+    "fps": 8,
+    "frames": 8,
+    "anchor": [
+      64,
+      136
+    ]
+  },
+  "big/building/power/2": {
+    "fps": 8,
+    "frames": 8,
+    "anchor": [
+      64,
+      160
+    ]
+  },
+  "big/building/lumber/0": {
+    "fps": 8,
+    "frames": 8,
+    "anchor": [
+      64,
+      110
+    ]
+  },
+  "big/special/park/3": {
+    "fps": 10,
+    "frames": 8,
+    "anchor": [
+      96,
+      163
+    ]
+  },
+  "big/special/bank/6": {
+    "fps": 10,
+    "frames": 8,
+    "anchor": [
+      96,
+      208
+    ]
+  },
+  "big/special/gold_mine": {
+    "fps": 10,
+    "frames": 8,
+    "anchor": [
+      64,
+      90
+    ]
+  },
+  "big/special/silver_mine": {
+    "fps": 10,
+    "frames": 8,
+    "anchor": [
+      64,
+      83
+    ]
+  },
+  "big/building/power/0": {
+    "fps": 8,
+    "frames": 8,
+    "anchor": [
+      64,
+      103
+    ]
+  },
+  "big/building/future/0": {
+    "fps": 8,
+    "frames": 8,
+    "anchor": [
+      64,
+      184
+    ]
+  }
+}

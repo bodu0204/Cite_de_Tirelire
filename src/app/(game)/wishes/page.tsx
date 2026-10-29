@@ -1,10 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { drawBuilding } from "@/components/city/draw";
+import { SpritePreview } from "@/components/city/SpritePreview";
+import { buildingKey } from "@/components/city/toIso";
 import { useGame, useSeasonView } from "@/components/GameProvider";
 import { Button, Card, Empty, Field, Gauge, Modal } from "@/components/ui";
 import { statueStage } from "@/game/city/actions";
+import { tileLabel } from "@/game/city/layout";
 import { STATUE_DESCRIPTION, statueStageLabel } from "@/game/describe";
 import { STATUE_RANK_LABELS, statueRank } from "@/game/levels";
 import { fmt, yen } from "@/lib/api";
@@ -24,25 +26,13 @@ const PRIORITY = ["", "高", "中", "低"];
 const RANKS = ["bronze", "silver", "gold"] as const;
 
 function StatueIcon({ w }: { w: Wish }) {
-  return (
-    <canvas
-      width={16}
-      height={16}
-      aria-hidden
-      className="pixelated h-12 w-12 shrink-0 rounded-md bg-[#66bb6a]"
-      ref={(c) => {
-        const ctx = c?.getContext("2d");
-        if (!ctx) return;
-        ctx.clearRect(0, 0, 16, 16);
-        const stage = statueStage({ id: w.id, name: w.name, price: w.price, progress: w.reserved / w.price, purchased: !!w.purchasedAt });
-        drawBuilding(ctx, { id: w.id, special: "statue", tier: RANKS.indexOf(statueRank(w.price)), level: stage, x: 0, y: 0 }, 0, 0, 1, 0);
-      }}
-    />
-  );
+  const stage = statueStage({ id: w.id, name: w.name, price: w.price, progress: w.reserved / w.price, purchased: !!w.purchasedAt });
+  const key = buildingKey({ id: w.id, special: "statue", tier: RANKS.indexOf(statueRank(w.price)), level: stage, x: 0, y: 0 }, 1);
+  return <SpritePreview spriteKey={key} className="h-12 w-12 shrink-0 rounded-md bg-[#66bb6a]" />;
 }
 
 /** 像の状態の1行説明 */
-function StatueLine({ w, where }: { w: Wish; where?: { x: number; y: number } }) {
+function StatueLine({ w, where }: { w: Wish; where?: { x: number; y: number; placed?: false } }) {
   const stage = statueStage({ id: w.id, name: w.name, price: w.price, progress: w.reserved / w.price, purchased: !!w.purchasedAt });
   return (
     <p className="mt-1 rounded-md bg-surface-2 px-2 py-1 text-xs">
@@ -50,7 +40,7 @@ function StatueLine({ w, where }: { w: Wish; where?: { x: number; y: number } })
       <span className="text-muted">
         {" ・ "}
         {STATUE_RANK_LABELS[statueRank(w.price)]} ・ {statueStageLabel(stage)}
-        {where && ` ・ ${where.x >= 0 ? `マス(${where.x + 1}, ${where.y + 1})` : "置く場所の空き待ち"}`}
+        {where && ` ・ ${where.placed !== false ? tileLabel(where.x, where.y) : "置く場所の空き待ち"}`}
         {!w.purchasedAt && stage < 4 && ` ・ 次の段階まであと${fmt(Math.max(0, Math.ceil(((stage + 1) * w.price) / 4) - w.reserved))}G`}
       </span>
     </p>

@@ -11,7 +11,8 @@ const INITIAL_ROWS = 6;
 
 const LABEL: Record<keyof PlanStock, string> = { wood: "木材", stone: "石材", treasury: "都市資金" };
 
-const planLabel = (p: QueuePlan) => (p.kind === "build" ? `${p.name}を新築` : p.kind === "evolve" ? `${p.name}へ進化` : `${p.name} Lv${p.level}へ`);
+const planLabel = (p: QueuePlan) =>
+  p.kind === "build" ? `${p.name}を新築` : p.kind === "evolve" ? `${p.name}へ進化` : p.kind === "expand" ? p.name : `${p.name} Lv${p.level}へ`;
 
 type Tone = "ok" | "new" | "short";
 

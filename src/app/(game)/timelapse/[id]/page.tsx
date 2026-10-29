@@ -1,7 +1,7 @@
 "use client";
 
 import { use, useEffect, useMemo, useRef, useState } from "react";
-import { CityCanvas } from "@/components/city/CityCanvas";
+import { CityView } from "@/components/city/CityView";
 import { useGame } from "@/components/GameProvider";
 import { Button, Card, Gauge, LinkButton } from "@/components/ui";
 import { DEV_NAMES } from "@/game/config";
@@ -62,7 +62,8 @@ export default function TimelapsePlayer({ params }: { params: Promise<{ id: stri
 
   const replay = useMemo(() => {
     if (!data?.start) return null;
-    const start: ReplayStart = { buildings: data.start.buildings, zones: data.start.zones, techLevel: data.start.techLevel };
+    const city = data.start;
+    const start: ReplayStart = { plots: city.plots, buildings: city.buildings, zones: city.zones, techLevel: city.techLevel };
     return createReplay(start, data.events);
   }, [data]);
 
@@ -84,11 +85,12 @@ export default function TimelapsePlayer({ params }: { params: Promise<{ id: stri
         <span className="text-sm text-muted">目標 {yen(s.goal)}</span>
       </div>
       <div className="relative">
-        <CityCanvas
+        <CityView
+          fixed
           label={`${formatDate(t, tz)}時点の街`}
+          plots={frame.plots}
           buildings={[...frame.buildings.values()]}
           zones={frame.zones}
-          devLevel={frame.devLevel}
           bankLevel={frame.bankLevel}
         />
         {finished && (

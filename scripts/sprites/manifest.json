@@ -1,0 +1,1873 @@
+{
+  "$comment": "絵の台帳（docs/rendering-requirements.md §4.1 の2）。create-tiles-pro は1回で組（草の4種、道路のつながり方18通り）を作るので、キーは組の名前にする。heightTiles は基準タイルの幅を1とした絵の高さ。body はそのまま API に送り、refs は art/sprites/<tw>/<キー>.png を参照画像として差し込む。",
+  "style": "isometric pixel art in the style of a cozy city-building game, 2:1 dimetric projection, crisp single-pixel lines, light from the top-left so the right-facing wall is darker, selective outline (outline colors follow the face colors, no black outline), limited palette, no text, no letters, transparent background",
+  "sprites": [
+    {
+      "key": "ground/grass",
+      "stage": "M0",
+      "endpoint": "create-tiles-pro",
+      "heightTiles": 0.5,
+      "description": "1). short green grass 2). green grass with a few tiny white and yellow flowers 3). green grass with small clover patches 4). slightly darker green grass with a few longer blades. Calm, even colors so that tiles repeat seamlessly; no rocks, no paths, no objects",
+      "body": {
+        "tile_view_angle": 30,
+        "tile_depth_ratio": 0.1,
+        "outline_mode": "segmentation"
+      }
+    },
+    {
+      "key": "road/1",
+      "stage": "M0",
+      "endpoint": "create-tiles-pro",
+      "heightTiles": 0.5,
+      "description": "paved grey asphalt city road with a dashed white center line and light grey curbs, on green grass",
+      "body": {
+        "tile_feature": "roads",
+        "tile_view_angle": 30,
+        "tile_depth_ratio": 0.1,
+        "outline_mode": "segmentation"
+      }
+    },
+    {
+      "key": "building/housing/1",
+      "stage": "M0",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.25,
+      "description": "small two-storey wooden house, red pitched roof, cream wooden walls, small windows and a door on the left face, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {}
+    },
+    {
+      "key": "building/commerce/2",
+      "stage": "M0",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.25,
+      "description": "small covered market hall, blue and white striped awnings over open stalls with fruit crates, light stone walls, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {}
+    },
+    {
+      "key": "building/factory/1",
+      "stage": "M0",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.5,
+      "description": "small brick factory, grey saw-tooth roof with yellow trim, one tall chimney, loading door on the left face, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {}
+    },
+    {
+      "key": "building/housing/0",
+      "stage": "M1-t0",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.0,
+      "description": "tiny one-room wooden hut with a small red roof and one door, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "building/housing/2",
+      "stage": "M1-t2",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.5,
+      "description": "two-and-a-half storey red brick town house with a red tiled roof, chimney, white window frames, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/housing/1"
+      }
+    },
+    {
+      "key": "building/housing/3",
+      "stage": "M1-t3",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.875,
+      "description": "four storey apartment block with red roof edges, cream walls, many windows and small balconies, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/housing/2"
+      }
+    },
+    {
+      "key": "building/housing/4",
+      "stage": "M1-t4",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.25,
+      "description": "seven storey modern condominium tower, cream and red facade, rows of balconies, red roof trim, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it, the whole building including the roof and antenna fits inside the canvas with a few empty transparent pixels above the top, nothing is cut off at the top or the sides",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/housing/3"
+      }
+    },
+    {
+      "key": "building/housing/5",
+      "stage": "M1-t5",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.625,
+      "description": "tall twelve storey high-rise residential tower, slim, cream facade with red accent stripes, many lit windows, rooftop water tank, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it, the whole building including the roof and antenna fits inside the canvas with a few empty transparent pixels above the top, nothing is cut off at the top or the sides",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/housing/4"
+      }
+    },
+    {
+      "key": "building/farm/0",
+      "stage": "M1-t0",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 0.75,
+      "description": "small vegetable field with neat rows of green crops and brown soil, a tiny scarecrow, low to the ground, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "building/farm/1",
+      "stage": "M1-t1",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.0,
+      "description": "small farm with a red wooden barn on a field of crops, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/farm/0"
+      }
+    },
+    {
+      "key": "building/farm/2",
+      "stage": "M1-t2",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.25,
+      "description": "mechanized farm, red barn with a green tractor and a tall grain silo, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/farm/1"
+      }
+    },
+    {
+      "key": "building/farm/3",
+      "stage": "M1-t3",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.5,
+      "description": "large farm complex, big barn with two tall metal grain silos and a combine harvester, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/farm/2"
+      }
+    },
+    {
+      "key": "building/farm/4",
+      "stage": "M1-t4",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.75,
+      "description": "automated futuristic farm, large glass greenhouse dome with green plants inside, white robotic arms, solar panels, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/farm/3"
+      }
+    },
+    {
+      "key": "building/lumber/0",
+      "stage": "M1-t0",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.25,
+      "description": "lumber mill, wooden shed with a circular saw, stacked logs and planks, yellow and grey industrial trim, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "building/quarry/0",
+      "stage": "M1-t0",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.25,
+      "description": "stone works, grey stone building with a crane lifting cut stone blocks, stacked grey blocks, yellow trim, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "building/factory/0",
+      "stage": "M1-t0",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.25,
+      "description": "small craft workshop, low brick building with a small chimney and a workbench under an awning, grey roof with yellow trim, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "building/factory/2",
+      "stage": "M1-t2",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.875,
+      "description": "large factory, big grey industrial hall with saw-tooth roof, two tall chimneys, yellow trim and loading doors, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/factory/1"
+      }
+    },
+    {
+      "key": "building/factory/3",
+      "stage": "M1-t3",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.25,
+      "description": "automated factory complex, tall modern grey hall with yellow stripes, conveyor bridges, big vents and a control tower, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it, the whole building including the roof and antenna fits inside the canvas with a few empty transparent pixels above the top, nothing is cut off at the top or the sides",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/factory/2"
+      }
+    },
+    {
+      "key": "building/commerce/0",
+      "stage": "M1-t0",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.0,
+      "description": "small street food stall with a blue and white striped awning and a wooden counter, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "building/commerce/1",
+      "stage": "M1-t1",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.0,
+      "description": "small one-storey retail shop, low and compact, with a blue awning, big shop window and a sign with a simple icon, no letters, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/commerce/0"
+      }
+    },
+    {
+      "key": "building/commerce/3",
+      "stage": "M1-t3",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.75,
+      "description": "shopping complex, three storey building with large glass storefronts, blue roof and blue awnings, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/commerce/2"
+      }
+    },
+    {
+      "key": "building/commerce/4",
+      "stage": "M1-t4",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.25,
+      "description": "grand department store, five storey elegant building with blue roof, many display windows, flags on the roof, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it, the whole building including the roof and antenna fits inside the canvas with a few empty transparent pixels above the top, nothing is cut off at the top or the sides",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/commerce/3"
+      }
+    },
+    {
+      "key": "building/office/0",
+      "stage": "M1-t0",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.0,
+      "description": "six storey office building, grey-blue glass curtain wall with blue roof trim, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it, the whole building including the roof and antenna fits inside the canvas with a few empty transparent pixels above the top, nothing is cut off at the top or the sides",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "building/office/1",
+      "stage": "M1-t1",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.625,
+      "description": "tall commercial skyscraper tower, slim blue glass facade, antenna on top, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it, the whole building including the roof and antenna fits inside the canvas with a few empty transparent pixels above the top, nothing is cut off at the top or the sides",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/office/0"
+      }
+    },
+    {
+      "key": "building/power/0",
+      "stage": "M1-t0",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.5,
+      "description": "coal power plant, grey building with two short smokestacks and yellow warning stripes, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "building/power/1",
+      "stage": "M1-t1",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.875,
+      "description": "efficient power station, grey building with a big cooling tower and yellow trim, power lines, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/power/0"
+      }
+    },
+    {
+      "key": "building/power/2",
+      "stage": "M1-t2",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.25,
+      "description": "advanced energy facility, futuristic grey and yellow fusion reactor building with a glowing cyan core dome, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it, the whole building including the roof and antenna fits inside the canvas with a few empty transparent pixels above the top, nothing is cut off at the top or the sides",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/power/1"
+      }
+    },
+    {
+      "key": "building/rail/0",
+      "stage": "M1-t0",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.5,
+      "description": "small railway station building with a platform canopy, a short train on tracks, grey roof, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "building/logistics/0",
+      "stage": "M1-t0",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.5,
+      "description": "logistics center, large grey warehouse with loading docks, stacked shipping containers and a delivery truck, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "building/school/0",
+      "stage": "M1-t0",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.5,
+      "description": "school building, two storey with a purple roof, clock on the front, small schoolyard, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "building/school/1",
+      "stage": "M1-t1",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.875,
+      "description": "university, grand three storey building with purple roof, columns and a small dome, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/school/0"
+      }
+    },
+    {
+      "key": "building/school/2",
+      "stage": "M1-t2",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.25,
+      "description": "research institute, modern white building with purple accents and a large observatory dome, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it, the whole building including the roof and antenna fits inside the canvas with a few empty transparent pixels above the top, nothing is cut off at the top or the sides",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/school/1"
+      }
+    },
+    {
+      "key": "building/clinic/0",
+      "stage": "M1-t0",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.875,
+      "description": "hospital, four storey white building with purple roof trim and a helipad on the roof, red cross symbol, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "building/culture/0",
+      "stage": "M1-t0",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.5,
+      "description": "library, classic two storey building with purple roof and stone columns, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "building/culture/1",
+      "stage": "M1-t1",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.875,
+      "description": "cultural center, modern concert hall with a curved purple roof and glass front, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/culture/0"
+      }
+    },
+    {
+      "key": "building/future/0",
+      "stage": "M1-t0",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.625,
+      "description": "futuristic city center tower, sleek white and cyan glass spire with floating rings and glowing lights, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it, the whole building including the roof and antenna fits inside the canvas with a few empty transparent pixels above the top, nothing is cut off at the top or the sides",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "road/0",
+      "endpoint": "create-tiles-pro",
+      "description": "unpaved brown dirt road with wheel ruts and small pebbles, on green grass",
+      "body": {
+        "tile_feature": "roads",
+        "tile_view_angle": 30,
+        "tile_depth_ratio": 0.1,
+        "outline_mode": "segmentation"
+      },
+      "stage": "M1-road"
+    },
+    {
+      "key": "road/2",
+      "endpoint": "create-tiles-pro",
+      "description": "wide four-lane arterial asphalt road with a double yellow center line, white lane markings and grey curbs, on green grass",
+      "body": {
+        "tile_feature": "roads",
+        "tile_view_angle": 30,
+        "tile_depth_ratio": 0.1,
+        "outline_mode": "segmentation"
+      },
+      "stage": "M1-road"
+    },
+    {
+      "key": "road/3",
+      "endpoint": "create-tiles-pro",
+      "description": "futuristic high-tech road, smooth dark asphalt with glowing cyan lane lines and a tram rail in the middle, white curbs, on green grass",
+      "body": {
+        "tile_feature": "roads",
+        "tile_view_angle": 30,
+        "tile_depth_ratio": 0.1,
+        "outline_mode": "segmentation"
+      },
+      "stage": "M1-road"
+    },
+    {
+      "key": "special/bank/1",
+      "stage": "M1-special",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.25,
+      "description": "small savings bank, stone building with a gold coin emblem over the door, grey roof, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "special/bank/2",
+      "stage": "M1-special",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.5,
+      "description": "bank, two storey stone building with columns and a gold coin emblem, grey roof, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "special/bank/1"
+      }
+    },
+    {
+      "key": "special/bank/3",
+      "stage": "M1-special",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.75,
+      "description": "bank, three storey stone building with tall columns, a gold coin emblem and a small clock, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "special/bank/2"
+      }
+    },
+    {
+      "key": "special/bank/4",
+      "stage": "M1-special",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.0,
+      "description": "grand bank, four storey neoclassical building with columns, a gold-trimmed pediment and a gold coin emblem, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it, the whole building including the roof and antenna fits inside the canvas with a few empty transparent pixels above the top, nothing is cut off at the top or the sides",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "special/bank/3"
+      }
+    },
+    {
+      "key": "special/bank/5",
+      "stage": "M1-special",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.25,
+      "description": "grand bank tower, five storey neoclassical building with columns, a gold dome and a gold coin emblem, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it, the whole building including the roof and antenna fits inside the canvas with a few empty transparent pixels above the top, nothing is cut off at the top or the sides",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "special/bank/4"
+      }
+    },
+    {
+      "key": "special/bank/6",
+      "stage": "M1-special",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.5,
+      "description": "magnificent completed central bank, white marble with a shining golden dome, gold columns and a large gold coin emblem, sparkles, the building stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it, the whole building including the roof and antenna fits inside the canvas with a few empty transparent pixels above the top, nothing is cut off at the top or the sides",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "special/bank/5"
+      }
+    },
+    {
+      "key": "special/gold_mine",
+      "stage": "M1-special",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.25,
+      "description": "gold mine entrance, wooden mine shaft frame in a small rocky hill, a mine cart full of shining gold ore on rails, standing on one isometric ground tile, the object stands directly on the ground with no base platform, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "special/silver_mine",
+      "stage": "M1-special",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.25,
+      "description": "silver mine entrance, wooden mine shaft frame in a small rocky hill, a mine cart full of shining silver ore on rails, standing on one isometric ground tile, the object stands directly on the ground with no base platform, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "special/park/0",
+      "stage": "M1-special",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 0.75,
+      "description": "small park, a patch of lawn with a wooden bench and one small young tree, standing on one isometric ground tile, the object stands directly on the ground with no base platform, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "special/park/1",
+      "stage": "M1-special",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.0,
+      "description": "park with a lawn, two trees, a bench and a small flower bed, standing on one isometric ground tile, the object stands directly on the ground with no base platform, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "special/park/0"
+      }
+    },
+    {
+      "key": "special/park/2",
+      "stage": "M1-special",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.25,
+      "description": "park with a lawn, three big trees, a small blue pond and benches, standing on one isometric ground tile, the object stands directly on the ground with no base platform, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "special/park/1"
+      }
+    },
+    {
+      "key": "special/park/3",
+      "stage": "M1-special",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.5,
+      "description": "beautiful park with big trees, a blue pond with a fountain spraying water, flower beds and benches, standing on one isometric ground tile, the object stands directly on the ground with no base platform, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "special/park/2"
+      }
+    },
+    {
+      "key": "special/statue/bronze",
+      "stage": "M1-special",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.25,
+      "description": "bronze statue of a person holding a coin, on a grey stone pedestal, standing on one isometric ground tile, the object stands directly on the ground with no base platform, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "special/statue/silver",
+      "stage": "M1-special",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.25,
+      "description": "shining silver statue of a person holding a coin, on a white stone pedestal, standing on one isometric ground tile, the object stands directly on the ground with no base platform, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "special/statue/bronze"
+      }
+    },
+    {
+      "key": "special/statue/gold",
+      "stage": "M1-special",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.25,
+      "description": "shining golden statue of a person holding a coin, on a white marble pedestal with gold trim, standing on one isometric ground tile, the object stands directly on the ground with no base platform, nothing else around it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "special/statue/bronze"
+      }
+    },
+    {
+      "key": "fx/scaffold",
+      "stage": "M1-special",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.25,
+      "description": "construction site with wooden scaffolding frame, a few stacked bricks and a small yellow crane, no building yet, standing on one isometric ground tile, the object stands directly on the ground with no base platform, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "fx/cover",
+      "stage": "M1-special",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.0,
+      "description": "low wooden scaffolding with a green safety net and a ladder, under renovation, empty in the middle, standing on one isometric ground tile, the object stands directly on the ground with no base platform, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "locked/forest",
+      "stage": "M1-special",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.25,
+      "description": "dense cluster of dark green pine trees covering the whole tile, standing on one isometric ground tile, the object stands directly on the ground with no base platform, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "locked/rocks",
+      "stage": "M1-special",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 0.75,
+      "description": "pile of large grey boulders and small rocks covering the whole tile, standing on one isometric ground tile, the object stands directly on the ground with no base platform, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "locked/sign",
+      "stage": "M1-special",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 0.75,
+      "description": "short wooden fence with a small wooden signpost showing a padlock symbol, no letters, standing on one isometric ground tile, the object stands directly on the ground with no base platform, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "props/lv",
+      "stage": "M1-special",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 0.5,
+      "description": "1). potted flower planter 2). wooden park bench 3). black street lamp 4). small flag on a pole 5). rooftop air conditioner unit 6). small parked red car. Each is a separate small isometric object on a transparent background, no ground",
+      "body": {},
+      "styled": true,
+      "size": [
+        32,
+        32
+      ]
+    },
+    {
+      "key": "anim/building/factory/0",
+      "stage": "M2-anim",
+      "endpoint": "animate-with-text-v3",
+      "heightTiles": 0,
+      "description": "soft light grey and white round smoke puffs with highlights rise slowly from the small chimney and drift away. Only the described part moves; the building itself, its outline, colors and position stay exactly the same in every frame. Seamless loop.",
+      "body": {},
+      "refs": {
+        "first_frame": "building/factory/0"
+      },
+      "padTop": 24
+    },
+    {
+      "key": "anim/building/factory/1",
+      "stage": "M2-anim",
+      "endpoint": "animate-with-text-v3",
+      "heightTiles": 0,
+      "description": "soft light grey and white round smoke puffs with highlights rise slowly from the tall chimney and drift away. Only the described part moves; the building itself, its outline, colors and position stay exactly the same in every frame. Seamless loop.",
+      "body": {},
+      "refs": {
+        "first_frame": "building/factory/1"
+      },
+      "padTop": 24
+    },
+    {
+      "key": "anim/building/factory/2",
+      "stage": "M2-anim",
+      "endpoint": "animate-with-text-v3",
+      "heightTiles": 0,
+      "description": "soft light grey and white round smoke puffs with highlights rise slowly from the chimneys and drift away. Only the described part moves; the building itself, its outline, colors and position stay exactly the same in every frame. Seamless loop.",
+      "body": {},
+      "refs": {
+        "first_frame": "building/factory/2"
+      },
+      "padTop": 24
+    },
+    {
+      "key": "anim/building/factory/3",
+      "stage": "M2-anim",
+      "endpoint": "animate-with-text-v3",
+      "heightTiles": 0,
+      "description": "light grey steam puffs rise slowly from the vents and the yellow lights blink. Only the described part moves; the building itself, its outline, colors and position stay exactly the same in every frame. Seamless loop.",
+      "body": {},
+      "refs": {
+        "first_frame": "building/factory/3"
+      },
+      "padTop": 24
+    },
+    {
+      "key": "anim/building/power/0",
+      "stage": "M2-anim",
+      "endpoint": "animate-with-text-v3",
+      "heightTiles": 0,
+      "description": "soft light grey and white round smoke puffs with highlights rise slowly from the smokestacks and drift away. Only the described part moves; the building itself, its outline, colors and position stay exactly the same in every frame. Seamless loop.",
+      "body": {
+        "drift_threshold": 0
+      },
+      "refs": {
+        "first_frame": "building/power/0"
+      },
+      "padTop": 24
+    },
+    {
+      "key": "anim/building/power/1",
+      "stage": "M2-anim",
+      "endpoint": "animate-with-text-v3",
+      "heightTiles": 0,
+      "description": "white steam rises slowly from the cooling tower. Only the described part moves; the building itself, its outline, colors and position stay exactly the same in every frame. Seamless loop.",
+      "body": {},
+      "refs": {
+        "first_frame": "building/power/1"
+      },
+      "padTop": 24
+    },
+    {
+      "key": "anim/building/power/2",
+      "stage": "M2-anim",
+      "endpoint": "animate-with-text-v3",
+      "heightTiles": 0,
+      "description": "the cyan energy core glows brighter and dimmer, pulsing softly. Only the described part moves; the building itself, its outline, colors and position stay exactly the same in every frame. Seamless loop.",
+      "body": {},
+      "refs": {
+        "first_frame": "building/power/2"
+      }
+    },
+    {
+      "key": "anim/building/lumber/0",
+      "stage": "M2-anim",
+      "endpoint": "animate-with-text-v3",
+      "heightTiles": 0,
+      "description": "the circular saw blade spins and a few wood chips fly. Only the described part moves; the building itself, its outline, colors and position stay exactly the same in every frame. Seamless loop.",
+      "body": {},
+      "refs": {
+        "first_frame": "building/lumber/0"
+      },
+      "padTop": 24
+    },
+    {
+      "key": "anim/building/future/0",
+      "stage": "M2-anim",
+      "endpoint": "animate-with-text-v3",
+      "heightTiles": 0,
+      "description": "the floating rings rotate slowly around the tower and the lights twinkle. Only the described part moves; the building itself, its outline, colors and position stay exactly the same in every frame. Seamless loop.",
+      "body": {
+        "drift_threshold": 0
+      },
+      "refs": {
+        "first_frame": "building/future/0"
+      }
+    },
+    {
+      "key": "anim/special/park/3",
+      "stage": "M2-anim",
+      "endpoint": "animate-with-text-v3",
+      "heightTiles": 0,
+      "description": "water sprays up from the fountain and falls back into the pond. Only the described part moves; the building itself, its outline, colors and position stay exactly the same in every frame. Seamless loop.",
+      "body": {},
+      "refs": {
+        "first_frame": "special/park/3"
+      },
+      "padTop": 24
+    },
+    {
+      "key": "anim/special/bank/6",
+      "stage": "M2-anim",
+      "endpoint": "animate-with-text-v3",
+      "heightTiles": 0,
+      "description": "small sparkles twinkle on the golden dome. Only the described part moves; the building itself, its outline, colors and position stay exactly the same in every frame. Seamless loop.",
+      "body": {},
+      "refs": {
+        "first_frame": "special/bank/6"
+      }
+    },
+    {
+      "key": "anim/special/gold_mine",
+      "stage": "M2-anim",
+      "endpoint": "animate-with-text-v3",
+      "heightTiles": 0,
+      "description": "small sparkles twinkle on the gold ore in the mine cart. Only the described part moves; the building itself, its outline, colors and position stay exactly the same in every frame. Seamless loop.",
+      "body": {},
+      "refs": {
+        "first_frame": "special/gold_mine"
+      }
+    },
+    {
+      "key": "anim/special/silver_mine",
+      "stage": "M2-anim",
+      "endpoint": "animate-with-text-v3",
+      "heightTiles": 0,
+      "description": "small sparkles twinkle on the silver ore in the mine cart. Only the described part moves; the building itself, its outline, colors and position stay exactly the same in every frame. Seamless loop.",
+      "body": {},
+      "refs": {
+        "first_frame": "special/silver_mine"
+      }
+    },
+    {
+      "key": "agent/person/se",
+      "stage": "M3",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 0,
+      "description": "1). tiny townsperson in a red shirt 2). tiny townsperson in a blue coat 3). tiny townsperson in a yellow dress 4). tiny townsperson in a green jacket 5). tiny townsperson in a purple top 6). tiny townsperson in a white shirt. Every person is full body, walking toward the lower right of the image (facing the viewer and to the right) Each is a separate tiny isometric sprite on a transparent background, 3/4 top-down view matching a 2:1 isometric city, no ground, no shadow, no text",
+      "body": {},
+      "styled": true,
+      "size": [
+        16,
+        16
+      ]
+    },
+    {
+      "key": "agent/person/ne",
+      "stage": "M3",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 0,
+      "description": "1). tiny townsperson in a red shirt 2). tiny townsperson in a blue coat 3). tiny townsperson in a yellow dress 4). tiny townsperson in a green jacket 5). tiny townsperson in a purple top 6). tiny townsperson in a white shirt. Every person is full body, seen from behind, walking away toward the upper right of the image Each is a separate tiny isometric sprite on a transparent background, 3/4 top-down view matching a 2:1 isometric city, no ground, no shadow, no text",
+      "body": {},
+      "styled": true,
+      "size": [
+        16,
+        16
+      ]
+    },
+    {
+      "key": "agent/car/se",
+      "stage": "M3",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 0,
+      "description": "1). small red car 2). small blue car 3). small yellow taxi 4). small white van 5). small green car 6). small grey truck. Every vehicle drives toward the lower right of the image along a 2:1 isometric road, front of the car visible Each is a separate tiny isometric sprite on a transparent background, 3/4 top-down view matching a 2:1 isometric city, no ground, no shadow, no text",
+      "body": {},
+      "styled": true,
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "key": "agent/car/ne",
+      "stage": "M3",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 0,
+      "description": "1). small red car 2). small blue car 3). small yellow taxi 4). small white van 5). small green car 6). small grey truck. Every vehicle drives away toward the upper right of the image along a 2:1 isometric road, rear of the car visible Each is a separate tiny isometric sprite on a transparent background, 3/4 top-down view matching a 2:1 isometric city, no ground, no shadow, no text",
+      "body": {},
+      "styled": true,
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "key": "icons/trouble",
+      "stage": "M3",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 0,
+      "description": "1). yellow lightning bolt inside a small round white speech bubble 2). brown bread loaf inside a small round white speech bubble 3). small worker with a yellow hard hat inside a small round white speech bubble. Simple, bold, readable status icons for a city builder, soft colors, no red warning signs Each is a separate tiny isometric sprite on a transparent background, 3/4 top-down view matching a 2:1 isometric city, no ground, no shadow, no text",
+      "body": {},
+      "styled": true,
+      "size": [
+        16,
+        16
+      ]
+    },
+    {
+      "key": "props/gold",
+      "stage": "M3",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 0,
+      "description": "1). small pile of a few shiny gold coins 2). medium pile of shiny gold coins 3). big heap of shiny gold coins with sparkles. Coins lie on the ground Each is a separate tiny isometric sprite on a transparent background, 3/4 top-down view matching a 2:1 isometric city, no ground, no shadow, no text",
+      "body": {},
+      "styled": true,
+      "size": [
+        32,
+        32
+      ]
+    },
+    {
+      "key": "big/building/housing/1",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.0,
+      "size": [
+        128,
+        128
+      ],
+      "description": "small two-storey wooden house, red pitched roof, cream wooden walls, small windows and a door on the left face, a bigger version that covers a 2x2 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the main building fills most of the lot and small matching details (a low fence, plants or crates) stand on the free corners, no ground slab, no base platform and no grass patch under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/housing/1"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 2x2 tile lot"
+    },
+    {
+      "key": "big/building/commerce/2",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.0,
+      "size": [
+        128,
+        128
+      ],
+      "description": "small covered market hall, blue and white striped awnings over open stalls with fruit crates, light stone walls, a bigger version that covers a 2x2 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the main building fills most of the lot and small matching details (a low fence, plants or crates) stand on the free corners, no ground slab, no base platform and no grass patch under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/commerce/2"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 2x2 tile lot"
+    },
+    {
+      "key": "big/building/factory/1",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.25,
+      "size": [
+        128,
+        144
+      ],
+      "description": "small brick factory, grey saw-tooth roof with yellow trim, one tall chimney, loading door on the left face, a bigger version that covers a 2x2 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the main building fills most of the lot and small matching details (a low fence, plants or crates) stand on the free corners, no ground slab, no base platform and no grass patch under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/factory/1"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 2x2 tile lot"
+    },
+    {
+      "key": "big/building/housing/0",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.75,
+      "size": [
+        128,
+        112
+      ],
+      "description": "tiny one-room wooden hut with a small red roof and one door, a bigger version that covers a 2x2 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the main building fills most of the lot and small matching details (a low fence, plants or crates) stand on the free corners, no ground slab, no base platform and no grass patch under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/housing/0"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 2x2 tile lot"
+    },
+    {
+      "key": "big/building/housing/2",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.25,
+      "size": [
+        128,
+        144
+      ],
+      "description": "two-and-a-half storey red brick town house with a red tiled roof, chimney, white window frames, three storeys tall so it is clearly taller than a two-storey house, a bigger version that covers a 2x2 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the main building fills most of the lot and small matching details (a low fence, plants or crates) stand on the free corners, no ground slab, no base platform and no grass patch under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/housing/2"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 2x2 tile lot"
+    },
+    {
+      "key": "big/building/housing/3",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.625,
+      "size": [
+        128,
+        168
+      ],
+      "description": "four storey apartment block with red roof edges, cream walls, many windows and small balconies, a bigger version that covers a 2x2 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the main building fills most of the lot and small matching details (a low fence, plants or crates) stand on the free corners, no ground slab, no base platform and no grass patch under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/housing/3"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 2x2 tile lot"
+    },
+    {
+      "key": "big/building/housing/4",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 3.0,
+      "size": [
+        128,
+        192
+      ],
+      "description": "seven storey modern condominium tower, cream and red facade, rows of balconies, red roof trim, the whole building including the roof and antenna fits inside the canvas with a few empty transparent pixels above the top, nothing is cut off at the top or the sides, a bigger version that covers a 2x2 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the main building fills most of the lot and small matching details (a low fence, plants or crates) stand on the free corners, no ground slab, no base platform and no grass patch under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/housing/4"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 2x2 tile lot"
+    },
+    {
+      "key": "big/building/housing/5",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 3.375,
+      "size": [
+        128,
+        216
+      ],
+      "description": "tall twelve storey high-rise residential tower, slim, cream facade with red accent stripes, many lit windows, rooftop water tank, the whole building including the roof and antenna fits inside the canvas with a few empty transparent pixels above the top, nothing is cut off at the top or the sides, a bigger version that covers a 2x2 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the main building fills most of the lot and small matching details (a low fence, plants or crates) stand on the free corners, no ground slab, no base platform and no grass patch under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/housing/5"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 2x2 tile lot"
+    },
+    {
+      "key": "big/building/farm/0",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.5,
+      "size": [
+        128,
+        96
+      ],
+      "description": "small vegetable field with neat rows of green crops and brown soil, a tiny scarecrow, low to the ground, a bigger version that covers a 2x2 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the main building fills most of the lot and small matching details (a low fence, plants or crates) stand on the free corners, no ground slab, no base platform and no grass patch under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/farm/0"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 2x2 tile lot"
+    },
+    {
+      "key": "big/building/farm/1",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.75,
+      "size": [
+        128,
+        112
+      ],
+      "description": "small farm with a red wooden barn on a field of crops, a bigger version that covers a 2x2 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the main building fills most of the lot and small matching details (a low fence, plants or crates) stand on the free corners, no ground slab, no base platform and no grass patch under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/farm/1"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 2x2 tile lot"
+    },
+    {
+      "key": "big/building/farm/2",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.0,
+      "size": [
+        128,
+        128
+      ],
+      "description": "mechanized farm, red barn with a green tractor and a tall grain silo, a bigger version that covers a 2x2 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the main building fills most of the lot and small matching details (a low fence, plants or crates) stand on the free corners, no ground slab, no base platform and no grass patch under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/farm/2"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 2x2 tile lot"
+    },
+    {
+      "key": "big/building/farm/3",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.25,
+      "size": [
+        128,
+        144
+      ],
+      "description": "large farm complex, big barn with two tall metal grain silos and a combine harvester, a bigger version that covers a 2x2 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the main building fills most of the lot and small matching details (a low fence, plants or crates) stand on the free corners, no ground slab, no base platform and no grass patch under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/farm/3"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 2x2 tile lot"
+    },
+    {
+      "key": "big/building/farm/4",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.5,
+      "size": [
+        128,
+        160
+      ],
+      "description": "automated futuristic farm, large glass greenhouse dome with green plants inside, white robotic arms, solar panels, a bigger version that covers a 2x2 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the main building fills most of the lot and small matching details (a low fence, plants or crates) stand on the free corners, no ground slab, no base platform and no grass patch under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/farm/4"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 2x2 tile lot"
+    },
+    {
+      "key": "big/building/lumber/0",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.0,
+      "size": [
+        128,
+        128
+      ],
+      "description": "lumber mill, wooden shed with a circular saw, stacked logs and planks, yellow and grey industrial trim, a bigger version that covers a 2x2 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the main building fills most of the lot and small matching details (a low fence, plants or crates) stand on the free corners, no ground slab, no base platform and no grass patch under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/lumber/0"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 2x2 tile lot"
+    },
+    {
+      "key": "big/building/quarry/0",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.0,
+      "size": [
+        128,
+        128
+      ],
+      "description": "stone works, grey stone building with a crane lifting cut stone blocks, stacked grey blocks, yellow trim, a bigger version that covers a 2x2 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the main building fills most of the lot and small matching details (a low fence, plants or crates) stand on the free corners, no ground slab, no base platform and no grass patch under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/quarry/0"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 2x2 tile lot"
+    },
+    {
+      "key": "big/building/factory/0",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.0,
+      "size": [
+        128,
+        128
+      ],
+      "description": "small craft workshop, low brick building with a small chimney and a workbench under an awning, grey roof with yellow trim, a bigger version that covers a 2x2 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the main building fills most of the lot and small matching details (a low fence, plants or crates) stand on the free corners, no ground slab, no base platform and no grass patch under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/factory/0"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 2x2 tile lot"
+    },
+    {
+      "key": "big/building/factory/2",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.625,
+      "size": [
+        128,
+        168
+      ],
+      "description": "large factory, big grey industrial hall with saw-tooth roof, two tall chimneys, yellow trim and loading doors, a bigger version that covers a 2x2 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the main building fills most of the lot and small matching details (a low fence, plants or crates) stand on the free corners, no ground slab, no base platform and no grass patch under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/factory/2"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 2x2 tile lot"
+    },
+    {
+      "key": "big/building/factory/3",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 3.0,
+      "size": [
+        128,
+        192
+      ],
+      "description": "automated factory complex, tall modern grey hall with yellow stripes, conveyor bridges, big vents and a control tower, the whole building including the roof and antenna fits inside the canvas with a few empty transparent pixels above the top, nothing is cut off at the top or the sides, a bigger version that covers a 2x2 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the main building fills most of the lot and small matching details (a low fence, plants or crates) stand on the free corners, no ground slab, no base platform and no grass patch under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/factory/3"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 2x2 tile lot"
+    },
+    {
+      "key": "big/building/commerce/0",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.75,
+      "size": [
+        128,
+        112
+      ],
+      "description": "small street food stall with a blue and white striped awning and a wooden counter, a bigger version that covers a 2x2 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the main building fills most of the lot and small matching details (a low fence, plants or crates) stand on the free corners, no ground slab, no base platform and no grass patch under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/commerce/0"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 2x2 tile lot"
+    },
+    {
+      "key": "big/building/commerce/1",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.75,
+      "size": [
+        128,
+        112
+      ],
+      "description": "small one-storey retail shop, low and compact, with a blue awning, big shop window and a sign with a simple icon, no letters, a two-storey shop building with a tall roof, clearly taller than an open market stall, a bigger version that covers a 2x2 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the main building fills most of the lot and small matching details (a low fence, plants or crates) stand on the free corners, no ground slab, no base platform and no grass patch under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/commerce/1"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 2x2 tile lot"
+    },
+    {
+      "key": "big/building/commerce/3",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.5,
+      "size": [
+        128,
+        160
+      ],
+      "description": "shopping complex, three storey building with large glass storefronts, blue roof and blue awnings, a bigger version that covers a 2x2 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the main building fills most of the lot and small matching details (a low fence, plants or crates) stand on the free corners, no ground slab, no base platform and no grass patch under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/commerce/3"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 2x2 tile lot"
+    },
+    {
+      "key": "big/building/commerce/4",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 3.0,
+      "size": [
+        128,
+        192
+      ],
+      "description": "grand department store, five storey elegant building with blue roof, many display windows, flags on the roof, the whole building including the roof and antenna fits inside the canvas with a few empty transparent pixels above the top, nothing is cut off at the top or the sides, a bigger version that covers a 2x2 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the main building fills most of the lot and small matching details (a low fence, plants or crates) stand on the free corners, no ground slab, no base platform and no grass patch under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/commerce/4"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 2x2 tile lot"
+    },
+    {
+      "key": "big/building/office/0",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.75,
+      "size": [
+        128,
+        176
+      ],
+      "description": "six storey office building, grey-blue glass curtain wall with blue roof trim, the whole building including the roof and antenna fits inside the canvas with a few empty transparent pixels above the top, nothing is cut off at the top or the sides, a bigger version that covers a 2x2 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the main building fills most of the lot and small matching details (a low fence, plants or crates) stand on the free corners, no ground slab, no base platform and no grass patch under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/office/0"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 2x2 tile lot"
+    },
+    {
+      "key": "big/building/office/1",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 3.375,
+      "size": [
+        128,
+        216
+      ],
+      "description": "tall commercial skyscraper tower, slim blue glass facade, antenna on top, the whole building including the roof and antenna fits inside the canvas with a few empty transparent pixels above the top, nothing is cut off at the top or the sides, a bigger version that covers a 2x2 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the main building fills most of the lot and small matching details (a low fence, plants or crates) stand on the free corners, no ground slab, no base platform and no grass patch under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/office/1"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 2x2 tile lot"
+    },
+    {
+      "key": "big/building/power/0",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.25,
+      "size": [
+        128,
+        144
+      ],
+      "description": "coal power plant, grey building with two short smokestacks and yellow warning stripes, a bigger version that covers a 2x2 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the main building fills most of the lot and small matching details (a low fence, plants or crates) stand on the free corners, no ground slab, no base platform and no grass patch under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/power/0"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 2x2 tile lot"
+    },
+    {
+      "key": "big/building/power/1",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.625,
+      "size": [
+        128,
+        168
+      ],
+      "description": "efficient power station, grey building with a big cooling tower and yellow trim, power lines, a bigger version that covers a 2x2 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the main building fills most of the lot and small matching details (a low fence, plants or crates) stand on the free corners, no ground slab, no base platform and no grass patch under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/power/1"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 2x2 tile lot"
+    },
+    {
+      "key": "big/building/power/2",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 3.0,
+      "size": [
+        128,
+        192
+      ],
+      "description": "advanced energy facility, futuristic grey and yellow fusion reactor building with a glowing cyan core dome, the whole building including the roof and antenna fits inside the canvas with a few empty transparent pixels above the top, nothing is cut off at the top or the sides, a bigger version that covers a 2x2 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the main building fills most of the lot and small matching details (a low fence, plants or crates) stand on the free corners, no ground slab, no base platform and no grass patch under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/power/2"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 2x2 tile lot"
+    },
+    {
+      "key": "big/building/rail/0",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.25,
+      "size": [
+        128,
+        144
+      ],
+      "description": "small railway station building with a platform canopy, a short train on tracks, grey roof, a bigger version that covers a 2x2 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the main building fills most of the lot and small matching details (a low fence, plants or crates) stand on the free corners, no ground slab, no base platform and no grass patch under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/rail/0"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 2x2 tile lot"
+    },
+    {
+      "key": "big/building/logistics/0",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.25,
+      "size": [
+        128,
+        144
+      ],
+      "description": "logistics center, large grey warehouse with loading docks, stacked shipping containers and a delivery truck, a bigger version that covers a 2x2 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the main building fills most of the lot and small matching details (a low fence, plants or crates) stand on the free corners, no ground slab, no base platform and no grass patch under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/logistics/0"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 2x2 tile lot"
+    },
+    {
+      "key": "big/building/school/0",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.25,
+      "size": [
+        128,
+        144
+      ],
+      "description": "school building, two storey with a purple roof, clock on the front, small schoolyard, a bigger version that covers a 2x2 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the main building fills most of the lot and small matching details (a low fence, plants or crates) stand on the free corners, no ground slab, no base platform and no grass patch under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/school/0"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 2x2 tile lot"
+    },
+    {
+      "key": "big/building/school/1",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.625,
+      "size": [
+        128,
+        168
+      ],
+      "description": "university, grand three storey building with purple roof, columns and a small dome, a bigger version that covers a 2x2 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the main building fills most of the lot and small matching details (a low fence, plants or crates) stand on the free corners, no ground slab, no base platform and no grass patch under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/school/1"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 2x2 tile lot"
+    },
+    {
+      "key": "big/building/school/2",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 3.0,
+      "size": [
+        128,
+        192
+      ],
+      "description": "research institute, modern white building with purple accents and a large observatory dome, the whole building including the roof and antenna fits inside the canvas with a few empty transparent pixels above the top, nothing is cut off at the top or the sides, a bigger version that covers a 2x2 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the main building fills most of the lot and small matching details (a low fence, plants or crates) stand on the free corners, no ground slab, no base platform and no grass patch under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/school/2"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 2x2 tile lot"
+    },
+    {
+      "key": "big/building/clinic/0",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.625,
+      "size": [
+        128,
+        168
+      ],
+      "description": "hospital, four storey white building with purple roof trim and a helipad on the roof, red cross symbol, a bigger version that covers a 2x2 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the main building fills most of the lot and small matching details (a low fence, plants or crates) stand on the free corners, no ground slab, no base platform and no grass patch under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/clinic/0"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 2x2 tile lot"
+    },
+    {
+      "key": "big/building/culture/0",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.25,
+      "size": [
+        128,
+        144
+      ],
+      "description": "library, classic two storey building with purple roof and stone columns, a bigger version that covers a 2x2 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the main building fills most of the lot and small matching details (a low fence, plants or crates) stand on the free corners, no ground slab, no base platform and no grass patch under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/culture/0"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 2x2 tile lot"
+    },
+    {
+      "key": "big/building/culture/1",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.625,
+      "size": [
+        128,
+        168
+      ],
+      "description": "cultural center, modern concert hall with a curved purple roof and glass front, a bigger version that covers a 2x2 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the main building fills most of the lot and small matching details (a low fence, plants or crates) stand on the free corners, no ground slab, no base platform and no grass patch under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/culture/1"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 2x2 tile lot"
+    },
+    {
+      "key": "big/building/future/0",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 3.375,
+      "size": [
+        128,
+        216
+      ],
+      "description": "futuristic city center tower, sleek white and cyan glass spire with floating rings and glowing lights, the whole building including the roof and antenna fits inside the canvas with a few empty transparent pixels above the top, nothing is cut off at the top or the sides, a bigger version that covers a 2x2 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the main building fills most of the lot and small matching details (a low fence, plants or crates) stand on the free corners, no ground slab, no base platform and no grass patch under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "building/future/0"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 2x2 tile lot"
+    },
+    {
+      "key": "big/special/bank/1",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.75,
+      "size": [
+        192,
+        176
+      ],
+      "description": "small savings bank, stone building with a gold coin emblem over the door, grey roof, a bigger version that covers a 3x3 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the main building fills most of the lot and small matching details (a low fence, plants or crates) stand on the free corners, no ground slab, no base platform and no grass patch under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "special/bank/1"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 3x3 tile lot"
+    },
+    {
+      "key": "big/special/bank/2",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 3.0,
+      "size": [
+        192,
+        192
+      ],
+      "description": "bank, two storey stone building with columns and a gold coin emblem, grey roof, a bigger version that covers a 3x3 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the main building fills most of the lot and small matching details (a low fence, plants or crates) stand on the free corners, no ground slab, no base platform and no grass patch under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "special/bank/2"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 3x3 tile lot"
+    },
+    {
+      "key": "big/special/bank/3",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 3.25,
+      "size": [
+        192,
+        208
+      ],
+      "description": "bank, three storey stone building with tall columns, a gold coin emblem and a small clock, a bigger version that covers a 3x3 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the main building fills most of the lot and small matching details (a low fence, plants or crates) stand on the free corners, no ground slab, no base platform and no grass patch under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "special/bank/3"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 3x3 tile lot"
+    },
+    {
+      "key": "big/special/bank/4",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 3.5,
+      "size": [
+        192,
+        224
+      ],
+      "description": "grand bank, four storey neoclassical building with columns, a gold-trimmed pediment and a gold coin emblem, the whole building including the roof and antenna fits inside the canvas with a few empty transparent pixels above the top, nothing is cut off at the top or the sides, a bigger version that covers a 3x3 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the main building fills most of the lot and small matching details (a low fence, plants or crates) stand on the free corners, no ground slab, no base platform and no grass patch under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "special/bank/4"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 3x3 tile lot"
+    },
+    {
+      "key": "big/special/bank/5",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 3.75,
+      "size": [
+        192,
+        240
+      ],
+      "description": "grand bank tower, five storey neoclassical building with columns, a gold dome and a gold coin emblem, the whole building including the roof and antenna fits inside the canvas with a few empty transparent pixels above the top, nothing is cut off at the top or the sides, a bigger version that covers a 3x3 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the main building fills most of the lot and small matching details (a low fence, plants or crates) stand on the free corners, no ground slab, no base platform and no grass patch under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "special/bank/5"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 3x3 tile lot"
+    },
+    {
+      "key": "big/special/bank/6",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 4.0,
+      "size": [
+        192,
+        256
+      ],
+      "description": "magnificent completed central bank, white marble with a shining golden dome, gold columns and a large gold coin emblem, sparkles, the whole building including the roof and antenna fits inside the canvas with a few empty transparent pixels above the top, nothing is cut off at the top or the sides, a bigger version that covers a 3x3 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the main building fills most of the lot and small matching details (a low fence, plants or crates) stand on the free corners, no ground slab, no base platform and no grass patch under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "special/bank/6"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 3x3 tile lot"
+    },
+    {
+      "key": "big/special/gold_mine",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.0,
+      "size": [
+        128,
+        128
+      ],
+      "description": "gold mine entrance, wooden mine shaft frame in a small rocky hill, a mine cart full of shining gold ore on rails, a bigger version that covers a 2x2 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the main building fills most of the lot and small matching details (a low fence, plants or crates) stand on the free corners, no ground slab, no base platform and no grass patch under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "special/gold_mine"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 2x2 tile lot"
+    },
+    {
+      "key": "big/special/silver_mine",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.0,
+      "size": [
+        128,
+        128
+      ],
+      "description": "silver mine entrance, wooden mine shaft frame in a small rocky hill, a mine cart full of shining silver ore on rails, a bigger version that covers a 2x2 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the main building fills most of the lot and small matching details (a low fence, plants or crates) stand on the free corners, no ground slab, no base platform and no grass patch under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "special/silver_mine"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 2x2 tile lot"
+    },
+    {
+      "key": "big/special/park/0",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.5,
+      "size": [
+        128,
+        96
+      ],
+      "description": "small park, a patch of lawn with a wooden bench and one small young tree, a bigger version that covers a 2x2 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the park fills the whole lot, no ground slab, no base platform under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "special/park/0"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 2x2 tile lot"
+    },
+    {
+      "key": "big/special/park/1",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.75,
+      "size": [
+        128,
+        112
+      ],
+      "description": "park with a lawn, two trees, a bench and a small flower bed, a bigger version that covers a 2x2 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the park fills the whole lot, no ground slab, no base platform under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "special/park/1"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 2x2 tile lot"
+    },
+    {
+      "key": "big/special/park/2",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 2.0,
+      "size": [
+        128,
+        128
+      ],
+      "description": "park with a lawn, three big trees, a small blue pond and benches, a bigger version that covers a 2x2 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the park fills the whole lot, no ground slab, no base platform under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "special/park/2"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 2x2 tile lot"
+    },
+    {
+      "key": "big/special/park/3",
+      "stage": "S5-big",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 3.0,
+      "size": [
+        192,
+        192
+      ],
+      "description": "beautiful park with big trees, a blue pond with a fountain spraying water, flower beds and benches, a bigger version that covers a 3x3 block of isometric ground tiles: the 2:1 diamond footprint of the whole lot spans the full width of the canvas, the park fills the whole lot, no ground slab, no base platform under it, the top stays inside the canvas with a little transparent space above it",
+      "body": {},
+      "styled": true,
+      "refs": {
+        "reference_images": "special/park/3"
+      },
+      "refUsage": "the same building drawn on a single tile: keep its design, materials, roof and identity colors exactly, but draw it as a bigger version that fills a 3x3 tile lot"
+    },
+    {
+      "key": "anim/big/building/factory/0",
+      "stage": "S5-big-anim",
+      "endpoint": "animate-with-text-v3",
+      "heightTiles": 0,
+      "description": "soft light grey and white round smoke puffs with highlights rise slowly from the small chimney and drift away. Only the described part moves; the building itself, its outline, colors and position stay exactly the same in every frame. Seamless loop.",
+      "body": {},
+      "refs": {
+        "first_frame": "big/building/factory/0"
+      },
+      "padTop": 24
+    },
+    {
+      "key": "anim/big/building/factory/1",
+      "stage": "S5-big-anim",
+      "endpoint": "animate-with-text-v3",
+      "heightTiles": 0,
+      "description": "soft light grey and white round smoke puffs with highlights rise slowly from the tall chimney and drift away. Only the described part moves; the building itself, its outline, colors and position stay exactly the same in every frame. Seamless loop.",
+      "body": {},
+      "refs": {
+        "first_frame": "big/building/factory/1"
+      },
+      "padTop": 24
+    },
+    {
+      "key": "anim/big/building/factory/2",
+      "stage": "S5-big-anim",
+      "endpoint": "animate-with-text-v3",
+      "heightTiles": 0,
+      "description": "soft light grey and white round smoke puffs with highlights rise slowly from the chimneys and drift away. Only the described part moves; the building itself, its outline, colors and position stay exactly the same in every frame. Seamless loop.",
+      "body": {},
+      "refs": {
+        "first_frame": "big/building/factory/2"
+      },
+      "padTop": 24
+    },
+    {
+      "key": "anim/big/building/factory/3",
+      "stage": "S5-big-anim",
+      "endpoint": "animate-with-text-v3",
+      "heightTiles": 0,
+      "description": "light grey steam puffs rise slowly from the vents and the yellow lights blink. Only the described part moves; the building itself, its outline, colors and position stay exactly the same in every frame. Seamless loop.",
+      "body": {},
+      "refs": {
+        "first_frame": "big/building/factory/3"
+      },
+      "padTop": 24
+    },
+    {
+      "key": "anim/big/building/power/0",
+      "stage": "S5-big-anim",
+      "endpoint": "animate-with-text-v3",
+      "heightTiles": 0,
+      "description": "soft light grey and white round smoke puffs with highlights rise slowly from the smokestacks and drift away. Only the described part moves; the building itself, its outline, colors and position stay exactly the same in every frame. Seamless loop.",
+      "body": {
+        "drift_threshold": 0
+      },
+      "refs": {
+        "first_frame": "big/building/power/0"
+      },
+      "padTop": 24
+    },
+    {
+      "key": "anim/big/building/power/1",
+      "stage": "S5-big-anim",
+      "endpoint": "animate-with-text-v3",
+      "heightTiles": 0,
+      "description": "white steam rises slowly from the cooling tower. Only the described part moves; the building itself, its outline, colors and position stay exactly the same in every frame. Seamless loop.",
+      "body": {},
+      "refs": {
+        "first_frame": "big/building/power/1"
+      },
+      "padTop": 24
+    },
+    {
+      "key": "anim/big/building/power/2",
+      "stage": "S5-big-anim",
+      "endpoint": "animate-with-text-v3",
+      "heightTiles": 0,
+      "description": "the cyan energy core glows brighter and dimmer, pulsing softly. Only the described part moves; the building itself, its outline, colors and position stay exactly the same in every frame. Seamless loop.",
+      "body": {},
+      "refs": {
+        "first_frame": "big/building/power/2"
+      }
+    },
+    {
+      "key": "anim/big/building/lumber/0",
+      "stage": "S5-big-anim",
+      "endpoint": "animate-with-text-v3",
+      "heightTiles": 0,
+      "description": "the circular saw blade spins and a few wood chips fly. Only the described part moves; the building itself, its outline, colors and position stay exactly the same in every frame. Seamless loop.",
+      "body": {},
+      "refs": {
+        "first_frame": "big/building/lumber/0"
+      },
+      "padTop": 24
+    },
+    {
+      "key": "anim/big/building/future/0",
+      "stage": "S5-big-anim",
+      "endpoint": "animate-with-text-v3",
+      "heightTiles": 0,
+      "description": "the floating rings rotate slowly around the tower and the lights twinkle. Only the described part moves; the building itself, its outline, colors and position stay exactly the same in every frame. Seamless loop.",
+      "body": {
+        "drift_threshold": 0
+      },
+      "refs": {
+        "first_frame": "big/building/future/0"
+      }
+    },
+    {
+      "key": "anim/big/special/park/3",
+      "stage": "S5-big-anim",
+      "endpoint": "animate-with-text-v3",
+      "heightTiles": 0,
+      "description": "water sprays up from the fountain and falls back into the pond. Only the described part moves; the building itself, its outline, colors and position stay exactly the same in every frame. Seamless loop.",
+      "body": {},
+      "refs": {
+        "first_frame": "big/special/park/3"
+      },
+      "padTop": 24
+    },
+    {
+      "key": "anim/big/special/bank/6",
+      "stage": "S5-big-anim",
+      "endpoint": "animate-with-text-v3",
+      "heightTiles": 0,
+      "description": "small sparkles twinkle on the golden dome. Only the described part moves; the building itself, its outline, colors and position stay exactly the same in every frame. Seamless loop.",
+      "body": {},
+      "refs": {
+        "first_frame": "big/special/bank/6"
+      }
+    },
+    {
+      "key": "anim/big/special/gold_mine",
+      "stage": "S5-big-anim",
+      "endpoint": "animate-with-text-v3",
+      "heightTiles": 0,
+      "description": "small sparkles twinkle on the gold ore in the mine cart. Only the described part moves; the building itself, its outline, colors and position stay exactly the same in every frame. Seamless loop.",
+      "body": {},
+      "refs": {
+        "first_frame": "big/special/gold_mine"
+      }
+    },
+    {
+      "key": "anim/big/special/silver_mine",
+      "stage": "S5-big-anim",
+      "endpoint": "animate-with-text-v3",
+      "heightTiles": 0,
+      "description": "small sparkles twinkle on the silver ore in the mine cart. Only the described part moves; the building itself, its outline, colors and position stay exactly the same in every frame. Seamless loop.",
+      "body": {},
+      "refs": {
+        "first_frame": "big/special/silver_mine"
+      }
+    }
+  ],
+  "styleKey": "building/housing/1"
+}

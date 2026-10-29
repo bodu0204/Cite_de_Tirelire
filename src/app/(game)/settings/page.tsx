@@ -111,6 +111,12 @@ export default function SettingsPage() {
             <input type="checkbox" className="w-auto" checked={policy.autoEnabled} onChange={(e) => act("/api/city", { type: "policy", autoEnabled: e.target.checked })} />
             自動開発を有効にする（無効にすると建設・アップグレードは手動だけになります）
           </label>
+          {v?.city.v !== 1 && (
+            <label className="mb-3 flex items-center gap-2 text-sm">
+              <input type="checkbox" className="w-auto" checked={policy.autoExpand !== false} disabled={!policy.autoEnabled} onChange={(e) => act("/api/city", { type: "policy", autoExpand: e.target.checked })} />
+              建てる場所がない時は、自動開発で区画を開拓する（資材と都市資金を使います）
+            </label>
+          )}
           <div className="mb-3 flex flex-wrap gap-2">
             {(Object.keys(POLICY_PRESETS) as (keyof typeof POLICY_PRESETS)[]).map((k) => (
               <Button key={k} variant={policy.preset === k ? "primary" : "secondary"} disabled={busy} onClick={() => act("/api/city", { type: "policy", preset: k })}>

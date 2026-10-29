@@ -24,7 +24,8 @@ for (let d = 1; d <= 50; d++) {
     `d${String(d).padStart(2)} tech${s.techLevel} dev${devLevel(s.devPoints)}(${s.devPoints.toFixed(0)}) pop ${s.population.toFixed(0)}/${m.housingCap.toFixed(0)}`,
     `wood ${s.stock.wood.toFixed(0)} stone ${s.stock.stone.toFixed(0)} food ${s.stock.food.toFixed(0)} tr ${s.treasury.toFixed(0)} (+${m.production.treasury.toFixed(1)}/h)`,
     `h${s.happiness.toFixed(0)} op${m.operation} emp${m.employment.toFixed(2)} pw${m.powerRatio.toFixed(2)} lg${m.logistics.toFixed(2)}`,
-    `B${s.buildings.length} jobs${s.jobs.length} H${count("housing")} F${count("farm")} C${count("commerce")} I${count("factory")}`,
+    `B${s.buildings.length} jobs${s.jobs.length} H${count("housing")} F${count("farm")} C${count("commerce")} I${count("factory")} P${count("power")} R${count("road")}`,
+    `plots${s.plots.length}`,
   );
 }
 const byType: Record<string, number> = {};

@@ -17,7 +17,21 @@ import {
   type Zone,
 } from "@/game/catalog";
 import { buildingOutput } from "@/game/city/economy";
-import { idx, tileUnlockLevel } from "@/game/city/layout";
+import { expandQuote } from "@/game/city/actions";
+import {
+  buildingSize,
+  contains,
+  expansionError,
+  isNoAuto,
+  isPlaced,
+  isTileUnlocked,
+  jobSize,
+  placeCtx,
+  placementError,
+  plotKey,
+  plotOf,
+  zoneAt,
+} from "@/game/city/layout";
 import { FEE_MOVE, FEE_RUSH_PER_10MIN, feeBuild, feeUpgrade, MINUTE } from "@/game/config";
 import { PARK_DESCRIPTION, PARK_SIZE_LABELS, STATUE_DESCRIPTION, statueStageLabel } from "@/game/describe";
 import { STATUE_RANK_LABELS } from "@/game/levels";
@@ -109,6 +123,55 @@ function SpecialDetail({ rows, description, href, linkLabel }: { rows: [string, 
   );
 }
 
+/** 開拓していない土地：その区画（5×5 マス）を開拓する（docs/map-layout-redesign.md §7.3） */
+function ExpandPanel({ v, tile }: { v: ActiveView; tile: { x: number; y: number } }) {
+  const { act, busy } = useGame();
+  const city = v.city;
+  const silver = v.currencies.silver;
+  const { px, py } = plotOf(tile.x, tile.y);
+  const job = city.jobs.find((j) => j.kind === "expand" && j.plot === plotKey(px, py));
+  const plots = v.dev.plots;
+  if (job) {
+    const fee = Math.max(1, Math.ceil(Math.max(0, job.finishAt - v.serverNow) / (10 * MINUTE))) * FEE_RUSH_PER_10MIN;
+    return (
+      <div className="space-y-2 text-sm">
+        <p className="font-semibold">区画を開拓中</p>
+        <p className="text-muted">
+          {job.auto ? "自動開発による開拓" : "手動の開拓"}・完了まで約{Math.max(1, Math.ceil((job.finishAt - v.serverNow) / MINUTE))}分
+        </p>
+        <Button variant="gold" disabled={busy || silver < fee} onClick={() => act("/api/city", { type: "rush", jobId: job.id })}>
+          すぐ完成させる（{fee}S）
+        </Button>
+      </div>
+    );
+  }
+  const why = expansionError(city, px, py);
+  const q = expandQuote(city);
+  const ok = !why && city.stock.wood >= q.cost.wood && city.stock.stone >= q.cost.stone && silver >= q.fee;
+  return (
+    <div className="space-y-2 text-sm">
+      <p>まだ開拓されていない土地です。5×5 マスの区画ごとに、資材を使って開拓できます。開拓すると区画の真ん中に十字の道路が通ります。</p>
+      {plots && (
+        <p className="text-xs text-muted">
+          開拓できる区画 {plots.used} / {plots.limit}（発展Lvを上げると増えます）
+        </p>
+      )}
+      {why ? (
+        <p className="text-xs text-muted">{why}</p>
+      ) : (
+        <div className="rounded-lg bg-surface-2 p-2">
+          <Button className="w-full" disabled={busy || !ok} onClick={() => act("/api/city", { type: "expand", x: tile.x, y: tile.y })}>
+            この区画を開拓する（約{q.minutes}分）
+          </Button>
+          <div className="mt-1 text-center">
+            <CostLine cost={q.cost} fee={q.fee} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function TilePanel({
   v,
   tile,
@@ -124,16 +187,16 @@ export function TilePanel({
   const city = v.city;
   const silver = v.currencies.silver;
   const dev = v.dev.level;
-  const i = idx(tile.x, tile.y);
-  const b = city.buildings.find((o) => o.x === tile.x && o.y === tile.y);
-  const job = city.jobs.find((j) => j.x === tile.x && j.y === tile.y);
-  const zone = city.zones[i];
-  const unlockAt = tileUnlockLevel(tile.x, tile.y);
+  // 大きな建物は、占有範囲のどのマスを選んでもその建物
+  const b = city.buildings.find((o) => isPlaced(o) && contains(o, buildingSize(o), tile.x, tile.y));
+  const job = city.jobs.find((j) => contains(j, j.kind === "build" ? jobSize(j) : 1, tile.x, tile.y) && (j.kind === "build" || (j.x === tile.x && j.y === tile.y)));
+  const zone = zoneAt(city, tile.x, tile.y);
   const cityAct = (body: Record<string, unknown>) => act("/api/city", body);
   const [showAll, setShowAll] = useState(false);
 
-  if (unlockAt > dev) {
-    return <p className="text-sm text-muted">この区画は発展Lv{unlockAt}で解放されます。</p>;
+  // 林を押しのけて置いた公園・像と道路は、未開放の区画でも建物として見せる
+  if (!b && !isTileUnlocked(city, tile.x, tile.y)) {
+    return <ExpandPanel v={v} tile={tile} />;
   }
 
   const zoneControls = (
@@ -149,7 +212,7 @@ export function TilePanel({
         </select>
       </label>
       <label className="flex items-center gap-1.5 whitespace-nowrap">
-        <input type="checkbox" className="w-auto" checked={!!city.noAuto[i]} onChange={(e) => cityAct({ type: "noAuto", x: tile.x, y: tile.y, noAuto: e.target.checked })} />
+        <input type="checkbox" className="w-auto" checked={isNoAuto(city, tile.x, tile.y)} onChange={(e) => cityAct({ type: "noAuto", x: tile.x, y: tile.y, noAuto: e.target.checked })} />
         自動建設を禁止
       </label>
     </div>
@@ -157,19 +220,21 @@ export function TilePanel({
 
   if (moving) {
     const target = city.buildings.find((o) => o.id === moving);
+    const why = target ? placementError(city, target, tile.x, tile.y, placeCtx(city, target.id)) : "移動する建物が見つかりません";
     return (
       <div className="space-y-2 text-sm">
         <p>
           {target?.line ? tierDef(target.line, target.tier).name : target?.special ? SPECIAL_LABELS[target.special] : "建物"}の移動先を選んでください（銀貨{FEE_MOVE}S）。
         </p>
         <div className="flex gap-2">
-          <Button disabled={busy || !!b || !!job} onClick={() => cityAct({ type: "move", buildingId: moving, x: tile.x, y: tile.y }).then(() => setMoving(null))}>
+          <Button disabled={busy || !!why} onClick={() => cityAct({ type: "move", buildingId: moving, x: tile.x, y: tile.y }).then(() => setMoving(null))}>
             ここへ移動
           </Button>
           <Button variant="secondary" onClick={() => setMoving(null)}>
             やめる
           </Button>
         </div>
+        {why && <p className="text-xs text-muted">{why}</p>}
       </div>
     );
   }
@@ -281,8 +346,13 @@ export function TilePanel({
     );
   }
 
-  // 空き地：建設メニュー
-  const lines = LINE_IDS.map((line) => ({ line, tier: highestUnlockedTier(line, city.techLevel, dev) })).filter((x) => x.tier >= 0);
+  // 空き地：建設メニュー。選んだマスを含む空きがあり、銀行までつながった道路に接するものだけ建てられる
+  const ctx = placeCtx(city);
+  const lines = LINE_IDS.map((line) => {
+    const tier = highestUnlockedTier(line, city.techLevel, dev);
+    const size = buildingSize({ line, tier });
+    return { line, tier, size, why: tier >= 0 ? placementError(city, { line, tier }, tile.x, tile.y, ctx) : null };
+  }).filter((x) => x.tier >= 0);
   const suggested = lines.filter((l) => LINES[l.line].zone === zone || LINES[l.line].zone === "any");
   const list = showAll || suggested.length === 0 ? lines : suggested;
   return (
@@ -291,10 +361,10 @@ export function TilePanel({
         空き地（{ZONE_LABELS[zone]}）。手動建設は資材と銀貨で支払います。
       </p>
       <ul className="grid gap-2 sm:grid-cols-2">
-        {list.map(({ line, tier }) => {
+        {list.map(({ line, tier, size, why }) => {
           const t = tierDef(line, tier);
           const fee = feeBuild(tier);
-          const ok = city.stock.wood >= t.cost.wood && city.stock.stone >= t.cost.stone && silver >= fee;
+          const ok = !why && city.stock.wood >= t.cost.wood && city.stock.stone >= t.cost.stone && silver >= fee;
           return (
             <li key={line}>
               <button
@@ -307,6 +377,7 @@ export function TilePanel({
                   <span className="ml-1 text-xs text-muted">{LINES[line].label}</span>
                 </span>
                 <CostLine cost={t.cost} fee={fee} />
+                {(why || size > 1) && <span className="text-xs text-muted">{why ?? `${size}×${size} マス`}</span>}
               </button>
             </li>
           );
