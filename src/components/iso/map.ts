@@ -74,6 +74,16 @@ export interface IsoMap {
   objects: IsoObject[];
   /** カメラを最初に向けるマス（省略すると開いている土地の中心） */
   home?: { x: number; y: number };
+  /**
+   * "locked" なら、範囲の外も未開放の土地（暗い地面に林と岩）として、見えている所だけ描き足す。
+   * 画面いっぱいを林と岩で埋めるため（範囲を大きくすると、盤面の配列と覆いの数がふくらむ）
+   */
+  outside?: "locked";
+}
+
+/** 未開放の土地の覆い（OBJ-02）。マスで決まるので、範囲の中でも外でも同じ並びになる */
+export function lockedKey(x: number, y: number): string {
+  return hash2(x, y, 11) % 4 === 0 ? "locked/rocks" : "locked/forest";
 }
 
 /** 範囲の左上と右下のマス */
@@ -116,6 +126,7 @@ export const GRASS_VARIANTS = 4;
 
 export function groundKey(m: IsoMap, x: number, y: number): string {
   const i = tileIndex(m, x, y);
+  if (i < 0) return m.outside === "locked" ? "ground/locked" : `ground/grass/${hash2(x, y) % GRASS_VARIANTS}`;
   if (m.locked[i]) return "ground/locked";
   if (m.road[i]) return `road/${m.road[i] - 1}/${roadMask(m, x, y)}`;
   if (m.lot?.[i]) return "ground/lot";

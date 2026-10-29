@@ -20,8 +20,8 @@ import {
 import { type ChunkId, type Rect, CHUNK, chunkKey, chunkOf, chunkRect, visibleChunks } from "./chunks";
 import { nightColor } from "./compose";
 import { type EffectKind, EFFECT_MS, MAX_EFFECTS, effectKind, flashAlpha, particles, popScale } from "./effects";
-import { type IsoMap, type IsoObject, type IsoOverlay, groundKey, hash2, mapRect, objectCenter, tileAt, tileIndex } from "./map";
-import { type Iso, depth, iso, mapBounds, toScreen, toTile } from "./projection";
+import { type IsoMap, type IsoObject, type IsoOverlay, groundKey, hash2, lockedKey, mapRect, objectCenter, tileAt, tileIndex } from "./map";
+import { type Iso, depth, iso, mapBounds, toScreen, toTile, toTileF } from "./projection";
 import { type ArtSource, type Entry, TextureBook } from "./textures";
 
 export interface StageOptions {
@@ -112,6 +112,8 @@ export class IsoStage {
   /** 開いている土地を囲む矩形（ワールド座標。カメラの移動範囲を決める） */
   private land: Rect = { minX: 0, minY: 0, maxX: 0, maxY: 0 };
   private chunkObjects = new Map<string, Placed[]>();
+  /** 盤面の絵（建物など）をチャンクごとに分けたもの */
+  private mapChunks = new Map<string, IsoObject[]>();
   private baked = new Map<string, Sprite>();
   private shown = new Set<string>();
   private bakeQueue: ChunkId[] = [];
@@ -307,26 +309,10 @@ export class IsoStage {
         const kind = effectKind(prevKeys.get(o.id), o.key);
         if (kind) born.push({ o, kind });
       }
+    this.mapChunks = byChunk;
     const allChunks = new Set([...byChunk.keys(), ...this.chunkObjects.keys()]);
     let changed = false;
-    for (const k of allChunks) {
-      const list = byChunk.get(k) ?? [];
-      const sig = list.map((o) => `${o.id}:${o.key}:${o.x},${o.y}:${o.dz ?? 0}:${o.ox ?? 0},${o.oy ?? 0}`).join("|");
-      if (this.chunkSig.get(k) === sig) continue;
-      changed = true;
-      this.chunkSig.set(k, sig);
-      const shown = this.shown.has(k);
-      for (const o of this.chunkObjects.get(k) ?? []) {
-        if (shown) this.objLayer.removeChild(o.node);
-        if (o.sprite instanceof AnimatedSprite) this.animCount--;
-        if (this.placedById.get(o.id) === o) this.placedById.delete(o.id);
-        o.node.destroy({ children: true });
-      }
-      const placed = list.map((o) => this.place(o));
-      for (const o of placed) this.placedById.set(o.id, o);
-      this.chunkObjects.set(k, placed);
-      if (shown && placed.length) this.objLayer.addChild(...placed.map((o) => o.node));
-    }
+    for (const k of allChunks) if (this.buildChunk(k)) changed = true;
     if (changed) {
       this.visibleObjects = [...this.shown].flatMap((k) => this.chunkObjects.get(k) ?? []);
       this.cover.clear();
@@ -355,6 +341,34 @@ export class IsoStage {
       this.resetAgents();
     }
     if (dirty.size || resized) this.camDirty = true;
+  }
+
+  /**
+   * チャンクの中の絵：盤面の絵と、盤面の範囲の外を林と岩で埋める絵（map.outside）。
+   * 中身が変わった時だけ作り直し、作り直したら true
+   */
+  private buildChunk(k: string): boolean {
+    const list = [...(this.mapChunks.get(k) ?? [])];
+    if (this.map.outside === "locked") {
+      const [cx, cy] = k.split(",").map(Number);
+      for (let y = cy * CHUNK; y < (cy + 1) * CHUNK; y++)
+        for (let x = cx * CHUNK; x < (cx + 1) * CHUNK; x++) if (tileIndex(this.map, x, y) < 0) list.push({ id: `fill:${x},${y}`, x, y, key: lockedKey(x, y) });
+    }
+    const sig = list.map((o) => `${o.id}:${o.key}:${o.x},${o.y}:${o.dz ?? 0}:${o.ox ?? 0},${o.oy ?? 0}`).join("|");
+    if ((this.chunkSig.get(k) ?? "") === sig) return false;
+    this.chunkSig.set(k, sig);
+    const shown = this.shown.has(k);
+    for (const o of this.chunkObjects.get(k) ?? []) {
+      if (shown) this.objLayer.removeChild(o.node);
+      if (o.sprite instanceof AnimatedSprite) this.animCount--;
+      if (this.placedById.get(o.id) === o) this.placedById.delete(o.id);
+      o.node.destroy({ children: true });
+    }
+    const placed = list.map((o) => this.place(o));
+    for (const o of placed) this.placedById.set(o.id, o);
+    this.chunkObjects.set(k, placed);
+    if (shown && placed.length) this.objLayer.addChild(...placed.map((o) => o.node));
+    return true;
   }
 
   /** 人と車の数（overlay で指定がなければ、試作ページの agents を人2：車1 で分ける） */
@@ -774,8 +788,9 @@ export class IsoStage {
   private updateVisible() {
     const r = viewRect(this.cam, this.viewport);
     const tall = (TALL * this.p.tw) / 64;
-    const keep = visibleChunks(this.p, r, this.tiles, tall, 1);
-    const draw = visibleChunks(this.p, r, this.tiles, tall, 0);
+    const tiles = this.map.outside === "locked" ? this.viewTiles(r, tall) : this.tiles;
+    const keep = visibleChunks(this.p, r, tiles, tall, 1);
+    const draw = visibleChunks(this.p, r, tiles, tall, 0);
     const drawKeys = new Set(draw.map(chunkKey));
 
     // 見えている分はすぐ焼く。余白の分は1フレームに1つずつ焼き、パン中の引っかかりを防ぐ（NF-01）
@@ -798,11 +813,24 @@ export class IsoStage {
     this.shown = drawKeys;
     for (const k of removed) for (const o of this.chunkObjects.get(k) ?? []) this.objLayer.removeChild(o.node);
     for (const k of added) {
+      // 盤面の範囲の外のチャンクは、見えるようになった時に林と岩で埋める
+      if (!this.chunkObjects.has(k)) this.buildChunk(k);
       const list = this.chunkObjects.get(k);
       if (list?.length) this.objLayer.addChild(...list.map((o) => o.node));
     }
     this.visibleObjects = [];
     for (const k of drawKeys) for (const o of this.chunkObjects.get(k) ?? []) this.visibleObjects.push(o);
+  }
+
+  /** 画面に入るマスを囲む矩形（盤面の範囲を含む。範囲の外も描く時に使う） */
+  private viewTiles(r: Rect, tall: number): Rect {
+    const corners = [toTileF(this.p, r.minX, r.minY), toTileF(this.p, r.maxX, r.minY), toTileF(this.p, r.minX, r.maxY + tall), toTileF(this.p, r.maxX, r.maxY + tall)];
+    return {
+      minX: Math.min(this.tiles.minX, Math.floor(Math.min(...corners.map((c) => c.x)))),
+      minY: Math.min(this.tiles.minY, Math.floor(Math.min(...corners.map((c) => c.y)))),
+      maxX: Math.max(this.tiles.maxX, Math.ceil(Math.max(...corners.map((c) => c.x)))),
+      maxY: Math.max(this.tiles.maxY, Math.ceil(Math.max(...corners.map((c) => c.y)))),
+    };
   }
 
   private bake(c: ChunkId) {
@@ -812,8 +840,10 @@ export class IsoStage {
     const tmp = new Container();
     const x0 = c.cx * CHUNK;
     const y0 = c.cy * CHUNK;
-    for (let y = Math.max(y0, this.tiles.minY); y < Math.min(y0 + CHUNK, this.tiles.maxY + 1); y++)
-      for (let x = Math.max(x0, this.tiles.minX); x < Math.min(x0 + CHUNK, this.tiles.maxX + 1); x++) {
+    // 範囲の外も描く時は、チャンク全体を焼く（範囲の外は暗い地面）
+    const t = this.map.outside === "locked" ? { minX: x0, minY: y0, maxX: x0 + CHUNK - 1, maxY: y0 + CHUNK - 1 } : this.tiles;
+    for (let y = Math.max(y0, t.minY); y < Math.min(y0 + CHUNK, t.maxY + 1); y++)
+      for (let x = Math.max(x0, t.minX); x < Math.min(x0 + CHUNK, t.maxX + 1); x++) {
         const e = this.book.get(groundKey(this.map, x, y));
         const s = new Sprite(e.texture);
         const p = toScreen(this.p, x, y);

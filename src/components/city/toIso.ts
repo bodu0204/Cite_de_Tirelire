@@ -4,7 +4,7 @@ import { LINES, type LineId, type SpecialKind, type Zone } from "@/game/catalog"
 import { LOGISTICS_FLOOR, PLOT_SIZE } from "@/game/config";
 import { buildingSize, isPlannedRoad, landBounds, plotKey, plotOf, tileKey, type Rect } from "@/game/city/layout";
 import { MIN_ROAD } from "@/components/iso/agents";
-import { hash2, type IsoMap, type IsoObject, type IsoOverlay, tileIndex } from "@/components/iso/map";
+import { hash2, type IsoMap, type IsoObject, type IsoOverlay, lockedKey, tileIndex } from "@/components/iso/map";
 
 export interface CityBuilding {
   id: string;
@@ -155,30 +155,27 @@ function smallKey(b: CityBuilding, bankLevel: number): string {
   return `building/${b.line}/${b.tier}${lv}`;
 }
 
-/** 開いている土地の外に描く未開放の帯（マス）。カメラは土地の端が画面の 75% に来るまで動くので、その外を埋める */
-export const LOCKED_BAND = 12;
+/**
+ * 盤面の範囲に含める、開いている土地の外の帯（マス）。開拓できる区画の看板と開拓中の区画が入る1区画分。
+ * その外は描画側が林と岩で画面いっぱいに埋める（IsoMap.outside）
+ */
+export const LOCKED_BAND = PLOT_SIZE;
 
 /** 盤面の範囲と、マスが開いているか */
-function landOf(input: CityInput): { rect: Rect; open: (x: number, y: number) => boolean; near: (x: number, y: number) => boolean } {
+function landOf(input: CityInput): { rect: Rect; open: (x: number, y: number) => boolean } {
   const plots = new Set(input.plots);
   const land = landBounds({ plots: input.plots });
-  const hasPlot = (x: number, y: number) => {
-    const { px, py } = plotOf(x, y);
-    return plots.has(plotKey(px, py));
-  };
   return {
     rect: { minX: land.minX - LOCKED_BAND, minY: land.minY - LOCKED_BAND, maxX: land.maxX + LOCKED_BAND, maxY: land.maxY + LOCKED_BAND },
-    open: hasPlot,
-    // 林や岩は、開いている区画の隣の区画まで（その外は暗い地面だけ）
-    near: (x, y) => {
-      for (let dy = -PLOT_SIZE; dy <= PLOT_SIZE; dy += PLOT_SIZE) for (let dx = -PLOT_SIZE; dx <= PLOT_SIZE; dx += PLOT_SIZE) if (hasPlot(x + dx, y + dy)) return true;
-      return false;
+    open: (x, y) => {
+      const { px, py } = plotOf(x, y);
+      return plots.has(plotKey(px, py));
     },
   };
 }
 
 export function cityToIso(input: CityInput): { map: IsoMap; overlay: IsoOverlay } {
-  const { rect, open, near } = landOf(input);
+  const { rect, open } = landOf(input);
   const shape = { x0: rect.minX, y0: rect.minY, width: rect.maxX - rect.minX + 1, height: rect.maxY - rect.minY + 1 };
   const n = shape.width * shape.height;
   const road = new Uint8Array(n);
@@ -220,15 +217,13 @@ export function cityToIso(input: CityInput): { map: IsoMap; overlay: IsoOverlay 
     for (let x = rect.minX; x <= rect.maxX; x++) {
       if (open(x, y)) continue;
       locked[tileIndex(shape, x, y)] = 1;
-      if (!near(x, y)) continue;
       const { px, py } = plotOf(x, y);
       if (clearing.has(plotKey(px, py))) continue;
       if (signs.has(tileKey(x, y))) {
         objects.push({ id: `locked:${x},${y}`, x, y, key: "locked/sign" });
         continue;
       }
-      const key = hash2(x, y, 11) % 4 === 0 ? "locked/rocks" : "locked/forest";
-      objects.push({ id: `locked:${x},${y}`, x, y, key });
+      objects.push({ id: `locked:${x},${y}`, x, y, key: lockedKey(x, y) });
     }
 
   // 工事（OBJ-07）：新築は足場、改築・進化は建物の手前に覆い
@@ -267,7 +262,7 @@ export function cityToIso(input: CityInput): { map: IsoMap; overlay: IsoOverlay 
   const paved = road.reduce((n, r) => n + (r >= MIN_ROAD.car ? 1 : 0), 0);
   const agents = input.population === undefined ? undefined : agentCounts(input.population, input.logistics ?? 1, roadTiles, paved);
   return {
-    map: { ...shape, road, locked, lot, objects, home: { x: 0, y: 0 } },
+    map: { ...shape, road, locked, lot, objects, home: { x: 0, y: 0 }, outside: "locked" },
     overlay: {
       zones,
       showZones: input.showZones,

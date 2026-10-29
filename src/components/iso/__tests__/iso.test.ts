@@ -3,7 +3,7 @@ import { agentFacing, createAgents, stepAgent } from "../agents";
 import { effectKind, flashAlpha, particles, popScale } from "../effects";
 import { clampCamera, clampToLand, fitZoom, scaleOf, screenToWorld, snapZoom, stepZoom, viewRect, worldOffset, zoomAt, zoomRange } from "../camera";
 import { CHUNK, chunkKey, chunkRect, visibleChunks } from "../chunks";
-import { BUILDING_LINES, dummyMap, groundKey, isRoad, mapRect, roadMask, tileAt, tileIndex } from "../map";
+import { BUILDING_LINES, dummyMap, groundKey, isRoad, lockedKey, mapRect, roadMask, tileAt, tileIndex } from "../map";
 import { depth, iso, mapBounds, toScreen, toTile } from "../projection";
 
 const P = iso(64);
@@ -104,6 +104,15 @@ describe("盤面の範囲（docs/map-layout-redesign.md §6.4）", () => {
     expect(isRoad(m, -1, -1)).toBe(true);
     expect(isRoad(m, 0, 0)).toBe(false);
     expect(groundKey(m, -1, -1)).toBe("road/1/1");
+  });
+
+  it("範囲の外は、outside が locked なら未開放の地面。林と岩の並びはマスで決まる", () => {
+    const m = { x0: 0, y0: 0, width: 2, height: 2, road: new Uint8Array(4), locked: new Uint8Array(4), objects: [] };
+    expect(groundKey({ ...m, outside: "locked" as const }, 5, 5)).toBe("ground/locked");
+    expect(groundKey(m, 5, 5)).toMatch(/^ground\/grass\//);
+    expect(lockedKey(-30, 7)).toBe(lockedKey(-30, 7));
+    const keys = new Set(Array.from({ length: 40 }, (_, i) => lockedKey(i, -i)));
+    expect(keys).toEqual(new Set(["locked/forest", "locked/rocks"]));
   });
 
   it("人と車は、ずれた範囲の道路の上に置く", () => {

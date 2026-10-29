@@ -60,7 +60,8 @@ describe("盤面の変換", () => {
     expect(overlay.zones![tileIndex(map, -5, -5)]).toBe("residential");
     expect(overlay.zones![tileIndex(map, 0, 0)]).toBe("none");
     expect(overlay.noAuto![tileIndex(map, 4, 4)]).toBe(true);
-    // 林や岩は開いた区画の隣の区画まで。その外は暗い地面だけ
+    // 範囲（開いた区画の隣の区画まで）の未開放のマスはすべて林か岩。範囲の外は描画側が同じ並びで埋める
+    expect(map.outside).toBe("locked");
     const locked = map.objects.filter((o) => o.key.startsWith("locked/"));
     expect(locked.some((o) => o.x === 7 && o.y === 0)).toBe(true);
     expect(locked.some((o) => o.x === 12 && o.y === 0)).toBe(false);
