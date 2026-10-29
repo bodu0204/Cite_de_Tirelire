@@ -291,6 +291,14 @@
     64,
     136
   ],
+  "big/building/farm/0": [
+    64,
+    61
+  ],
+  "big/building/farm/1": [
+    64,
+    66
+  ],
   "big/building/farm/2": [
     64,
     102
@@ -311,6 +319,10 @@
     64,
     72
   ],
+  "big/building/housing/2": [
+    64,
+    97
+  ],
   "big/building/housing/3": [
     64,
     129
@@ -318,6 +330,10 @@
   "big/building/housing/4": [
     64,
     164
+  ],
+  "big/building/housing/5": [
+    64,
+    182
   ],
   "big/building/logistics/0": [
     64,
@@ -370,6 +386,18 @@
   "big/special/gold_mine": [
     64,
     101
+  ],
+  "big/special/park/0": [
+    64,
+    49
+  ],
+  "big/special/park/1": [
+    64,
+    76
+  ],
+  "big/special/park/3": [
+    96,
+    137
   ],
   "big/special/silver_mine": [
     64,
