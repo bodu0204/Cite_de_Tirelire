@@ -31,12 +31,12 @@ export class TextureBook extends ArtBook {
 
   private glowCache = new Map<string, Entry | null>();
 
-  /** 夜の窓の灯り。割合は 0.1 刻みにまとめてテクスチャを使い回す（なければ null） */
-  getGlow(key: string, ratio: number): Entry | null {
+  /** 夜の窓の灯り。割合は 0.1 刻みにまとめてテクスチャを使い回す（なければ null）。動く絵は frame にコマの番号 */
+  getGlow(key: string, ratio: number, frame?: number): Entry | null {
     const q = Math.round(Math.max(0, Math.min(1, ratio)) * 10) / 10;
-    const k = `${key}:${q}`;
+    const k = `${key}:${q}:${frame ?? ""}`;
     if (!this.glowCache.has(k)) {
-      const a = this.glow(key, q);
+      const a = this.glow(key, q, frame);
       this.glowCache.set(k, a ? this.entry(a) : null);
     }
     return this.glowCache.get(k)!;

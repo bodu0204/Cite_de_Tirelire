@@ -97,8 +97,10 @@ function main() {
     const before = anchors[key] ?? [png.width / 2, bottom - lift];
     const glow = path.join(SRC, "glow", `${key}.png`);
     const dir = path.join(SRC, "anim", key);
-    const frames = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith(".png")).map((f) => path.join(dir, f)) : [];
-    const others = [...(existsSync(glow) ? [glow] : []), ...frames];
+    const pngs = (d: string) => (existsSync(d) ? readdirSync(d).filter((f) => f.endsWith(".png")).map((f) => path.join(d, f)) : []);
+    const frames = pngs(dir);
+    // コマごとの窓の灯り（glow-frames.ts）は止めた絵と同じ座標なので、止めた絵と同じだけずらす
+    const others = [...(existsSync(glow) ? [glow] : []), ...frames, ...pngs(path.join(SRC, "glowanim", key))];
     const { dx, apex } = fit(png, room([png, ...others.map((f) => readPng(readFileSync(f)))]));
     const ay = apex - lift;
     if (!dx && ay === before[1]) continue;

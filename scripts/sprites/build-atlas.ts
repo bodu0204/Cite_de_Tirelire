@@ -105,7 +105,7 @@ export function lint(sprites: Map<string, Sprite>, palette: Set<string>, anims: 
       if (s.ax !== png.width / 2 || s.ay < 0 || s.ay >= png.height) errors.push(`LINT-04 基準点 ${s.ax},${s.ay} が足元の中心にない：${key}`);
     }
     // 発光マスクは灯りの画素がまばらなので、拡大の判定から外す
-    if (!key.startsWith("glow/") && looksUpscaled(png)) errors.push(`LINT-05 2倍に拡大された絵に見える：${key}`);
+    if (!/^glow(anim)?\//.test(key) && looksUpscaled(png)) errors.push(`LINT-05 2倍に拡大された絵に見える：${key}`);
   }
   // LINT-06：動きの全コマがあり、同じ大きさで、同じ基準点を持つ
   for (const [key, a] of Object.entries(anims)) {
@@ -121,6 +121,13 @@ export function lint(sprites: Map<string, Sprite>, palette: Set<string>, anims: 
       if (f.ax !== f0.ax || f.ay !== f0.ay) errors.push(`LINT-06 コマの基準点がそろっていません：${f.key}`);
     }
     if (a.fps < 6 || a.fps > 12) errors.push(`LINT-06 コマ送りの速さ ${a.fps}fps が 6〜12 の外：${key}`);
+    // 窓の灯りがある動く絵は、コマごとの灯り（glowanim/。glow-frames.ts で作る）も全コマそろっている
+    const glow = sprites.get(`glow/${key}`);
+    if (glow) {
+      const parts = Array.from({ length: a.frames }, (_, i) => sprites.get(`glowanim/${key}/${i}`));
+      if (parts.some((g) => !g || g.png.width !== glow.png.width || g.png.height !== glow.png.height))
+        errors.push(`LINT-06 コマごとの窓の灯りがそろっていません。glow-frames.ts で作る：${key}`);
+    }
   }
   // LINT-07：段階が上がるほど高くなる
   for (const chain of tierChains()) {
@@ -155,7 +162,7 @@ export function lint(sprites: Map<string, Sprite>, palette: Set<string>, anims: 
 export function warnings(sprites: Map<string, Sprite>, baseOk: Record<string, string> = {}): string[] {
   const out: string[] = [];
   for (const s of sprites.values()) {
-    if (!onTile(s.key) || /^(anim|glow|ground|road|fx)\//.test(s.key) || sprites.has(`big/${s.key}`) || s.key in baseOk) continue;
+    if (!onTile(s.key) || /^(anim|glow|glowanim|ground|road|fx)\//.test(s.key) || sprites.has(`big/${s.key}`) || s.key in baseOk) continue;
     const share = sideShare(s.png);
     if (share > SIDE_SHARE) out.push(`LINT-09 土台が残っていそう（下に土の色が続く列 ${Math.round(share * 100)}%）：${s.key}`);
   }
@@ -214,10 +221,11 @@ function main() {
     const [ax, ay] = (animKey && anims[animKey]?.anchor) || anchors[key] || (onTile(key) ? [png.width / 2, bottom - lift] : [png.width / 2, bottom]);
     sprites.set(key, { key, png, ax, ay });
   }
-  // 発光マスクは元の建物の絵に重ねるので、基準点も元の絵と同じにする
+  // 発光マスクは元の建物の絵に重ねるので、基準点も元の絵と同じにする（コマごとの灯り glowanim/<キー>/<コマ> も止めた絵と同じ）
   for (const s of sprites.values()) {
-    if (!s.key.startsWith("glow/")) continue;
-    const base = sprites.get(s.key.slice(5));
+    const m = /^glow\/(.+)$|^glowanim\/(.+)\/\d+$/.exec(s.key);
+    if (!m) continue;
+    const base = sprites.get(m[1] ?? m[2]);
     if (base) {
       s.ax = base.ax;
       s.ay = base.ay;
