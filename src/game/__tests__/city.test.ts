@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { tierDef } from "../catalog";
 import { DAY, HOUR, TICK_MS } from "../config";
-import { demolish, manualBuild, manualUpgrade, moveBuilding, placeOffMapSpecials, rushJob, syncParks } from "../city/actions";
+import { demolish, expandQuote, manualBuild, manualExpand, manualUpgrade, moveBuilding, placeOffMapSpecials, rushJob, setPolicy, syncParks } from "../city/actions";
 import { computeMetrics } from "../city/economy";
 import { createCity } from "../city/init";
-import { buildingSize, connected, findSite, footprint, isPlaced, isPlannedRoad, isTileUnlocked, normalizeCity, occupancy, placementFor, roadNetwork, tileKey, tileUnlockLevel } from "../city/layout";
+import { buildingSize, connected, expandablePlots, findSite, footprint, isPlaced, isPlannedRoad, isTileUnlocked, normalizeCity, occupancy, placementFor, plotLimit, roadNetwork, tileKey, tileUnlockLevel } from "../city/layout";
 import { applyTechLevel, simulate } from "../city/sim";
 import { devLevel } from "../levels";
-import type { CityEvent, CityState } from "../types";
+import { createReplay } from "../replay";
+import { snapBuilding, type CityEvent, type CityState } from "../types";
 
 const T0 = Date.UTC(2026, 9, 1, 0, 0, 0);
 
@@ -128,8 +129,7 @@ describe("AT-013 銀貨が0の場合", () => {
 
 describe("AT-014 技術解放後の建物進化", () => {
   it("技術Lv2の農場が、技術Lv3で機械化農場へ自動進化する", () => {
-    // TODO(S4)：開拓が入るまで v2 の街は 2×2 の建物で土地が埋まり、発電所が建たなくなるので、v1 の街で確かめる
-    const s = createCity(T0, "balanced", 1);
+    const s = createCity(T0);
     applyTechLevel(s, 2, T0, []);
     run(s, 4 * DAY);
     const farm = s.buildings.find((b) => b.line === "farm" && b.tier === 1);
@@ -138,7 +138,8 @@ describe("AT-014 技術解放後の建物進化", () => {
     const foodBefore = computeMetrics(s).production.food;
 
     applyTechLevel(s, 3, s.simTime, []);
-    const events = run(s, 5 * DAY);
+    // v2 は開拓で土地が増えるので、都市資金が先に新築へ回り、進化は6日目ごろになる
+    const events = run(s, 7 * DAY);
     const evolved = events.find((e) => e.type === "EVOLVE" && (e.payload.to as string) === "機械化農場");
     expect(evolved, "機械化農場への進化イベント").toBeDefined();
     expect(evolved!.auto).toBe(true);
@@ -391,5 +392,118 @@ describe("自動開発の道路計画（docs/map-layout-redesign.md §5.3）", (
     const roads = events.filter((e) => e.type === "BUILD" && (e.payload.building as { line: string }).line === "road").map((e) => e.payload.building as { x: number; y: number });
     expect(roads.length).toBeGreaterThan(0);
     expect(roads.every((r) => isPlannedRoad(r.x, r.y))).toBe(true);
+  });
+});
+
+describe("開拓（docs/map-layout-redesign.md §7）", () => {
+  /** 発展Lv を lv にする（発展pt を閾値にそろえる） */
+  const atDev = (s: CityState, lv: number) => {
+    s.devPoints = [0, 50, 150, 350, 700, 1200][lv - 1];
+    return s;
+  };
+
+  it("開拓できる区画の数は発展Lvで決まる。Lv6 からは発展ptで増え、400 で止まる", () => {
+    expect([1, 2, 3, 4, 5, 6].map((lv) => plotLimit([0, 50, 150, 350, 700, 1200][lv - 1]))).toEqual([4, 8, 14, 22, 30, 40]);
+    expect(plotLimit(1200 + 150 * 10)).toBe(80);
+    expect(plotLimit(1e9)).toBe(400);
+  });
+
+  it("手動の開拓：資材と銀貨で払い、終わると区画の十字に道路が通る", () => {
+    const s = atDev(createCity(T0), 2);
+    s.stock.wood = 1000;
+    const treasury = s.treasury;
+    expect(expandablePlots(s).sort()).toEqual(["-1,-2", "-1,1", "-2,-1", "-2,0", "0,-2", "0,1", "1,-1", "1,0"].sort());
+    const q = expandQuote(s);
+    const r = manualExpand(s, 7, 3, T0, 100);
+    expect(r.silverFee).toBe(q.fee);
+    expect(s.stock.wood).toBe(1000 - q.cost.wood);
+    expect(s.treasury).toBe(treasury);
+    expect(s.jobs.at(-1)).toMatchObject({ kind: "expand", plot: "1,0", x: 5, y: 0 });
+    expect(() => manualExpand(s, 5, 0, T0, 100)).toThrow(/開拓中/);
+    // 開拓中の区画も上限に数え、費用は次の区画の分に上がる
+    expect(expandQuote(s).cost.wood).toBeGreaterThan(q.cost.wood);
+    const events: CityEvent[] = [];
+    rushJob(s, s.jobs.at(-1)!.id, T0, 100, events);
+    expect(events.map((e) => e.type)).toEqual(["PLOT_EXPANDED"]);
+    expect(s.plots).toContain("1,0");
+    expect(isTileUnlocked(s, 9, 4)).toBe(true);
+    const roads = (events[0].payload.roads as { x: number; y: number }[]).map((t) => tileKey(t.x, t.y)).sort();
+    expect(roads).toEqual(["7,0", "7,1", "7,2", "7,3", "7,4", "5,2", "6,2", "8,2", "9,2"].sort());
+    expect(roadNetwork(s).tiles.size).toBe(36 + 9);
+    // 新しい区画の 2×2 の敷地に建てられる
+    expect(() => manualBuild(s, { line: "housing", x: 5, y: 0 }, T0, 100)).not.toThrow();
+  });
+
+  it("開拓できない区画：隣でない・上限・v1 の街", () => {
+    const s = createCity(T0);
+    s.stock.wood = 1000;
+    expect(() => manualExpand(s, 5, 0, T0, 100)).toThrow(/4 までです/);
+    atDev(s, 2);
+    expect(() => manualExpand(s, 12, 0, T0, 100)).toThrow(/隣から/);
+    expect(() => manualExpand(s, 0, 0, T0, 100)).toThrow(/開拓済み/);
+    expect(() => manualExpand(createCity(T0, "balanced", 1), 0, 0, T0, 100)).toThrow(/開拓できません/);
+  });
+
+  it("銀行までつながった道路が境目まで届いていない区画は開拓できない", () => {
+    const s = atDev(createCity(T0), 2);
+    // 東の端の道路（4, −3）・（4, 2）を外すと、区画 (1, −1)・(1, 0) の十字に道路網が届かない
+    s.buildings = s.buildings.filter((b) => !(b.line === "road" && b.x === 4 && (b.y === -3 || b.y === 2)));
+    expect(expandablePlots(s)).not.toContain("1,0");
+    expect(() => manualExpand(s, 5, 0, T0, 100)).toThrow(/届いていません/);
+  });
+
+  it("自動開発は、建てる場所がなくなると区画を開拓する。止めることもできる", () => {
+    const s = createCity(T0);
+    applyTechLevel(s, 3, T0, []);
+    const events = run(s, 7 * DAY);
+    const expanded = events.filter((e) => e.type === "PLOT_EXPANDED");
+    expect(expanded.length).toBeGreaterThan(0);
+    expect(expanded.every((e) => e.auto)).toBe(true);
+    expect(s.plots!.length).toBeLessThanOrEqual(plotLimit(s.devPoints));
+    // 開いた区画はどれも、ほかの区画の隣
+    for (const k of s.plots!) {
+      const [px, py] = k.split(",").map(Number);
+      expect([`${px + 1},${py}`, `${px - 1},${py}`, `${px},${py + 1}`, `${px},${py - 1}`].some((n) => s.plots!.includes(n))).toBe(true);
+    }
+    // 方針で開拓を止める
+    const off = createCity(T0);
+    applyTechLevel(off, 3, T0, []);
+    setPolicy(off, { autoExpand: false });
+    expect(run(off, 7 * DAY).some((e) => e.type === "PLOT_EXPANDED")).toBe(false);
+    expect(off.plots).toHaveLength(4);
+  });
+
+  it("開拓で 3×3 の場所ができると、空き待ちの高額なサブスクの公園が置かれる", () => {
+    const s = atDev(createCity(T0), 3);
+    s.stock.wood = 10_000;
+    s.stock.stone = 10_000;
+    syncParks(s, [{ id: "a", name: "A", monthly: 5000, active: true }], T0, []);
+    const park = s.buildings.find((b) => b.special === "park")!;
+    expect(isPlaced(park)).toBe(false);
+    // (3, 3) の敷地のまわりの3区画を開くと、道路に挟まれた 4×4 の街区ができる
+    for (const [x, y] of [[5, 0], [0, 5], [5, 5]]) {
+      manualExpand(s, x, y, T0, 1000);
+      rushJob(s, s.jobs.at(-1)!.id, T0, 1000, []);
+    }
+    expect(isPlaced(park)).toBe(true);
+    expect(buildingSize(s, park)).toBe(3);
+    expect(connected(s, roadNetwork(s), park, park.x, park.y)).toBe(true);
+  });
+});
+
+describe("タイムラプス（v2）", () => {
+  it("開拓のイベントで区画と道路が増える", () => {
+    const s = createCity(T0);
+    s.devPoints = 50;
+    s.stock.wood = 1000;
+    const start = structuredClone(s);
+    manualExpand(s, 5, 0, T0, 100);
+    const events: CityEvent[] = [];
+    rushJob(s, s.jobs.at(-1)!.id, T0 + 1000, 100, events);
+    const replay = createReplay({ layout: start.v, plots: start.plots, buildings: start.buildings.map(snapBuilding), zones: start.zones, techLevel: 1 }, events);
+    expect(replay.at(T0).plots).toHaveLength(4);
+    const after = replay.at(T0 + 1000);
+    expect(after.plots).toContain("1,0");
+    expect([...after.buildings.values()].filter((b) => b.line === "road")).toHaveLength(45);
   });
 });

@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { CityView } from "@/components/city/CityView";
 import { computeMetrics } from "@/game/city/economy";
+import { expandablePlots, isLegacy } from "@/game/city/layout";
 import { createCity } from "@/game/city/init";
 import { applyTechLevel, simulate } from "@/game/city/sim";
 import { DAY } from "@/game/config";
@@ -63,6 +64,7 @@ export function CityPlayground() {
         label="確認用の街"
         layout={city.v}
         plots={city.plots}
+        expandable={isLegacy(city) ? undefined : expandablePlots(city)}
         buildings={city.buildings}
         jobs={city.jobs}
         zones={city.zones}

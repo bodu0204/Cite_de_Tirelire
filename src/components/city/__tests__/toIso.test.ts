@@ -99,6 +99,24 @@ describe("盤面の変換（v2：開拓した区画）", () => {
     expect(overlay.jobs?.map((j) => j.size)).toEqual([2, 2]);
   });
 
+  it("開拓できる区画の真ん中に看板、開拓中の区画は林を切り開いて真ん中に足場とバー", () => {
+    const { map, overlay } = cityToIso({
+      plots: INITIAL_PLOTS,
+      expandable: ["1,0"],
+      buildings: [],
+      jobs: [{ x: 0, y: 5, kind: "expand", plot: "0,1", startedAt: 0, finishAt: 10 }],
+      zones: {},
+      devLevel: 2,
+      bankLevel: 1,
+    });
+    expect(map.objects.find((o) => o.x === 7 && o.y === 2)?.key).toBe("locked/sign");
+    expect(map.objects.filter((o) => o.key === "locked/sign")).toHaveLength(1);
+    // 区画 (0, 1)（マス 0〜4, 5〜9）には林を置かず、真ん中に足場
+    expect(map.objects.filter((o) => o.key.startsWith("locked/") && o.x >= 0 && o.x <= 4 && o.y >= 5 && o.y <= 9)).toHaveLength(0);
+    expect(map.objects.find((o) => o.key === "fx/scaffold")).toMatchObject({ x: 2, y: 7 });
+    expect(overlay.jobs).toEqual([{ x: 0, y: 5, size: 5, startedAt: 0, finishAt: 10 }]);
+  });
+
   it("v1 の盤面では、どの建物も1マス", () => {
     const { map } = cityToIso({ layout: 1, buildings: [b({ id: "bank", special: "bank" })], zones: {}, devLevel: 6, bankLevel: 1 });
     expect(map.objects[0].size).toBeUndefined();

@@ -35,7 +35,8 @@ export interface Building {
   builtAt: number;
 }
 
-export type JobKind = "build" | "upgrade" | "evolve";
+/** expand は区画の開拓（docs/map-layout-redesign.md §7.2） */
+export type JobKind = "build" | "upgrade" | "evolve" | "expand";
 
 export interface Job {
   id: string;
@@ -44,10 +45,14 @@ export interface Job {
   line: LineId;
   tier: number;
   level: number;
-  /** upgrade / evolve の対象。build ならジョブ完了時に作られる建物ID */
+  /** upgrade / evolve の対象。build ならジョブ完了時に作られる建物ID。expand は "plot:px,py" */
   buildingId: string;
+  /** 対象のマス。expand は区画の左上のマス */
   x: number;
   y: number;
+  /** expand：開く区画（"px,py"）と、その土地用途（自動開発が土地を求めた建物の用途。手動は未指定） */
+  plot?: string;
+  zone?: Zone;
   startedAt: number;
   finishAt: number;
 }
@@ -69,6 +74,8 @@ export interface CityPolicy {
   priorities: NeedKey[];
   /** false で自動開発を止める */
   autoEnabled: boolean;
+  /** false で自動開発の開拓を止める（v2。省略すると開拓する。Q9） */
+  autoExpand?: boolean;
 }
 
 /**
@@ -119,6 +126,7 @@ export type CityEventType =
   | "TECH_UNLOCKED"
   | "DEV_LEVEL"
   | "DISTRICT_UNLOCKED"
+  | "PLOT_EXPANDED"
   | "POPULATION"
   | "SHORTAGE_STARTED"
   | "SHORTAGE_RESOLVED"

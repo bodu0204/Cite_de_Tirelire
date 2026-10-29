@@ -104,6 +104,12 @@ export function DevGauge({ v }: { v: ActiveView }) {
           ・ 発展速度 {fmt(d.ratePerHour, 1)}pt/時（稼働 {Math.round(d.operation * 100)}%{d.bondMultiplier > 1 && ` ・ 債券 ×${fmt(d.bondMultiplier, 2)}`}）
         </span>
         {d.nextDistrict && <span> ・ 次に「{d.nextDistrict}」を開放</span>}
+        {d.plots && (
+          <span>
+            {" "}
+            ・ 開拓できる区画 {d.plots.used} / {d.plots.limit}
+          </span>
+        )}
       </p>
     </div>
   );

@@ -22,18 +22,23 @@ import {
   DEV_LEVEL_UP,
   DEV_PER_HOUR,
   DEV_POP_STEP,
+  expandCost,
+  expandMinutes,
   GOLD_RESOURCE_VALUE,
   HAPPINESS_EASE_HOUR,
   HOUR,
   HOUSING_VACANCY_TARGET,
+  INITIAL_PLOTS,
   MINUTE,
+  PLOT_SIZE,
   TICK_MS,
 } from "../config";
 import { devLevel } from "../levels";
 import { coverPlans, firstShort, type PlanQueue, type QueuePlan } from "../planQueue";
+import type { Zone } from "../catalog";
 import { snapBuilding, type Building, type CityEvent, type CityState, type Gains, type Job, type NeedKey } from "../types";
 import { computeMetrics, type Metrics } from "./economy";
-import { DISTRICT_NAMES, findSite, isLegacy } from "./layout";
+import { choosePlot, DISTRICT_NAMES, findSite, isLegacy, occupancy, placeOffMapSpecials, plotCross, plotsUsed, siteCache, tileKey, type SiteCache } from "./layout";
 
 export const alignTick = (t: number) => Math.floor(t / TICK_MS) * TICK_MS;
 
@@ -147,8 +152,37 @@ export function creditBuild(s: CityState, b: Building, kind: "build" | "upgrade"
   return before;
 }
 
+/**
+ * 区画を開く（docs/map-layout-redesign.md §7.2）：区画の十字に道路を敷き、土地用途を決める。
+ * 十字は隣の区画の道路網につながっている（開拓できる区画の条件）。敷いた道路は建築実績に数えない
+ */
+function openPlot(s: CityState, job: Job, at: number, events: CityEvent[]) {
+  const plot = job.plot!;
+  if (!(s.plots ??= []).includes(plot)) s.plots.push(plot);
+  const [px, py] = plot.split(",").map(Number);
+  const cross = plotCross(px, py);
+  const onCross = new Set(cross.map((t) => tileKey(t.x, t.y)));
+  if (job.zone)
+    for (let y = py * PLOT_SIZE; y < (py + 1) * PLOT_SIZE; y++)
+      for (let x = px * PLOT_SIZE; x < (px + 1) * PLOT_SIZE; x++) if (!onCross.has(tileKey(x, y)) && !s.zones[tileKey(x, y)]) s.zones[tileKey(x, y)] = job.zone;
+  const occ = occupancy(s);
+  const roads: Building[] = [];
+  for (const t of cross) {
+    if (occ.has(tileKey(t.x, t.y))) continue;
+    const road: Building = { id: newId(s), line: "road", tier: job.tier, level: 1, x: t.x, y: t.y, locked: false, manual: !job.auto, builtAt: at };
+    s.buildings.push(road);
+    roads.push(road);
+  }
+  const count = s.buildings.filter((b) => b.line === "road").length;
+  s.peaks["n:road"] = Math.max(s.peaks["n:road"] ?? 0, count);
+  events.push({ at, type: "PLOT_EXPANDED", auto: job.auto, important: true, payload: { plot, zone: job.zone ?? null, roads: roads.map(snapBuilding) } });
+  // 場所が足りずにマップ外で待っていた公園・像を置く
+  placeOffMapSpecials(s);
+}
+
 export function finishJob(s: CityState, job: Job, at: number, events: CityEvent[]) {
   s.jobs = s.jobs.filter((j) => j.id !== job.id);
+  if (job.kind === "expand") return openPlot(s, job, at, events);
   let b: Building | undefined;
   let before: number | undefined;
   if (job.kind === "build") {
@@ -211,6 +245,9 @@ interface Plan {
   level: number;
   building?: Building;
   site?: { x: number; y: number };
+  /** expand：開く区画と、その土地用途 */
+  plot?: string;
+  zone?: Zone;
   cost: Cost;
   minutes: number;
 }
@@ -239,14 +276,36 @@ const busy = (s: CityState, id: string) => s.jobs.some((j) => j.buildingId === i
 const countLine = (s: CityState, line: LineId) =>
   s.buildings.filter((b) => b.line === line).length + s.jobs.filter((j) => j.kind === "build" && j.line === line).length;
 
-function buildPlan(s: CityState, line: LineId, dev: number): Plan | null {
+function buildPlanAt(s: CityState, line: LineId, dev: number, cache?: SiteCache): Plan | null {
   const tier = highestUnlockedTier(line, s.techLevel, dev);
   if (tier < 0) return null;
-  const site = findSite(s, line);
-  // 置き場所がなければ、まず欠けた推奨道路を道路網の端から延ばす（docs/map-layout-redesign.md §5.3）
-  if (!site) return line === "road" || isLegacy(s) ? null : buildPlan(s, "road", dev);
-  const t = tierDef(line, tier);
-  return { kind: "build", line, tier, level: 1, site, cost: t.cost, minutes: t.buildMinutes };
+  const site = findSite(s, line, cache);
+  if (site) {
+    const t = tierDef(line, tier);
+    return { kind: "build", line, tier, level: 1, site, cost: t.cost, minutes: t.buildMinutes };
+  }
+  if (line === "road" || isLegacy(s)) return null;
+  // 置き場所がなければ、まず欠けた推奨道路を道路網の端から延ばし、それもなければ区画を開拓する（§5.3・§7.2）
+  const zone = LINES[line].zone;
+  return buildPlanAt(s, "road", dev, cache) ?? expandPlan(s, dev, zone === "any" ? null : zone, cache);
+}
+
+/** 開拓の n 番目（初期の区画のあとに開く順、0 から） */
+export function nextPlotIndex(s: CityState): number {
+  return Math.max(0, plotsUsed(s) - INITIAL_PLOTS.length);
+}
+
+/**
+ * 区画の開拓の計画（自動開発。Q9）。同時に開拓するのは1区画まで。開く区画には、土地を求めた建物の用途を付ける
+ */
+function expandPlan(s: CityState, dev: number, zone: Zone | null, cache?: SiteCache): Plan | null {
+  if (s.policy.autoExpand === false || s.jobs.some((j) => j.kind === "expand")) return null;
+  const plot = choosePlot(s, zone, cache);
+  if (!plot) return null;
+  const n = nextPlotIndex(s);
+  const [px, py] = plot.split(",").map(Number);
+  const tier = Math.max(0, highestUnlockedTier("road", s.techLevel, dev));
+  return { kind: "expand", line: "road", tier, level: 1, site: { x: px * PLOT_SIZE, y: py * PLOT_SIZE }, plot, zone: zone ?? undefined, cost: expandCost(n), minutes: expandMinutes(n) };
 }
 
 function evolvePlans(s: CityState, lines: LineId[], dev: number): Plan[] {
@@ -283,8 +342,9 @@ const EVOLVE_ORDER: LineId[] = ["farm", "housing", "factory", "commerce", "power
 const NEW_INDUSTRY: LineId[] = ["quarry", "factory", "commerce", "school", "clinic", "culture", "rail", "logistics", "office", "future"];
 
 /** 必要事項ごとの候補（上から順に検討する） */
-function plansFor(need: NeedKey, s: CityState, m: Metrics, dev: number): Plan[] {
+function plansFor(need: NeedKey, s: CityState, m: Metrics, dev: number, cache = siteCache()): Plan[] {
   const plans: (Plan | null)[] = [];
+  const buildPlan = (s: CityState, line: LineId, dev: number) => buildPlanAt(s, line, dev, cache);
   const pop = s.population;
   switch (need) {
     case "shortage": {
@@ -347,9 +407,10 @@ function plansFor(need: NeedKey, s: CityState, m: Metrics, dev: number): Plan[] 
 function concretePlans(s: CityState, m: Metrics): Plan[] {
   const seen = new Set<string>();
   const out: Plan[] = [];
+  const cache = siteCache();
   for (const need of s.policy.priorities) {
-    for (const plan of plansFor(need, s, m, m.devLevel)) {
-      const key = plan.kind === "build" ? `build:${plan.line}` : `${plan.kind}:${plan.building!.id}`;
+    for (const plan of plansFor(need, s, m, m.devLevel, cache)) {
+      const key = plan.kind === "build" ? `build:${plan.line}` : plan.kind === "expand" ? "expand" : `${plan.kind}:${plan.building!.id}`;
       if (seen.has(key)) continue;
       seen.add(key);
       out.push(plan);
@@ -378,7 +439,7 @@ export function planQueue(s: CityState, m: Metrics = computeMetrics(s)): PlanQue
     line: p.line,
     tier: p.tier,
     level: p.level,
-    name: tierDef(p.line, p.tier).name,
+    name: p.kind === "expand" ? "区画の開拓" : tierDef(p.line, p.tier).name,
     cost: p.cost,
   });
   const x = expansionPlan(s, m.devLevel);
@@ -415,8 +476,9 @@ export function autoDevelop(s: CityState, m: Metrics, now: number): void {
   const maxJobs = 1 + Math.floor(dev / AUTO_JOBS_PER_DEV);
   if (s.jobs.filter((j) => j.auto).length >= maxJobs) return;
 
+  const cache = siteCache();
   for (const need of s.policy.priorities) {
-    for (const plan of plansFor(need, s, m, dev)) {
+    for (const plan of plansFor(need, s, m, dev, cache)) {
       if (canAfford(s, plan.cost, true)) {
         // 景観改善は余剰資金があるときだけ
         if (need === "beautify" && s.treasury - plan.cost.treasury < 500) return;
@@ -440,9 +502,11 @@ export function startJob(s: CityState, plan: Plan, now: number, auto: boolean): 
     line: plan.line,
     tier: plan.tier,
     level: plan.level,
-    buildingId: plan.building?.id ?? newId(s),
+    buildingId: plan.building?.id ?? (plan.kind === "expand" ? `plot:${plan.plot}` : newId(s)),
     x: plan.building?.x ?? plan.site!.x,
     y: plan.building?.y ?? plan.site!.y,
+    ...(plan.plot ? { plot: plan.plot } : {}),
+    ...(plan.zone ? { zone: plan.zone } : {}),
     startedAt: now,
     finishAt: now + plan.minutes * MINUTE,
   };

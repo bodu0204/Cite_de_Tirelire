@@ -48,6 +48,8 @@ export function describeEvent(e: DescribableEvent): string {
       return `街が「${DEV_NAMES[(p.level as number) - 1]}」（発展Lv${p.level}）に成長しました`;
     case "DISTRICT_UNLOCKED":
       return `新しい地区「${p.name}」が解放されました`;
+    case "PLOT_EXPANDED":
+      return "新しい区画を開拓しました";
     case "POPULATION":
       return `人口が${p.population}人を超えました`;
     case "SHORTAGE_STARTED":

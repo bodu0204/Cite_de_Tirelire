@@ -17,7 +17,23 @@ import {
   type Zone,
 } from "@/game/catalog";
 import { buildingOutput } from "@/game/city/economy";
-import { buildingSize, contains, isLegacy, isNoAuto, isPlaced, isTileUnlocked, jobSize, placeCtx, placementError, tileUnlockLevel, zoneAt } from "@/game/city/layout";
+import { expandQuote } from "@/game/city/actions";
+import {
+  buildingSize,
+  contains,
+  expansionError,
+  isLegacy,
+  isNoAuto,
+  isPlaced,
+  isTileUnlocked,
+  jobSize,
+  placeCtx,
+  placementError,
+  plotKey,
+  plotOf,
+  tileUnlockLevel,
+  zoneAt,
+} from "@/game/city/layout";
 import { FEE_MOVE, FEE_RUSH_PER_10MIN, feeBuild, feeUpgrade, MINUTE } from "@/game/config";
 import { PARK_DESCRIPTION, PARK_SIZE_LABELS, STATUE_DESCRIPTION, statueStageLabel } from "@/game/describe";
 import { STATUE_RANK_LABELS } from "@/game/levels";
@@ -109,6 +125,55 @@ function SpecialDetail({ rows, description, href, linkLabel }: { rows: [string, 
   );
 }
 
+/** 開拓していない土地：その区画（5×5 マス）を開拓する（docs/map-layout-redesign.md §7.3） */
+function ExpandPanel({ v, tile }: { v: ActiveView; tile: { x: number; y: number } }) {
+  const { act, busy } = useGame();
+  const city = v.city;
+  const silver = v.currencies.silver;
+  const { px, py } = plotOf(tile.x, tile.y);
+  const job = city.jobs.find((j) => j.kind === "expand" && j.plot === plotKey(px, py));
+  const plots = v.dev.plots;
+  if (job) {
+    const fee = Math.max(1, Math.ceil(Math.max(0, job.finishAt - v.serverNow) / (10 * MINUTE))) * FEE_RUSH_PER_10MIN;
+    return (
+      <div className="space-y-2 text-sm">
+        <p className="font-semibold">区画を開拓中</p>
+        <p className="text-muted">
+          {job.auto ? "自動開発による開拓" : "手動の開拓"}・完了まで約{Math.max(1, Math.ceil((job.finishAt - v.serverNow) / MINUTE))}分
+        </p>
+        <Button variant="gold" disabled={busy || silver < fee} onClick={() => act("/api/city", { type: "rush", jobId: job.id })}>
+          すぐ完成させる（{fee}S）
+        </Button>
+      </div>
+    );
+  }
+  const why = expansionError(city, px, py);
+  const q = expandQuote(city);
+  const ok = !why && city.stock.wood >= q.cost.wood && city.stock.stone >= q.cost.stone && silver >= q.fee;
+  return (
+    <div className="space-y-2 text-sm">
+      <p>まだ開拓されていない土地です。5×5 マスの区画ごとに、資材を使って開拓できます。開拓すると区画の真ん中に十字の道路が通ります。</p>
+      {plots && (
+        <p className="text-xs text-muted">
+          開拓できる区画 {plots.used} / {plots.limit}（発展Lvを上げると増えます）
+        </p>
+      )}
+      {why ? (
+        <p className="text-xs text-muted">{why}</p>
+      ) : (
+        <div className="rounded-lg bg-surface-2 p-2">
+          <Button className="w-full" disabled={busy || !ok} onClick={() => act("/api/city", { type: "expand", x: tile.x, y: tile.y })}>
+            この区画を開拓する（約{q.minutes}分）
+          </Button>
+          <div className="mt-1 text-center">
+            <CostLine cost={q.cost} fee={q.fee} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function TilePanel({
   v,
   tile,
@@ -133,7 +198,7 @@ export function TilePanel({
 
   if (!isTileUnlocked(city, tile.x, tile.y)) {
     if (isLegacy(city)) return <p className="text-sm text-muted">この区画は発展Lv{tileUnlockLevel(tile.x, tile.y)}で解放されます。</p>;
-    return <p className="text-sm text-muted">まだ開拓されていない土地です。</p>;
+    return <ExpandPanel v={v} tile={tile} />;
   }
 
   const zoneControls = (

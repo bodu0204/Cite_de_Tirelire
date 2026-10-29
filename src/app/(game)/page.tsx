@@ -9,7 +9,7 @@ import { DevGauge, SavingsGauge, TechGauge, WishSavingsGauge } from "@/component
 import { Onboarding } from "@/components/home/Onboarding";
 import { TilePanel } from "@/components/home/TilePanel";
 import { BondIcon, Button, Card, Coin, CustomIcon, LinkButton, Modal, Stat } from "@/components/ui";
-import { tileLabel } from "@/game/city/layout";
+import { expandablePlots, isLegacy, tileLabel } from "@/game/city/layout";
 import { devLevel } from "@/game/levels";
 import { fmt } from "@/lib/api";
 
@@ -44,7 +44,7 @@ export default function HomePage() {
   const [allCurrencies, setAllCurrencies] = useState(false);
 
   useEffect(() => {
-    if (v?.away && (v.away.built || v.away.upgraded || v.away.evolved || v.away.population || v.away.devPoints)) {
+    if (v?.away && (v.away.built || v.away.upgraded || v.away.evolved || v.away.expanded || v.away.population || v.away.devPoints)) {
       setAway(v.away);
       setHighlights(new Set(v.away.tiles.map(([x, y]) => `${x},${y}`)));
       const t = setTimeout(() => setHighlights(new Set()), 20_000);
@@ -61,6 +61,8 @@ export default function HomePage() {
 
   const m = v.metrics;
   const c = v.city;
+  // 開拓できる区画には看板を立てる
+  const expandable = isLegacy(c) ? undefined : expandablePlots(c);
   const uncollected = Math.floor(v.mine.uncollected);
 
   return (
@@ -78,6 +80,7 @@ export default function HomePage() {
             label={`${v.dev.name}の街。人口${Math.floor(m.population)}人、建物${c.buildings.length}棟。矢印キーでマスを選べます`}
             layout={c.v}
             plots={c.plots}
+            expandable={expandable}
             buildings={c.buildings}
             jobs={c.jobs}
             zones={c.zones}
@@ -212,6 +215,7 @@ export default function HomePage() {
               {away.built > 0 && <li>建物 {away.built}棟を建設</li>}
               {away.upgraded > 0 && <li>建物 {away.upgraded}件をアップグレード</li>}
               {away.evolved > 0 && <li>建物 {away.evolved}棟が進化</li>}
+              {away.expanded > 0 && <li>区画を {away.expanded}つ開拓</li>}
               <li>発展ポイント +{fmt(away.devPoints)}</li>
               <li>都市資金 {away.treasury >= 0 ? "+" : ""}{fmt(away.treasury)}</li>
               {away.bondResources.wood + away.bondResources.stone + away.bondResources.food + away.bondResources.treasury > 0 && (

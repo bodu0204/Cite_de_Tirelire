@@ -1,11 +1,11 @@
 // プレイヤーの手動操作と、特殊施設（公園・像）の同期。
 import { evolveCost, isTierUnlocked, highestUnlockedTier, LINES, SPECIAL_LABELS, tierDef, upgradeCost, upgradeMinutes, type LineId, type Zone } from "../catalog";
-import { FEE_MOVE, FEE_RUSH_PER_10MIN, feeBuild, feeUpgrade, MINUTE } from "../config";
+import { expandCost, expandMinutes, FEE_MOVE, FEE_RUSH_PER_10MIN, feeBuild, feeUpgrade, MINUTE, PLOT_SIZE } from "../config";
 import { fail } from "../errors";
 import { devLevel, statueRank } from "../levels";
 import { snapBuilding, type Building, type CityEvent, type CityPolicy, type CityState, type NeedKey } from "../types";
-import { buildingSize, canPlace, findSpecialSite, inBounds, isLegacy, isPlaced, placeCtx, placementError, placementFor, removalBreaks, tileKey } from "./layout";
-import { buildingName, canAfford, finishJob, levelCap, newId, startJob } from "./sim";
+import { buildingSize, canPlace, expansionError, findSpecialSite, inBounds, isLegacy, isPlaced, placeCtx, placementError, placementFor, plotOf, removalBreaks, tileKey } from "./layout";
+import { buildingName, canAfford, finishJob, levelCap, newId, nextPlotIndex, startJob } from "./sim";
 
 function requireBuilding(s: CityState, id: string): Building {
   return s.buildings.find((b) => b.id === id) ?? fail("not_found", "建物が見つかりません", 404);
@@ -71,6 +71,29 @@ export function manualBuild(s: CityState, input: { line: LineId; tier?: number; 
   requireMaterials(s, t.cost);
   startJob(s, { kind: "build", line: input.line, tier, level: 1, site, cost: t.cost, minutes: t.buildMinutes }, now, false);
   return { silverFee: fee };
+}
+
+/** 手動の開拓の銀貨手数料（手動建設と同じ。Q7） */
+export const FEE_EXPAND = feeBuild(0);
+
+/** 次に開拓する区画の費用と工事時間（手動は都市資金を使わず、資材と銀貨で払う） */
+export function expandQuote(s: CityState): { cost: { wood: number; stone: number; treasury: number }; minutes: number; fee: number } {
+  const n = nextPlotIndex(s);
+  return { cost: expandCost(n), minutes: expandMinutes(n), fee: FEE_EXPAND };
+}
+
+/** 手動の開拓：選んだマスの区画を開く（docs/map-layout-redesign.md §7.2） */
+export function manualExpand(s: CityState, x: number, y: number, now: number, silver: number): ManualResult {
+  if (!Number.isInteger(x) || !Number.isInteger(y)) fail("bad_tile", "マップの外です");
+  const { px, py } = plotOf(x, y);
+  const why = expansionError(s, px, py);
+  if (why) fail("bad_plot", why);
+  const q = expandQuote(s);
+  requireSilver(silver, q.fee);
+  requireMaterials(s, q.cost);
+  const tier = Math.max(0, highestUnlockedTier("road", s.techLevel, devLevel(s.devPoints)));
+  startJob(s, { kind: "expand", line: "road", tier, level: 1, site: { x: px * PLOT_SIZE, y: py * PLOT_SIZE }, plot: `${px},${py}`, cost: q.cost, minutes: q.minutes }, now, false);
+  return { silverFee: q.fee };
 }
 
 function requireIdle(s: CityState, b: Building) {
@@ -186,6 +209,7 @@ export function setPolicy(s: CityState, policy: Partial<CityPolicy>) {
   }
   if (policy.preset) s.policy.preset = policy.preset;
   if (typeof policy.autoEnabled === "boolean") s.policy.autoEnabled = policy.autoEnabled;
+  if (typeof policy.autoExpand === "boolean") s.policy.autoExpand = policy.autoExpand;
 }
 
 // ---- 公園（サブスク） ----
@@ -306,14 +330,4 @@ export function syncStatues(s: CityState, wishes: StatueSource[], now: number, e
   }
 }
 
-/** マップ外に置かれた特殊施設を、区画が解放されたら配置する */
-export function placeOffMapSpecials(s: CityState) {
-  for (const b of s.buildings) {
-    if (isPlaced(b) || !b.special) continue;
-    const site = findSpecialSite(s, b);
-    if (!site) continue;
-    b.x = site.x;
-    b.y = site.y;
-    delete b.placed;
-  }
-}
+export { placeOffMapSpecials } from "./layout";

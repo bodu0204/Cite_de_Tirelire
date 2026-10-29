@@ -6,6 +6,7 @@ import {
   demolish,
   manualBuild,
   manualEvolve,
+  manualExpand,
   manualUpgrade,
   moveBuilding,
   rushJob,
@@ -482,7 +483,7 @@ export function cityAction(ctx: GameCtx, body: Body) {
   const silver = ctx.balances.silver;
   const type = oneOf(
     body.type,
-    ["build", "upgrade", "evolve", "move", "demolish", "rush", "lock", "zone", "noAuto", "policy"] as const,
+    ["build", "upgrade", "evolve", "move", "demolish", "rush", "lock", "zone", "noAuto", "policy", "expand"] as const,
     "操作",
   );
   // 範囲の確かめは盤面の版ごとに actions.ts で行う（v2 は負の座標もある）
@@ -510,6 +511,12 @@ export function cityAction(ctx: GameCtx, body: Body) {
     case "demolish":
       demolish(city, id(), ctx.now, ctx.events);
       break;
+    case "expand": {
+      // 選んだマスの区画を開拓する（docs/map-layout-redesign.md §7.2）
+      const { x, y } = xy();
+      fee = manualExpand(city, x, y, ctx.now, silver).silverFee;
+      break;
+    }
     case "rush":
       fee = rushJob(city, id(), ctx.now, silver, ctx.events).silverFee;
       break;
@@ -537,6 +544,7 @@ export function cityAction(ctx: GameCtx, body: Body) {
         patch.preset = "custom";
       }
       if (body.autoEnabled !== undefined) patch.autoEnabled = bool(body.autoEnabled);
+      if (body.autoExpand !== undefined) patch.autoExpand = bool(body.autoExpand);
       setPolicy(city, patch);
       break;
     }

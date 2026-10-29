@@ -19,10 +19,12 @@ type Props = CityInput & {
 };
 
 export function CityView({ label, selected, onSelect, serverOffset = 0, fixed = false, timezone, className, ...input }: Props) {
-  const { layout, plots, buildings, jobs, zones, noAuto, devLevel, bankLevel, highlights, showZones, occupancy, population, logistics } = input;
+  const { layout, plots, expandable, buildings, jobs, zones, noAuto, devLevel, bankLevel, highlights, showZones, occupancy, population, logistics } = input;
   // 毎回作り直される入れ物は、中の値で見比べる
   const [power, workers, food] = [input.supply?.power, input.supply?.workers, input.supply?.food];
   const [uncollected, ratePerMinute] = [input.gold?.uncollected, input.gold?.ratePerMinute];
+  // 開拓できる区画は描くたびに計算し直されるので、中身で見比べる
+  const expandableKey = expandable?.join("|");
   // 時刻は1分ごとに見直す（暗さは2時間かけて変わるので、それで十分なめらか）
   const [hour, setHour] = useState<number | undefined>(undefined);
   useEffect(() => {
@@ -40,6 +42,7 @@ export function CityView({ label, selected, onSelect, serverOffset = 0, fixed = 
       cityToIso({
         layout,
         plots,
+        expandable: expandableKey === undefined ? undefined : expandableKey ? expandableKey.split("|") : [],
         buildings,
         jobs,
         zones,
@@ -55,7 +58,7 @@ export function CityView({ label, selected, onSelect, serverOffset = 0, fixed = 
         supply: power === undefined ? undefined : { power, workers: workers ?? 1, food: food ?? 1 },
         gold: uncollected === undefined ? undefined : { uncollected, ratePerMinute: ratePerMinute ?? 0 },
       }),
-    [layout, plots, buildings, jobs, zones, noAuto, devLevel, bankLevel, highlights, showZones, hour, occupancy, population, logistics, power, workers, food, uncollected, ratePerMinute],
+    [layout, plots, expandableKey, buildings, jobs, zones, noAuto, devLevel, bankLevel, highlights, showZones, hour, occupancy, population, logistics, power, workers, food, uncollected, ratePerMinute],
   );
   return (
     <div className="rounded-xl border-4 border-[var(--map-frame)] bg-[var(--map-frame)] shadow-inner">

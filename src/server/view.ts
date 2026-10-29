@@ -2,7 +2,7 @@
 import { bondCap, bondMiningStatus, bondMultiplier, bondShare } from "@/game/bond";
 import { highestUnlockedTier, LINE_IDS, LINES, unlocksAtTech } from "@/game/catalog";
 import { computeMetrics } from "@/game/city/economy";
-import { DISTRICT_NAMES, isLegacy, unlockedTileCount } from "@/game/city/layout";
+import { DISTRICT_NAMES, isLegacy, plotLimit, plotsUsed, unlockedTileCount } from "@/game/city/layout";
 import { cityNeeds, levelCap } from "@/game/city/sim";
 import {
   AWAY_SUMMARY_MIN_MS,
@@ -64,6 +64,7 @@ async function awaySummary(ctx: GameCtx) {
     built: count("BUILD"),
     upgraded: count("UPGRADE"),
     evolved: count("EVOLVE"),
+    expanded: count("PLOT_EXPANDED"),
     devPoints: Math.floor(city.devPoints - lastStats.devPoints),
     treasury: Math.floor(city.treasury - lastStats.treasury),
     /** 債券化で得た資源 */
@@ -235,6 +236,8 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
       bondMultiplier: k,
       nextDistrict: isLegacy(city) ? (DISTRICT_NAMES[dev + 1] ?? null) : null,
       tiles: unlockedTileCount(city),
+      /** v2：開いた・開拓中の区画の数と、その上限（docs/map-layout-redesign.md §7.3） */
+      plots: isLegacy(city) ? null : { used: plotsUsed(city), limit: plotLimit(city.devPoints) },
       levelCap: levelCap(dev),
     },
     city,

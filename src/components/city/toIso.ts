@@ -26,6 +26,8 @@ export interface CityJob {
   /** 新築の大きさを決める（v2） */
   line?: LineId;
   tier?: number;
+  /** 開拓（kind "expand"）の区画 */
+  plot?: string;
   startedAt: number;
   finishAt: number;
 }
@@ -35,6 +37,8 @@ export interface CityInput {
   layout?: CityLayout;
   /** v2：開拓した区画（"px,py"） */
   plots?: string[];
+  /** v2：開拓できる区画（"px,py"）。真ん中に看板を立てる */
+  expandable?: string[];
   buildings: Iterable<CityBuilding>;
   jobs?: CityJob[];
   /** マスの土地用途（"x,y"） */
@@ -213,12 +217,21 @@ export function cityToIso(input: CityInput): { map: IsoMap; overlay: IsoOverlay 
     if (stage) objects.push({ id: "gold", x: b.x, y: b.y, key: `props/gold/${stage}`, dz: 0.3, ox: 14, oy: 7 });
   }
 
-  // 未開放の区画（OBJ-02）：林か岩で覆い、次に開く区画にはところどころ看板を立てる
+  // 未開放の区画（OBJ-02）：林か岩で覆い、次に開く区画にはところどころ看板を立てる。
+  // v2 は開拓できる区画の真ん中に看板を立て、開拓中の区画は林を切り開いた地面にする
+  const clearing = new Set((input.jobs ?? []).flatMap((j) => (j.kind === "expand" && j.plot ? [j.plot] : [])));
+  const signs = new Set((input.expandable ?? []).map((k) => k.split(",").map((v) => Number(v) * PLOT_SIZE + 2).join(",")));
   for (let y = rect.minY; y <= rect.maxY; y++)
     for (let x = rect.minX; x <= rect.maxX; x++) {
       if (open(x, y)) continue;
       locked[tileIndex(shape, x, y)] = 1;
       if (!near(x, y)) continue;
+      const { px, py } = plotOf(x, y);
+      if (clearing.has(plotKey(px, py))) continue;
+      if (signs.has(tileKey(x, y))) {
+        objects.push({ id: `locked:${x},${y}`, x, y, key: "locked/sign" });
+        continue;
+      }
       const h = hash2(x, y, 11);
       const next = input.layout === 1 && tileUnlockLevel(x, y) === input.devLevel + 1;
       const key = next && h % 3 === 0 ? "locked/sign" : h % 4 === 0 ? "locked/rocks" : "locked/forest";
@@ -228,9 +241,15 @@ export function cityToIso(input: CityInput): { map: IsoMap; overlay: IsoOverlay 
   // 工事（OBJ-07）：新築は足場、改築・進化は建物の手前に覆い
   // 改築・進化の覆いは、建物と同じ大きさで建物の手前に重ねる
   const sizeAt = new Map(buildings.filter((b) => b.placed !== false).map((b) => [tileKey(b.x, b.y), buildingSize(layout, b)]));
-  const jobSize = (j: CityJob) => (j.kind === "build" ? (j.line ? buildingSize(layout, { line: j.line, tier: j.tier ?? 0 }) : 1) : (sizeAt.get(tileKey(j.x, j.y)) ?? 1));
+  const jobSize = (j: CityJob) =>
+    j.kind === "expand" ? PLOT_SIZE : j.kind === "build" ? (j.line ? buildingSize(layout, { line: j.line, tier: j.tier ?? 0 }) : 1) : (sizeAt.get(tileKey(j.x, j.y)) ?? 1);
   for (const j of input.jobs ?? []) {
     const size = jobSize(j);
+    // 開拓は区画の真ん中に足場を置く（バーも真ん中に出る）
+    if (j.kind === "expand") {
+      objects.push({ id: `job:${j.x},${j.y}`, x: j.x + 2, y: j.y + 2, key: "fx/scaffold" });
+      continue;
+    }
     const sz = size > 1 ? { size } : {};
     if (j.kind === "build") markLot(j.x, j.y, size);
     objects.push(

@@ -17,6 +17,22 @@ export const LEGACY_MAP_SIZE = 10;
 export const PLOT_SIZE = 5;
 /** シーズン開始時に開いている区画（中心の 10×10 ＝ マス -5〜4） */
 export const INITIAL_PLOTS = ["-1,-1", "0,-1", "-1,0", "0,0"];
+/**
+ * 開拓できる区画数の上限（初期の4区画を含む。発展Lv別。docs/map-layout-redesign.md §7.2、Q8）。
+ * 発展Lv6 からは発展pt が PLOT_STEP_POINTS 増えるごとに PLOT_STEP ずつ増え、MAX_PLOTS で止まる（Q5）
+ */
+export const PLOT_LIMIT = [4, 8, 14, 22, 30, 40];
+export const PLOT_STEP_POINTS = 150;
+export const PLOT_STEP = 4;
+export const MAX_PLOTS = 400;
+/** n 区画目（初期の4区画のあとに開く順、0 から）の開拓の費用と工事時間（分）。開くたびに増える */
+export const PLOT_COST_GROWTH = 1.2;
+export const expandCost = (n: number) => {
+  const k = PLOT_COST_GROWTH ** n;
+  // 最初の2区画は木材と都市資金だけ（石材加工所は発展Lv2・技術Lv2 から）
+  return { wood: Math.round(60 * k), stone: n < 2 ? 0 : Math.round(20 * k), treasury: Math.round(150 * k) };
+};
+export const expandMinutes = (n: number) => Math.min(360, 60 + 15 * n);
 
 // ---- 銀鉱の記録報酬 ----
 export const REWARD_PURCHASE = 50;
