@@ -124,7 +124,7 @@
     "frames": 8,
     "anchor": [
       64,
-      159
+      160
     ]
   },
   "big/building/factory/3": {
@@ -148,7 +148,7 @@
     "frames": 8,
     "anchor": [
       64,
-      160
+      165
     ]
   },
   "big/building/lumber/0": {
@@ -156,7 +156,7 @@
     "frames": 8,
     "anchor": [
       64,
-      110
+      112
     ]
   },
   "big/special/park/3": {
@@ -164,7 +164,7 @@
     "frames": 8,
     "anchor": [
       96,
-      163
+      160
     ]
   },
   "big/special/bank/6": {
@@ -172,7 +172,7 @@
     "frames": 8,
     "anchor": [
       96,
-      208
+      225
     ]
   },
   "big/special/gold_mine": {
@@ -180,7 +180,7 @@
     "frames": 8,
     "anchor": [
       64,
-      90
+      101
     ]
   },
   "big/special/silver_mine": {
@@ -188,7 +188,7 @@
     "frames": 8,
     "anchor": [
       64,
-      83
+      103
     ]
   },
   "big/building/power/0": {
@@ -196,7 +196,7 @@
     "frames": 8,
     "anchor": [
       64,
-      103
+      117
     ]
   },
   "big/building/future/0": {
@@ -204,7 +204,7 @@
     "frames": 8,
     "anchor": [
       64,
-      184
+      185
     ]
   }
 }
