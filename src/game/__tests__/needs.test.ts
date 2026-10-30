@@ -190,7 +190,8 @@ describe("AT-036 採掘の債券化につく資源", () => {
 
   it("債券 −3,050・債券化率 0%：0で止まるので資源は一度もつかない", () => {
     const w = world([], { bond: -3050 });
-    advance(w, { plan, bondRate: 0, until: START + 30 * DAY, newId }, []);
+    // 8日目で 0 に戻る。その先も 0 のままなのを見るため 10 日
+    advance(w, { plan, bondRate: 0, until: START + 10 * DAY, newId }, []);
     expect(w.purse.bond).toBe(0);
     expect(goldOf(w.city.bondResourceTotal ?? ZERO_GAINS)).toBe(0);
   });
