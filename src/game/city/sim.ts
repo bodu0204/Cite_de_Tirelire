@@ -465,17 +465,22 @@ export function cityNeeds(s: CityState, m: Metrics = computeMetrics(s)): CityNee
   };
 }
 
-/** 1ティックに1件まで、自動開発のジョブを開始する */
+/**
+ * 自動開発のジョブを開始する。1ティックに、方針の優先順で必要事項ごとに1件まで
+ * （工事中の分は指標に入らないので、同じ必要事項で何件も始めると作りすぎる）
+ */
 export function autoDevelop(s: CityState, m: Metrics, now: number): void {
   const dev = m.devLevel;
-  const cache = siteCache();
+  let cache = siteCache();
   for (const need of s.policy.priorities) {
     for (const plan of plansFor(need, s, m, dev, cache)) {
       if (canAfford(s, plan.cost, true)) {
         // 景観改善は余剰資金があるときだけ
         if (need === "beautify" && s.treasury - plan.cost.treasury < 500) return;
         startJob(s, plan, now, true);
-        return;
+        // 盤面が変わったので、場所は探し直す
+        cache = siteCache();
+        break;
       }
       // 近いうちに払えるなら下位の項目に資金を流さずに貯める
       if (need !== "beautify" && waitHours(s, m, plan.cost) <= AUTO_MAX_WAIT_HOURS) return;
