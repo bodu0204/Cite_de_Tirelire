@@ -14,7 +14,6 @@ import {
   type LineId,
 } from "../catalog";
 import {
-  AUTO_JOBS_PER_DEV,
   AUTO_MAX_WAIT_HOURS,
   BUILDING_LEVEL_CAP,
   DEV_BUILD,
@@ -469,9 +468,6 @@ export function cityNeeds(s: CityState, m: Metrics = computeMetrics(s)): CityNee
 /** 1ティックに1件まで、自動開発のジョブを開始する */
 export function autoDevelop(s: CityState, m: Metrics, now: number): void {
   const dev = m.devLevel;
-  const maxJobs = 1 + Math.floor(dev / AUTO_JOBS_PER_DEV);
-  if (s.jobs.filter((j) => j.auto).length >= maxJobs) return;
-
   const cache = siteCache();
   for (const need of s.policy.priorities) {
     for (const plan of plansFor(need, s, m, dev, cache)) {
