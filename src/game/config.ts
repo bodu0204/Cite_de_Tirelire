@@ -117,8 +117,6 @@ export const POP_GROWTH_PER_RESIDENT_HOUR = 0.004;
 export const TREASURY_COST_SCALE = 2;
 export const BUILD_TIME_SCALE = 3;
 export const REVENUE_SCALE = 0.6;
-/** 自動開発の同時ジョブ数 = 1 + floor(発展Lv / この値) */
-export const AUTO_JOBS_PER_DEV = 3;
 /** 幸福度が目標値へ近づく速さ（1時間あたりの割合） */
 export const HAPPINESS_EASE_HOUR = 0.2;
 export const LOGISTICS_FLOOR = 0.6;
