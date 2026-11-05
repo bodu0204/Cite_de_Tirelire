@@ -5,7 +5,7 @@ import { demolish, expandQuote, manualBuild, manualExpand, manualUpgrade, moveBu
 import { computeMetrics } from "../city/economy";
 import { createCity } from "../city/init";
 import { buildingSize, connected, dropLegacyMines, expandablePlots, expansionError, findSite, footprint, isPlaced, isPlannedRoad, isTileUnlocked, occupancy, placementFor, plotCross, plotLimit, roadNetwork, tileKey } from "../city/layout";
-import { applyTechLevel, simulate } from "../city/sim";
+import { applyTechLevel, plannedMetrics, simulate } from "../city/sim";
 import { devLevel } from "../levels";
 import { createReplay } from "../replay";
 import { snapBuilding, type Building, type CityEvent, type CityState } from "../types";
@@ -500,5 +500,35 @@ describe("タイムラプス（v2）", () => {
     const after = replay.at(T0 + 1000);
     expect(after.plots).toContain("1,0");
     expect([...after.buildings.values()].filter((b) => b.line === "road")).toHaveLength(45);
+  });
+});
+
+describe("工事中の分を完成したものとして判断する", () => {
+  it("新築中の住宅は、完成後の指標には入り、今の指標には入らない", () => {
+    const s = createCity(T0);
+    const site = findSite(s, "housing")!;
+    const now = computeMetrics(s).housingCap;
+    s.jobs.push({ id: "jx", kind: "build", auto: true, line: "housing", tier: 0, level: 1, buildingId: "bx", x: site.x, y: site.y, startedAt: T0, finishAt: T0 + HOUR });
+    expect(computeMetrics(s).housingCap).toBe(now);
+    expect(plannedMetrics(s).housingCap).toBeGreaterThan(now);
+  });
+});
+
+describe("石材を作れないうちの開拓", () => {
+  it("3区画目からの石材は、石材加工所が解放されるまでかからない", () => {
+    const s = createCity(T0);
+    s.devPoints = 50; // 発展Lv2
+    s.plots.push("1,0", "0,1");
+    expect(expandQuote(s).cost.stone).toBe(0);
+    applyTechLevel(s, 2, T0, []);
+    expect(expandQuote(s).cost.stone).toBeGreaterThan(0);
+  });
+
+  it("技術Lv1のままでも、自動開発の開拓が石材で止まらない", () => {
+    const s = createCity(T0);
+    s.treasury = 6000;
+    s.stock.wood = 3000;
+    run(s, 7 * DAY);
+    expect(s.plots.length).toBeGreaterThan(6);
   });
 });

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { PlanList } from "@/components/exchange/PlanList";
+import { waitingFor } from "@/components/home/waiting";
 import { useGame, useSeasonView } from "@/components/GameProvider";
 import { BondIcon, Button, Card, Coin, Field, Tabs } from "@/components/ui";
 import { FEE_EXCHANGE } from "@/game/config";
@@ -256,6 +257,7 @@ export default function ExchangePage() {
           stock={{ wood: v.city.stock.wood, stone: v.city.stock.stone, treasury: v.city.treasury }}
           foodNeed={needs.food}
           gains={mode === "res" ? q.gains : bondGains}
+          waiting={waitingFor(v)}
         />
       )}
       <Card title="現在の交換効率">

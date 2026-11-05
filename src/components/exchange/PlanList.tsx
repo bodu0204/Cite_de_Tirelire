@@ -9,9 +9,9 @@ import { Card, Gauge } from "../ui";
 /** 最初に表示する計画の数（交換後に足りなくなる計画がそれより後ろなら、そこまで表示する） */
 const INITIAL_ROWS = 6;
 
-const LABEL: Record<keyof PlanStock, string> = { wood: "木材", stone: "石材", treasury: "都市資金" };
+export const LABEL: Record<keyof PlanStock, string> = { wood: "木材", stone: "石材", treasury: "都市資金" };
 
-const planLabel = (p: QueuePlan) =>
+export const planLabel = (p: QueuePlan) =>
   p.kind === "build" ? `${p.name}を新築` : p.kind === "evolve" ? `${p.name}へ進化` : p.kind === "expand" ? p.name : `${p.name} Lv${p.level}へ`;
 
 type Tone = "ok" | "new" | "short";
@@ -45,7 +45,7 @@ function Bars({ plan, before, after }: { plan: QueuePlan; before: PlanStock; aft
   );
 }
 
-const shortText = (s: PlanStock) =>
+export const shortText = (s: PlanStock) =>
   PLAN_KEYS.filter((k) => s[k] > 0)
     .map((k) => `${LABEL[k]} ${fmt(Math.ceil(s[k]))}`)
     .join("・");
@@ -59,6 +59,7 @@ export function PlanList({
   stock,
   foodNeed,
   gains,
+  waiting = [],
 }: {
   queue: PlanQueue;
   /** 今の在庫（木材・石材・都市資金） */
@@ -67,6 +68,8 @@ export function PlanList({
   foodNeed: number;
   /** この交換で街に入る資源と都市資金 */
   gains: Gains;
+  /** 具体的な計画がないとき、街が資源ではなく待っているもの（home/waiting.ts） */
+  waiting?: string[];
 }) {
   const [all, setAll] = useState(false);
   /** 交換しなくても実施できる計画を隠す（交換で実施できるようになる計画は隠さない） */
@@ -136,6 +139,16 @@ export function PlanList({
             <button type="button" className="text-sm text-muted underline" onClick={() => setAll(true)}>
               ほかの計画 {hidden}件を表示
             </button>
+          </li>
+        )}
+        {waiting.length > 0 && (
+          <li className="rounded-lg border border-line bg-surface-2 p-2 text-sm">
+            具体的な計画はありません。街は今、資源ではなく次を待っています。
+            <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs">
+              {waiting.map((w) => (
+                <li key={w}>{w}</li>
+              ))}
+            </ul>
           </li>
         )}
         <li className="rounded-lg border border-dashed border-line p-2">
