@@ -8,7 +8,7 @@ import { Gauge } from "../ui";
 
 export function SavingsGauge({ v }: { v: ActiveView }) {
   const s = v.season;
-  // 貯金額 ＝ 債券 ＋ 都市に使った金貨。バーは都市に使った金貨を塗り、債券を斜線で重ねる（債券がマイナスなら減らす）
+  // 貯金額 ＝ 債券 ＋ ゲーム内で使った金貨。バーはゲーム内で使った金貨を塗り、債券を斜線で重ねる（債券がマイナスなら減らす）
   const total = Math.max(0, s.savings);
   const city = Math.max(0, Math.min(s.citySpent, total));
   // バーは次の銀行Lvまでの達成率

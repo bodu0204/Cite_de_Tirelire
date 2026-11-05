@@ -211,7 +211,7 @@ async function executeRows(ctx: GameCtx, income: Income, rows: AllocationRow[], 
   return { goldNow, saved };
 }
 
-/** 即時に入った金貨をおまかせ交換する（手数料 5S、銀貨が足りなければなし。都市に使った金貨に数える） */
+/** 即時に入った金貨をおまかせ交換する（手数料 5S、銀貨が足りなければなし。ゲーム内で使った金貨に数える） */
 function autoExchange(ctx: GameCtx, gold: number, refId: string): Gains | null {
   if (gold <= 0) return null;
   const fee = ctx.balances.silver >= FEE_EXCHANGE;
