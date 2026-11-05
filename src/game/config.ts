@@ -84,8 +84,6 @@ export const SILVER_VALUE_RATIO = 0.1;
 export const FEE_EXCHANGE = 5;
 /** 公園・像のために林を押しのけて敷く道路1マス */
 export const FEE_INSTANT_ROAD = 15;
-/** 即時完了：残り10分ごと */
-export const FEE_RUSH_PER_10MIN = 2;
 
 // ---- 技術Lv（貯金最高到達額、円） ----
 export const TECH_THRESHOLDS = [0, 5_000, 15_000, 30_000, 60_000, 100_000, 200_000];
@@ -120,8 +118,8 @@ export const REVENUE_SCALE = 0.6;
 export const HAPPINESS_EASE_HOUR = 0.2;
 export const LOGISTICS_FLOOR = 0.6;
 export const OPERATION_FLOOR = 0.3;
-/** 自動開発：これ以上待たないと払えない目標は後回しにする */
-export const AUTO_MAX_WAIT_HOURS = 12;
+/** 街の発展：これ以上待たないと払えない目標は後回しにする */
+export const DEV_MAX_WAIT_HOURS = 12;
 /** 住宅の空きがこの割合を下回ったら住宅を増やす */
 export const HOUSING_VACANCY_TARGET = 0.15;
 

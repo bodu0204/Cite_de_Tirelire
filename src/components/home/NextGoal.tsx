@@ -19,7 +19,7 @@ export function NextGoal({ v }: { v: ActiveView }) {
   const stock: PlanStock = { wood: c.stock.wood, stone: c.stock.stone, treasury: c.treasury };
   const cov = coverPlans(v.exchange.planQueue, stock);
   const { coverage, expansion } = firstShort(cov);
-  // 在庫で払える計画は、次のティック（10分ごと）に自動開発が始める
+  // 在庫で払える計画は、次のティック（10分ごと）に街が工事を始める
   const ready = cov.plans.filter((x) => x.ok).length;
   const p = coverage.plan;
   const gold = (s: PlanStock) => PLAN_KEYS.reduce((a, k) => a + (rate[k] > 0 ? s[k] / rate[k] : 0), 0);

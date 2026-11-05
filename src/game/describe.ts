@@ -1,9 +1,8 @@
-// 自動発展ログ・タイムラプス用のイベント文言。
+// 街のできごと・タイムラプス用のイベント文言。
 import { DEV_NAMES } from "./config";
 
 export interface DescribableEvent {
   type: string;
-  auto: boolean;
   payload: Record<string, unknown>;
 }
 
@@ -16,7 +15,7 @@ export const PARK_DESCRIPTION =
   "契約中のサブスク1件につき公園が1つできます。月額が高いほど大きく（500円・1,500円・3,000円で一段ずつ）、開園中は街の幸福度を上げます。公園が増えるほど1つあたりの効果は小さくなります（合計+15まで）。解約すると閉園し、閉園した公園は撤去できます。";
 
 export const STATUE_DESCRIPTION =
-  "ほしい物1件につき像が1体できます。価格で銅像（5,000円未満）・銀像（30,000円未満）・金像に分かれ、金貨の積立が25%進むごとに像が高くなります。100%で資金準備完了、購入を記録すると完成します。像は自動開発で撤去されません。";
+  "ほしい物1件につき像が1体できます。価格で銅像（5,000円未満）・銀像（30,000円未満）・金像に分かれ、金貨の積立が25%進むごとに像が高くなります。100%で資金準備完了、購入を記録すると完成します。像は街の発展で撤去されません。";
 
 /** 像の段階（statueStage）の説明 */
 export function statueStageLabel(stage: number): string {
@@ -28,14 +27,13 @@ export function statueStageLabel(stage: number): string {
 
 export function describeEvent(e: DescribableEvent): string {
   const p = e.payload as Record<string, never>;
-  const who = e.auto ? "" : "（手動）";
   switch (e.type) {
     case "BUILD":
-      return `新しい${p.name}が建設されました${who}`;
+      return `新しい${p.name}が建設されました`;
     case "UPGRADE":
-      return `${p.name}がLv${p.level}になりました${who}`;
+      return `${p.name}がLv${p.level}になりました`;
     case "EVOLVE":
-      return `${p.from}が${p.to}に進化しました${who}`;
+      return `${p.from}が${p.to}に進化しました`;
     case "DEMOLISH":
       return `${p.name}を撤去しました`;
     case "MOVE":

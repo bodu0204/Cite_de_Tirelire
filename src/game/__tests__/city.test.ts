@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { highestUnlockedTier, isTierUnlocked, tierDef, type LineId } from "../catalog";
 import { DAY, HOUR, MINUTE, PLOT_SIZE, TICK_MS } from "../config";
-import { rushJob, syncParks, syncStatues } from "../city/actions";
+import { syncParks, syncStatues } from "../city/actions";
 import { computeMetrics } from "../city/economy";
 import { createCity } from "../city/init";
 import { buildingSize, canPlace, connected, dropLegacyMines, expandablePlots, expansionError, findSite, footprint, isPlaced, isPlannedRoad, isTileUnlocked, occupancy, plotCross, plotLimit, plotOf, roadNetwork, tileKey } from "../city/layout";
-import { applyTechLevel, plannedMetrics, plotCost, simulate } from "../city/sim";
+import { applyTechLevel, finishJob, plannedMetrics, plotCost, simulate } from "../city/sim";
 import { devLevel } from "../levels";
 import { createReplay } from "../replay";
 import { snapBuilding, type Building, type CityEvent, type CityState, type Job } from "../types";
@@ -20,27 +20,30 @@ function run(s: CityState, ms: number) {
 
 const clone = (s: CityState): CityState => structuredClone(s);
 
-/** 自動開発の工事と同じ形のジョブを、(x, y) を左上にして始める（置けなければ例外） */
+/** 街の工事と同じ形のジョブを、(x, y) を左上にして始める（置けなければ例外） */
 function startBuild(s: CityState, line: LineId, x: number, y: number): Job {
   const tier = highestUnlockedTier(line, s.techLevel, devLevel(s.devPoints));
   if (!canPlace(s, { line, tier }, x, y)) throw new Error(`置けません ${line} ${x},${y}`);
-  const job: Job = { id: `j${s.nextId++}`, kind: "build", auto: true, line, tier, level: 1, buildingId: `b${s.nextId++}`, x, y, startedAt: s.simTime, finishAt: s.simTime + tierDef(line, tier).buildMinutes * MINUTE };
+  const job: Job = { id: `j${s.nextId++}`, kind: "build", line, tier, level: 1, buildingId: `b${s.nextId++}`, x, y, startedAt: s.simTime, finishAt: s.simTime + tierDef(line, tier).buildMinutes * MINUTE };
   s.jobs.push(job);
   return job;
 }
 
-/** 自動開発の開拓と同じ形のジョブを、マス (x, y) を含む区画で始める（開拓できなければ理由の例外） */
+/** 街の開拓と同じ形のジョブを、マス (x, y) を含む区画で始める（開拓できなければ理由の例外） */
 function startExpand(s: CityState, x: number, y: number): Job {
   const { px, py } = plotOf(x, y);
   const why = expansionError(s, px, py);
   if (why) throw new Error(why);
-  const job: Job = { id: `j${s.nextId++}`, kind: "expand", auto: true, line: "road", tier: 0, level: 1, buildingId: `plot:${px},${py}`, x: px * PLOT_SIZE, y: py * PLOT_SIZE, plot: `${px},${py}`, startedAt: s.simTime, finishAt: s.simTime + HOUR };
+  const job: Job = { id: `j${s.nextId++}`, kind: "expand", line: "road", tier: 0, level: 1, buildingId: `plot:${px},${py}`, x: px * PLOT_SIZE, y: py * PLOT_SIZE, plot: `${px},${py}`, startedAt: s.simTime, finishAt: s.simTime + HOUR };
   s.jobs.push(job);
   return job;
 }
 
+/** 工事をすぐに終わらせる */
+const finish = (s: CityState, job: Job, at: number, events: CityEvent[] = []) => finishJob(s, job, at, events);
+
 describe("AT-009 無操作での街の発展", () => {
-  it("24時間で資源・発展ptが増え、自動で建物が増える", () => {
+  it("24時間で資源・発展ptが増え、建物が増える", () => {
     const s = createCity(T0);
     const before = clone(s);
     const events = run(s, DAY);
@@ -129,19 +132,15 @@ describe("AT-011 技術が高く発展度が低い場合", () => {
 });
 
 describe("AT-013 銀貨が0の場合", () => {
-  it("自動発展は続き、銀貨が必要な即時完了だけ制限される", () => {
+  it("銀貨を使わなくても街は発展する", () => {
     const s = createCity(T0);
     const events = run(s, DAY);
     expect(events.some((e) => e.type === "BUILD" || e.type === "UPGRADE")).toBe(true);
-    const fresh = createCity(T0);
-    const site = findSite(fresh, "housing")!;
-    const job = startBuild(fresh, "housing", site.x, site.y);
-    expect(() => rushJob(fresh, job.id, T0, 0, [])).toThrow(/銀貨/);
   });
 });
 
 describe("AT-014 技術解放後の建物進化", () => {
-  it("技術Lv2の農場が、技術Lv3で機械化農場へ自動進化する", () => {
+  it("技術Lv2の農場が、技術Lv3で機械化農場へ進化する", () => {
     const s = createCity(T0);
     applyTechLevel(s, 2, T0, []);
     run(s, 4 * DAY);
@@ -167,29 +166,13 @@ describe("AT-014 技術解放後の建物進化", () => {
   });
 });
 
-describe("即時完了", () => {
-  it("自動開発の工事を銀貨ですぐに完成させる。都市資金は工事の開始時にだけ使う", () => {
-    const s = createCity(T0);
-    const events = run(s, DAY);
-    expect(events.length).toBeGreaterThan(0);
-    while (s.jobs.length === 0) run(s, TICK_MS);
-    const job = s.jobs[0];
-    const treasury = s.treasury;
-    const done: CityEvent[] = [];
-    const r = rushJob(s, job.id, s.simTime, 1000, done);
-    expect(r.silverFee).toBeGreaterThan(0);
-    expect(s.treasury).toBe(treasury);
-    expect(s.jobs.some((j) => j.id === job.id)).toBe(false);
-    expect(done.every((e) => e.auto)).toBe(true);
-  });
-
+describe("建設の実績", () => {
   it("建設・撤去を繰り返しても発展ptは重複計上しない", () => {
     const s = createCity(T0);
     const pts: number[] = [];
     const site = findSite(s, "housing")!;
     for (let i = 0; i < 3; i++) {
-      const job = startBuild(s, "housing", site.x, site.y);
-      rushJob(s, job.id, T0, 100, []);
+      finish(s, startBuild(s, "housing", site.x, site.y), T0);
       pts.push(s.devPoints);
       s.buildings = s.buildings.filter((b) => !(b.x === site.x && b.y === site.y));
     }
@@ -355,7 +338,7 @@ describe("道路網（docs/map-layout-redesign.md §5）", () => {
     expectConnected(s);
   });
 
-  it("推奨道路の上には、自動開発は道路しか建てない。放置しても全部つながったまま", () => {
+  it("推奨道路の上には、道路しか建たない。放置しても全部つながったまま", () => {
     const s = createCity(T0);
     applyTechLevel(s, 3, T0, []);
     run(s, 5 * DAY);
@@ -365,7 +348,7 @@ describe("道路網（docs/map-layout-redesign.md §5）", () => {
   });
 });
 
-describe("自動開発の道路計画（docs/map-layout-redesign.md §5.3）", () => {
+describe("道路計画（docs/map-layout-redesign.md §5.3）", () => {
   it("置き場所がない時は、欠けた推奨道路を道路網の端から延ばす", () => {
     const s = createCity(T0);
     // 北西の区画の十字の外側の端（-3, -5）〜（-3, -4）と（-5, -3）〜（-4, -3）を外すと、(-5, -5) の敷地が使えなくなる
@@ -406,7 +389,7 @@ describe("開拓（docs/map-layout-redesign.md §7）", () => {
     // 開拓中の区画も上限に数え、費用は次の区画の分に上がる
     expect(plotCost(s).wood).toBeGreaterThan(cost.wood);
     const events: CityEvent[] = [];
-    rushJob(s, s.jobs.at(-1)!.id, T0, 100, events);
+    finish(s, s.jobs.at(-1)!, T0, events);
     expect(events.map((e) => e.type)).toEqual(["PLOT_EXPANDED"]);
     expect(s.plots).toContain("1,0");
     expect(isTileUnlocked(s, 9, 4)).toBe(true);
@@ -433,7 +416,7 @@ describe("開拓（docs/map-layout-redesign.md §7）", () => {
     expect(expansionError(s, 1, 0)).toMatch(/届いていません/);
   });
 
-  it("自動開発は、建てる場所がなくなると区画を開拓する", () => {
+  it("建てる場所がなくなると区画を開拓する", () => {
     const s = createCity(T0);
     applyTechLevel(s, 3, T0, []);
     const events = run(s, 7 * DAY);
@@ -457,7 +440,7 @@ describe("開拓（docs/map-layout-redesign.md §7）", () => {
     const at = { x: park.x, y: park.y };
     for (const [x, y] of [[5, 0], [0, 5], [5, 5], [-10, 0], [0, -10]]) {
       if (expansionError(s, Math.floor(x / 5), Math.floor(y / 5))) continue;
-      rushJob(s, startExpand(s, x, y).id, T0, 1000, []);
+      finish(s, startExpand(s, x, y), T0);
     }
     expect({ x: park.x, y: park.y }).toEqual(at);
     expect(connected(s, roadNetwork(s), park, park.x, park.y)).toBe(true);
@@ -476,7 +459,7 @@ describe("タイムラプス（v2）", () => {
     const start = structuredClone(s);
     const job = startExpand(s, 5, 0);
     const events: CityEvent[] = [];
-    rushJob(s, job.id, T0 + 1000, 100, events);
+    finish(s, job, T0 + 1000, events);
     const replay = createReplay({ plots: start.plots, buildings: start.buildings.map(snapBuilding), zones: start.zones, techLevel: 1 }, events);
     expect(replay.at(T0).plots).toHaveLength(4);
     const after = replay.at(T0 + 1000);
@@ -490,7 +473,7 @@ describe("工事中の分を完成したものとして判断する", () => {
     const s = createCity(T0);
     const site = findSite(s, "housing")!;
     const now = computeMetrics(s).housingCap;
-    s.jobs.push({ id: "jx", kind: "build", auto: true, line: "housing", tier: 0, level: 1, buildingId: "bx", x: site.x, y: site.y, startedAt: T0, finishAt: T0 + HOUR });
+    s.jobs.push({ id: "jx", kind: "build", line: "housing", tier: 0, level: 1, buildingId: "bx", x: site.x, y: site.y, startedAt: T0, finishAt: T0 + HOUR });
     expect(computeMetrics(s).housingCap).toBe(now);
     expect(plannedMetrics(s).housingCap).toBeGreaterThan(now);
   });
@@ -506,7 +489,7 @@ describe("石材を作れないうちの開拓", () => {
     expect(plotCost(s).stone).toBeGreaterThan(0);
   });
 
-  it("技術Lv1のままでも、自動開発の開拓が石材で止まらない", () => {
+  it("技術Lv1のままでも、開拓が石材で止まらない", () => {
     const s = createCity(T0);
     s.treasury = 6000;
     s.stock.wood = 3000;

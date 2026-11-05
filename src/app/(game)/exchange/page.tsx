@@ -176,7 +176,7 @@ export default function ExchangePage() {
         </>
       ),
       savings: { ok: true, note: "使った金貨の分が貯金に（1G＝1円）" },
-      resource: { ok: false, note: "1:1・無料。資源はつかない（銀貨は工事の即時完了や資源交換に使う）" },
+      resource: { ok: false, note: "1:1・無料。資源はつかない（銀貨は資源交換に使う）" },
     },
   ];
   const route = routes.find((r) => r.value === mode)!;
@@ -355,7 +355,7 @@ export default function ExchangePage() {
                     )}
                   </>
                 )}
-                {mode === "g2s" && <dd className="col-span-2 text-xs text-muted">銀貨から金貨には戻せません。銀貨は工事の即時完了の手数料や、資源への交換に使えます。</dd>}
+                {mode === "g2s" && <dd className="col-span-2 text-xs text-muted">銀貨から金貨には戻せません。銀貨は資源への交換や、その手数料に使えます。</dd>}
                 {mode === "g2b" && (
                   <dd className="col-span-2 text-xs text-muted">
                     債券は元の通貨に戻せません。急な出費（金貨が足りない購入）の支払いに使われ、持っているほど街の発展が速くなります。

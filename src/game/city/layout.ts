@@ -308,14 +308,14 @@ function lineGrid(s: CityState): Map<string, LineId | "special"> {
   return grid;
 }
 
-/** 自動開発が使ってよい場所か（道路は推奨道路の上だけ、ほかの建物は推奨道路をふさがない。§5.3） */
-function autoAllowed(line: LineId, x: number, y: number, size: number): boolean {
+/** 街の発展が使ってよい場所か（道路は推奨道路の上だけ、ほかの建物は推奨道路をふさがない。§5.3） */
+function siteAllowed(line: LineId, x: number, y: number, size: number): boolean {
   if (line === "road") return isPlannedRoad(x, y);
   return !footprint(x, y, size).some((t) => isPlannedRoad(t.x, t.y));
 }
 
 /**
- * 自動開発の1回の計画で使い回す盤面の情報（計画を立てる間は街が変わらないので、系統ごとに作り直さない）
+ * 発展の1回の計画で使い回す盤面の情報（計画を立てる間は街が変わらないので、系統ごとに作り直さない）
  */
 export interface SiteCache {
   ctx?: PlaceCtx;
@@ -353,7 +353,7 @@ export function findSite(s: CityState, line: LineId, cache?: SiteCache): { x: nu
 
   let best: { x: number; y: number; score: number } | null = null;
   for (const { x, y } of cachedSites(s, kind, cache)) {
-    if (!autoAllowed(line, x, y, size)) continue;
+    if (!siteAllowed(line, x, y, size)) continue;
     const zone = zoneAt(s, x, y);
     let score: number;
     if (def.zone === "any") {
@@ -550,7 +550,7 @@ function plotZone(s: CityState, px: number, py: number): Zone | null {
 }
 
 /**
- * 自動開発が開く区画：同じ用途の区画の隣を優先し、次に銀行に近いもの。決定的にタイブレークする
+ * 街が開く区画：同じ用途の区画の隣を優先し、次に銀行に近いもの。決定的にタイブレークする
  */
 export function choosePlot(s: CityState, zone: Zone | null, cache?: SiteCache): string | null {
   let best: { k: string; score: number } | null = null;

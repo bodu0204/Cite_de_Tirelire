@@ -1,18 +1,8 @@
 // シーズン開始時の街。
 import { INITIAL_PLOTS, INITIAL_POPULATION, INITIAL_STOCK, INITIAL_TREASURY, PLOT_SIZE } from "../config";
-import type { Building, CityState, NeedKey } from "../types";
+import type { Building, CityState } from "../types";
 import { initialZones, isPlannedRoad } from "./layout";
 import { alignTick } from "./sim";
-
-export const NEED_LABELS: Record<NeedKey, string> = {
-  shortage: "食料・電力・資材の不足解消",
-  jobs: "雇用不足の解消",
-  housing: "住宅不足の解消",
-  logistics: "物流能力の改善",
-  efficiency: "生産効率の改善（進化・Lvアップ）",
-  industry: "新産業への投資",
-  beautify: "余剰資金による景観改善",
-};
 
 /** 初期の道路：中心の 10×10 の推奨道路（docs/map-layout-redesign.md §7.1） */
 function initialRoads(): { x: number; y: number }[] {

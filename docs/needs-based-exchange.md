@@ -1,7 +1,7 @@
 # 必要資源の割合による交換 As-Is / To-Be
 
 作成日：2026-10-19（2026-10-20 改訂：§10 の回答を反映。開発計画を無限に続くものとし、必要資源が0になる状態をなくした。2026-10-22 改訂：§13 で銀貨→都市資金も交換できるようにした）
-関係：[requirements.md](requirements.md) 2.2・3.1・SCR-07、[bond-and-custom-currency.md](bond-and-custom-currency.md) §4（BND-05〜07・BND-10）・§5.3・§7、[exchange.ts](../src/game/exchange.ts)、[ops.ts](../src/server/ops.ts) `exchange` / `exchangeToBond`、[sim.ts](../src/game/city/sim.ts) `plansFor` / `autoDevelop`、[idle.ts](../src/game/idle.ts) `advance`、[mine.ts](../src/game/mine.ts) `accrue`、[settle.ts](../src/game/settle.ts) `depositToBond`、[exchange/page.tsx](../src/app/(game)/exchange/page.tsx)
+関係：[requirements.md](requirements.md) 2.2・3.1・SCR-07、[bond-and-custom-currency.md](bond-and-custom-currency.md) §4（BND-05〜07・BND-10）・§5.3・§7、[exchange.ts](../src/game/exchange.ts)、[ops.ts](../src/server/ops.ts) `exchange` / `exchangeToBond`、[sim.ts](../src/game/city/sim.ts) `plansFor` / `develop`、[idle.ts](../src/game/idle.ts) `advance`、[mine.ts](../src/game/mine.ts) `accrue`、[settle.ts](../src/game/settle.ts) `depositToBond`、[exchange/page.tsx](../src/app/(game)/exchange/page.tsx)
 
 ## 1. 目的
 
@@ -47,7 +47,7 @@
 
 ### 3.3 都市の開発計画（[sim.ts](../src/game/city/sim.ts)）
 
-- 自動開発は、方針の優先順（`policy.priorities`）に `plansFor` で候補の計画を並べ、最初に払える計画を始める。払えなくても 12時間以内に内部生産で貯まる見込みなら、下位の項目に回さずに待つ（`waitHours` ≤ `AUTO_MAX_WAIT_HOURS`）。
+- 街の発展は、決まった順（`NEED_ORDER`）に `plansFor` で候補の計画を並べ、最初に払える計画を始める。払えなくても 12時間以内に内部生産で貯まる見込みなら、下位の項目に回さずに待つ（`waitHours` ≤ `DEV_MAX_WAIT_HOURS`）。
 - 候補は、土地・解放条件・Lv上限・需要（空き家率など）で絞られるため、**候補が1件もないことがある**（計画が尽きる）。
 - 食料は住民の消費（`foodUse`）で毎ティック減る。在庫が 24時間分を切り、生産が消費の 1.05倍未満だと「不足」と判断し、農場を優先する。
 - この「次に何が足りないか」は内部の判断にだけ使い、外には出していない。
@@ -60,7 +60,7 @@
 |---|---|
 | NX-01 | 都市の開発計画を**計画列**として表す。先頭に具体的な計画（方針の優先順に `plansFor` の候補を並べたもの。同じ建物の重複は除く）、そのあとに**拡張計画が無限に続く** |
 | NX-02 | 拡張計画1件のコストは、**今の技術Lv・発展Lvで解放済みの新築のうち、木材＋石材の金貨換算が最も高いもの**の木材・石材とする。どの新築にも木材がかかるため（[catalog.ts](../src/game/catalog.ts)）、拡張計画のコストは常に正 |
-| NX-03 | 拡張計画は資源の備蓄目標で、それ自体は着工しない。土地・解放条件が揃って具体的な計画が出てきたら、計画列の先頭側に並び、自動開発（`autoDevelop`）が現行どおり着工する。自動開発の判断は変えない |
+| NX-03 | 拡張計画は資源の備蓄目標で、それ自体は着工しない。土地・解放条件が揃って具体的な計画が出てきたら、計画列の先頭側に並び、街の発展（`develop`）が現行どおり着工する。自動開発の判断は変えない |
 | NX-04 | 計画列は街の状態から毎回求める（保存しない）。街の状態を変えない |
 
 > 計画が尽きない（拡張計画が無限に続く）ため、木材・石材の必要量が両方0になることはない（§4.2）。都市が順調でも、おまかせ交換や債券への交換で資源が無駄になることはない。
@@ -75,7 +75,6 @@
 | 食料 | **24時間分の不足分**。max(0, 消費 × 24 − (在庫 ＋ 生産 × 24)) |
 
 - 拡張計画は無限に続くが、同じコストが並ぶので割り算で求められる（ループしない）。拡張計画に入った時点の残りの在庫を R、拡張計画1件のコストを c とすると、払える件数 k ＝ min（c > 0 の資源について ⌊R ÷ c⌋）、不足分 ＝ max(0, c − (R − k × c))。
-- 自動開発が止まっている（`autoEnabled = false`）ときも、同じ計画列で求める（交換の目安として使うだけで、開発は始めない）。
 - 必要量は資源の単位なので、**金貨に換算した額**（必要量 ÷ 1G あたりの交換量）で比べる。交換効率（Lvボーナス）は資源によらず同じ倍率なので、比には影響しない（銀貨でも同じ割合になる）。
 - NX-02 により木材の必要量は常に正になりうるので、**必要資源がすべて0になる状態は存在しない**。
 

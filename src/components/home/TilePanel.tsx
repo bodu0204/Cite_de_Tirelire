@@ -4,31 +4,21 @@ import Link from "next/link";
 import { SPECIAL_LABELS, tierDef, ZONE_LABELS } from "@/game/catalog";
 import { buildingOutput } from "@/game/city/economy";
 import { buildingSize, contains, expansionError, isPlaced, isTileUnlocked, jobSize, plotKey, plotOf, zoneAt } from "@/game/city/layout";
-import { FEE_RUSH_PER_10MIN, MINUTE } from "@/game/config";
+import { MINUTE } from "@/game/config";
 import { PARK_DESCRIPTION, PARK_SIZE_LABELS, STATUE_DESCRIPTION, statueStageLabel } from "@/game/describe";
 import { STATUE_RANK_LABELS } from "@/game/levels";
 import type { Building } from "@/game/types";
 import { fmt, yen } from "@/lib/api";
 import type { ActiveView } from "@/server/view";
-import { useGame } from "../GameProvider";
-import { Button } from "../ui";
 
-const rushFeeOf = (finishAt: number, now: number) => Math.max(1, Math.ceil(Math.max(0, finishAt - now) / (10 * MINUTE))) * FEE_RUSH_PER_10MIN;
 const minutesLeft = (finishAt: number, now: number) => Math.max(1, Math.ceil((finishAt - now) / MINUTE));
 
-/** 工事中の表示と、即時完了（銀貨）のボタン */
-function JobLine({ v, label, job }: { v: ActiveView; label: string; job: { id: string; finishAt: number } }) {
-  const { act, busy } = useGame();
-  const fee = rushFeeOf(job.finishAt, v.serverNow);
+/** 工事中の表示 */
+function JobLine({ v, label, job }: { v: ActiveView; label?: string; job: { finishAt: number } }) {
   return (
-    <div className="space-y-2">
-      <p className="text-muted">
-        {label}・完了まで約{minutesLeft(job.finishAt, v.serverNow)}分
-      </p>
-      <Button variant="gold" disabled={busy || v.currencies.silver < fee} onClick={() => act("/api/city", { type: "rush", jobId: job.id })}>
-        すぐ完成させる（{fee}S）
-      </Button>
-    </div>
+    <p className="text-muted">
+      {label ? `${label}・` : ""}完了まで約{minutesLeft(job.finishAt, v.serverNow)}分
+    </p>
   );
 }
 
@@ -105,7 +95,7 @@ function SpecialDetail({ rows, description, href, linkLabel }: { rows: [string, 
   );
 }
 
-/** 開拓していない土地：区画（5×5 マス）は自動開発が開拓する（docs/map-layout-redesign.md §7.3） */
+/** 開拓していない土地：区画（5×5 マス）は街が発展するにつれて開拓される（docs/map-layout-redesign.md §7.3） */
 function ExpandPanel({ v, tile }: { v: ActiveView; tile: { x: number; y: number } }) {
   const city = v.city;
   const { px, py } = plotOf(tile.x, tile.y);
@@ -115,14 +105,14 @@ function ExpandPanel({ v, tile }: { v: ActiveView; tile: { x: number; y: number 
     return (
       <div className="space-y-2 text-sm">
         <p className="font-semibold">区画を開拓中</p>
-        <JobLine v={v} label="自動開発による開拓" job={job} />
+        <JobLine v={v} job={job} />
       </div>
     );
   }
   const why = expansionError(city, px, py);
   return (
     <div className="space-y-2 text-sm">
-      <p>まだ開拓されていない土地です。建てる場所が足りなくなると、自動開発が5×5 マスの区画ごとに開拓します。開拓すると区画の真ん中に十字の道路が通ります。</p>
+      <p>まだ開拓されていない土地です。建てる場所が足りなくなると、5×5 マスの区画ごとに開拓されます。開拓すると区画の真ん中に十字の道路が通ります。</p>
       {plots && (
         <p className="text-xs text-muted">
           開拓できる区画 {plots.used} / {plots.limit}（発展Lvを上げると増えます）
@@ -149,7 +139,7 @@ export function TilePanel({ v, tile }: { v: ActiveView; tile: { x: number; y: nu
     return (
       <div className="space-y-2 text-sm">
         <p className="font-semibold">{tierDef(job.line, job.tier).name}を建設中</p>
-        <JobLine v={v} label="自動開発による工事" job={job} />
+        <JobLine v={v} job={job} />
       </div>
     );
   }
@@ -185,5 +175,5 @@ export function TilePanel({ v, tile }: { v: ActiveView; tile: { x: number; y: nu
     );
   }
 
-  return <p className="text-sm text-muted">空き地（{ZONE_LABELS[zone]}）。自動開発が、街に足りないものに合わせて建物を建てます。</p>;
+  return <p className="text-sm text-muted">空き地（{ZONE_LABELS[zone]}）。街に足りないものに合わせて、建物が建ちます。</p>;
 }

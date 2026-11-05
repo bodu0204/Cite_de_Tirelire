@@ -1,4 +1,4 @@
-// 放置シミュレーションと自律型開発システム。
+// 放置シミュレーションと街の発展。
 // 10分刻みの絶対時刻に揃えたティックで進めるため、いつアクセスしても同じ経過時間なら同じ結果になる。
 import {
   evolveCost,
@@ -14,7 +14,7 @@ import {
   type LineId,
 } from "../catalog";
 import {
-  AUTO_MAX_WAIT_HOURS,
+  DEV_MAX_WAIT_HOURS,
   BUILDING_LEVEL_CAP,
   DEV_BUILD,
   DEV_EVOLVE,
@@ -107,7 +107,7 @@ export function tick(s: CityState, end: number, events: CityEvent[], devMultipli
   shortageEvent(s, "food", foodShort, end, events);
   shortageEvent(s, "power", powerShort, end, events);
 
-  autoDevelop(s, computeMetrics(s), end);
+  develop(s, computeMetrics(s), end);
   s.simTime = end;
 }
 
@@ -170,7 +170,7 @@ function openPlot(s: CityState, job: Job, at: number, events: CityEvent[]) {
   }
   const count = s.buildings.filter((b) => b.line === "road").length;
   s.peaks["n:road"] = Math.max(s.peaks["n:road"] ?? 0, count);
-  events.push({ at, type: "PLOT_EXPANDED", auto: job.auto, important: true, payload: { plot, zone: job.zone ?? null, roads: roads.map(snapBuilding) } });
+  events.push({ at, type: "PLOT_EXPANDED", auto: true, important: true, payload: { plot, zone: job.zone ?? null, roads: roads.map(snapBuilding) } });
   // 場所が足りずにマップ外で待っていた公園・像を置く
   placeWaitingSpecials(s);
 }
@@ -192,7 +192,7 @@ export function finishJob(s: CityState, job: Job, at: number, events: CityEvent[
     };
     s.buildings.push(b);
     before = creditBuild(s, b, "build");
-    events.push({ at, type: "BUILD", auto: job.auto, important: true, payload: { building: snapBuilding(b), name: buildingName(b) } });
+    events.push({ at, type: "BUILD", auto: true, important: true, payload: { building: snapBuilding(b), name: buildingName(b) } });
   } else {
     b = s.buildings.find((o) => o.id === job.buildingId);
     if (!b) return;
@@ -202,7 +202,7 @@ export function finishJob(s: CityState, job: Job, at: number, events: CityEvent[
       events.push({
         at,
         type: "UPGRADE",
-        auto: job.auto,
+        auto: true,
         important: true,
         payload: { building: snapBuilding(b), name: buildingName(b), level: b.level },
       });
@@ -213,7 +213,7 @@ export function finishJob(s: CityState, job: Job, at: number, events: CityEvent[
       events.push({
         at,
         type: "EVOLVE",
-        auto: job.auto,
+        auto: true,
         important: true,
         payload: { building: snapBuilding(b), from, to: buildingName(b) },
       });
@@ -229,7 +229,7 @@ function completeJobs(s: CityState, end: number, events: CityEvent[]) {
   for (const job of due) finishJob(s, job, Math.max(job.finishAt, end - TICK_MS), events);
 }
 
-// ---- 自律型開発システム ----
+// ---- 街の発展 ----
 
 interface Plan {
   kind: Job["kind"];
@@ -266,7 +266,7 @@ function waitHours(s: CityState, m: Metrics, cost: Cost): number {
 }
 
 /**
- * 工事中のジョブがすべて終わったものとした指標。自動開発の判断と計画列に使う
+ * 工事中のジョブがすべて終わったものとした指標。発展の判断と計画列に使う
  * （工事中の分を足りないと数えると、同じ不足に何件も建てて作りすぎる）
  */
 export function plannedMetrics(s: CityState): Metrics {
@@ -314,7 +314,7 @@ export function plotCost(s: CityState): Cost {
 }
 
 /**
- * 区画の開拓の計画（自動開発。Q9）。同時に開拓するのは1区画まで。開く区画には、土地を求めた建物の用途を付ける
+ * 区画の開拓の計画（Q9）。同時に開拓するのは1区画まで。開く区画には、土地を求めた建物の用途を付ける
  */
 function expandPlan(s: CityState, dev: number, zone: Zone | null, cache?: SiteCache): Plan | null {
   if (s.jobs.some((j) => j.kind === "expand")) return null;
@@ -489,11 +489,11 @@ export function cityNeeds(s: CityState, m: Metrics = computeMetrics(s)): CityNee
 }
 
 /**
- * 自動開発のジョブを開始する。1ティックに、決まった順（NEED_ORDER）で、払える限り何件でも始める。
- * 街の開発はこの1つの手順だけで進む（手動の建設・方針の設定はない）。
+ * 街の工事を開始する。1ティックに、決まった順（NEED_ORDER）で、払える限り何件でも始める。
+ * 街はこの1つの手順だけで発展する（プレイヤーが建物を建てたり、方針を決めたりはしない）。
  * 足りないものは工事中の分も終わったものとして判断する（plannedMetrics）。m は待つ時間の見積もりに使う今の指標
  */
-export function autoDevelop(s: CityState, m: Metrics, now: number): void {
+export function develop(s: CityState, m: Metrics, now: number): void {
   const dev = m.devLevel;
   let cache = siteCache();
   let pm = plannedMetrics(s);
@@ -513,7 +513,7 @@ export function autoDevelop(s: CityState, m: Metrics, now: number): void {
           break;
         }
         // 近いうちに払えるなら下位の項目に資金を流さずに貯める
-        if (need !== "beautify" && waitHours(s, m, plan.cost) <= AUTO_MAX_WAIT_HOURS) return;
+        if (need !== "beautify" && waitHours(s, m, plan.cost) <= DEV_MAX_WAIT_HOURS) return;
       }
     }
   }
@@ -526,7 +526,6 @@ function startJob(s: CityState, plan: Plan, now: number): Job {
   const job: Job = {
     id: `j${s.nextId++}`,
     kind: plan.kind,
-    auto: true,
     line: plan.line,
     tier: plan.tier,
     level: plan.level,

@@ -37,8 +37,6 @@ export type JobKind = "build" | "upgrade" | "evolve" | "expand";
 export interface Job {
   id: string;
   kind: JobKind;
-  /** 自動開発の工事は true（手動開発を廃止する前のデータには false が残っている） */
-  auto: boolean;
   line: LineId;
   tier: number;
   level: number;
@@ -47,7 +45,7 @@ export interface Job {
   /** 対象のマス。expand は区画の左上のマス */
   x: number;
   y: number;
-  /** expand：開く区画（"px,py"）と、その土地用途（自動開発が土地を求めた建物の用途） */
+  /** expand：開く区画（"px,py"）と、その土地用途（土地を求めた建物の用途） */
   plot?: string;
   zone?: Zone;
   startedAt: number;
@@ -56,7 +54,7 @@ export interface Job {
 
 export type NeedKey = "shortage" | "jobs" | "housing" | "logistics" | "efficiency" | "industry" | "beautify";
 
-/** 自動開発が必要事項を検討する順（すべての街で同じ） */
+/** 街の発展が必要事項を検討する順（すべての街で同じ） */
 export const NEED_ORDER: NeedKey[] = [
   "shortage",
   "jobs",
@@ -122,8 +120,9 @@ export type CityEventType =
 export interface CityEvent {
   at: number;
   type: CityEventType;
+  /** 街が自ら起こしたできごと（建設・人口・不足など）。家計から起きたもの（公園・像・技術Lv・銀行など）は false */
   auto: boolean;
-  /** 自動発展ログに出す重要イベントか */
+  /** 街のできごとに出す重要イベントか */
   important: boolean;
   payload: Record<string, unknown>;
 }

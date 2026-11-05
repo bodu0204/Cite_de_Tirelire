@@ -98,7 +98,7 @@ export default function HomePage() {
             gold={{ uncollected: v.mine.uncollected, ratePerMinute: v.mine.ratePerMinute }}
           />
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
-            <span>マスを選ぶと建物の様子が見られます。街は自動開発で発展します。</span>
+            <span>マスを選ぶと建物の様子が見られます。</span>
             <span className="flex shrink-0 flex-wrap items-center gap-3">
               <label className="flex items-center gap-1.5 whitespace-nowrap">
                 <input type="checkbox" className="w-auto" checked={showZones} onChange={(e) => setShowZones(e.target.checked)} />
@@ -206,7 +206,7 @@ export default function HomePage() {
           </Button>
         </div>
 
-        <Card title="自動発展ログ">
+        <Card title="街のできごと">
           <EventLog events={v.log} tz={view.user.timezone} />
         </Card>
       </div>

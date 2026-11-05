@@ -1,7 +1,6 @@
 // ゲーム操作。すべて withGame の中（同期済み・ロック済み）で呼ばれる。
 import { Prisma } from "@prisma/client";
 import { bondCap, bondResourceEligible } from "@/game/bond";
-import { rushJob } from "@/game/city/actions";
 import { createCity } from "@/game/city/init";
 import { cityNeeds } from "@/game/city/sim";
 import { INITIAL_GOLD, INITIAL_SILVER, REWARD_DAILY_CAP, REWARD_PURCHASE, REWARD_SAVINGS, SAVINGS_DAILY_LIMIT } from "@/game/config";
@@ -470,17 +469,6 @@ export function exchange(ctx: GameCtx, body: Body) {
   // 金貨（1G＝1円相当）をゲーム内で使った分は、現実で使わずに済んだお金＝見込み貯金
   if (q.goldCost > 0) ctx.citySpent += q.goldCost;
   return { ...q, gain, citySpentAdded: q.goldCost };
-}
-
-// ---- 街の操作 ----
-
-/** 街の開発は自動開発だけが行う。プレイヤーができるのは、工事の即時完了（銀貨）だけ */
-export function cityAction(ctx: GameCtx, body: Body) {
-  requireOpen(ctx);
-  oneOf(body.type, ["rush"] as const, "操作");
-  const fee = rushJob(ctx.city!, str(body.jobId, "対象"), ctx.now, ctx.balances.silver, ctx.events).silverFee;
-  addCurrency(ctx, "SILVER", -fee, "city_rush");
-  return { silverFee: fee };
 }
 
 // ---- サブスク ----

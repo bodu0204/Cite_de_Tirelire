@@ -1,26 +1,10 @@
-// プレイヤーの操作（工事の即時完了）と、特殊施設（公園・像）の同期。
-// 街の開発（建設・アップグレード・進化・開拓）は自動開発（sim.ts autoDevelop）だけが行う。
+// 特殊施設（公園・像）を家計（サブスク・ほしい物）に合わせる。
+// 街の建物の建設・アップグレード・進化・区画の開拓は、街の発展（sim.ts develop）だけが行う。
 import { LINES } from "../catalog";
-import { FEE_RUSH_PER_10MIN, MINUTE } from "../config";
-import { fail } from "../errors";
 import { statueRank } from "../levels";
 import { snapBuilding, type Building, type CityEvent, type CityState } from "../types";
 import { buildingSize, canPlace, findSpecialSite, forestSite, isPlaced } from "./layout";
-import { buildingName, finishJob, newId } from "./sim";
-
-export function rushFee(s: CityState, jobId: string, now: number): number {
-  const job = s.jobs.find((j) => j.id === jobId) ?? fail("not_found", "工事が見つかりません", 404);
-  return Math.max(1, Math.ceil(Math.max(0, job.finishAt - now) / (10 * MINUTE))) * FEE_RUSH_PER_10MIN;
-}
-
-/** 即時完了（建築時間の短縮） */
-export function rushJob(s: CityState, jobId: string, now: number, silver: number, events: CityEvent[]): { silverFee: number } {
-  const fee = rushFee(s, jobId, now);
-  if (silver < fee) fail("silver_short", `銀貨が足りません（必要 ${fee}S）`);
-  const job = s.jobs.find((j) => j.id === jobId)!;
-  finishJob(s, job, now, events);
-  return { silverFee: fee };
-}
+import { buildingName, newId } from "./sim";
 
 /**
  * 特殊施設（公園・像）を置く。開いた区画に置けなければ林を押しのけて置き、
