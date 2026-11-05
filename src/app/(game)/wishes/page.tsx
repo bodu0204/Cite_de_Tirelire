@@ -4,7 +4,7 @@ import { useState } from "react";
 import { SpritePreview } from "@/components/city/SpritePreview";
 import { buildingKey } from "@/components/city/toIso";
 import { useGame, useSeasonView } from "@/components/GameProvider";
-import { Button, Card, Empty, Field, Gauge, Modal } from "@/components/ui";
+import { Button, Card, Empty, Field, Gauge, Modal, NumberInput } from "@/components/ui";
 import { statueStage } from "@/game/city/actions";
 import { tileLabel } from "@/game/city/layout";
 import { STATUE_DESCRIPTION, statueStageLabel } from "@/game/describe";
@@ -71,7 +71,7 @@ function WishForm({ initial, onDone }: { initial?: Wish; onDone: () => void }) {
       </Field>
       <div className="grid grid-cols-2 gap-3">
         <Field label="価格（円）" hint={price > 0 ? `${STATUE_RANK_LABELS[statueRank(price)]}になります` : undefined}>
-          <input inputMode="numeric" required value={f.price} onChange={(e) => setF({ ...f, price: e.target.value.replace(/\D/g, "") })} />
+          <NumberInput required value={f.price} onValueChange={(v) => setF({ ...f, price: v })} />
         </Field>
         <Field label="購入優先度">
           <select value={f.priority} onChange={(e) => setF({ ...f, priority: e.target.value })}>
@@ -218,7 +218,7 @@ export default function WishesPage() {
               所持金貨 {fmt(gold)}G ・ 積立済み {fmt(fund.reserved)}G ・ 残り {fmt(remaining)}G
             </p>
             <Field label="金貨（取り消す場合はマイナス）">
-              <input inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^\d-]/g, ""))} placeholder="1000" />
+              <NumberInput allowNegative value={amount} onValueChange={setAmount} placeholder="1000" />
             </Field>
             {fundError && (
               <p role="alert" className="text-sm text-danger">

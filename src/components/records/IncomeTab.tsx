@@ -2,11 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useGame, useSeasonView } from "@/components/GameProvider";
-import { Button, Card, Empty, Field } from "@/components/ui";
+import { Button, Card, Empty, Field, NumberInput } from "@/components/ui";
 import { REWARD_PURCHASE } from "@/game/config";
 import { api, fmt, todayIn, yen } from "@/lib/api";
 import { AllocationEditor, type AllocationRow, type IncomeQuote } from "./Allocation";
-import { digits, ResolutionPreview } from "./shared";
+import { ResolutionPreview } from "./shared";
 
 interface BasePeriod {
   key: string;
@@ -75,7 +75,7 @@ function MonthlyIncomes({ onDone }: { onDone: () => void }) {
                     {p.startDate}〜{p.endDate}
                   </div>
                 </div>
-                <input aria-label={`${monthLabel(p.key)}（円）`} inputMode="numeric" className="w-32" value={st.amount} onChange={(e) => set(p.key, { amount: digits(e.target.value) })} />
+                <NumberInput aria-label={`${monthLabel(p.key)}（円）`} className="w-32" value={st.amount} onValueChange={(v) => set(p.key, { amount: v })} />
                 <span className="text-sm">円</span>
                 <Button
                   disabled={busy || !st.amount}
@@ -171,7 +171,7 @@ function ExtraIncomeForm({ onDone }: { onDone: () => void }) {
     >
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label="金額（円）">
-          <input inputMode="numeric" required value={f.amount} onChange={(e) => setF({ ...f, amount: digits(e.target.value) })} />
+          <NumberInput required value={f.amount} onValueChange={(v) => setF({ ...f, amount: v })} />
         </Field>
         <Field label="日付" hint="過去の日付でも、記録した時点から配当します。">
           <input type="date" required value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} />

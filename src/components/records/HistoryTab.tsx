@@ -2,10 +2,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useGame } from "@/components/GameProvider";
-import { Button, Card, Empty, Field, Modal } from "@/components/ui";
+import { Button, Card, Empty, Field, Modal, NumberInput } from "@/components/ui";
 import { api, fmt, yen } from "@/lib/api";
 import { PaymentLine, type PaymentRow } from "./ExpenseTab";
-import { CurrencyChip, digits, ResolutionLine, ResolutionPreview, type Resolution } from "./shared";
+import { CurrencyChip, ResolutionLine, ResolutionPreview, type Resolution } from "./shared";
 
 interface Purchase {
   id: string;
@@ -77,7 +77,7 @@ function AmountEditor({ row, onDone }: { row: Row; onDone: () => void }) {
         {row.item.name}（{row.item.date}）
       </p>
       <Field label="金額（円）" hint="日付・名称などは変更できません。間違えたときは取り消して記録し直してください。">
-        <input inputMode="numeric" autoFocus value={amount} onChange={(e) => setAmount(digits(e.target.value))} />
+        <NumberInput autoFocus value={amount} onValueChange={setAmount} />
       </Field>
       {quote && (quote.canceled ?? 0) > 0 && <p className="num text-xs text-muted">予約中の振り分けを {fmt(quote.canceled!)} 取りやめます。</p>}
       {quote && (quote.cutMining ?? 0) > 0 && <p className="num text-xs text-muted">当期の残りの配当を {fmt(quote.cutMining!)}G 減らします。</p>}

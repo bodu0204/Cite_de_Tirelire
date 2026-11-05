@@ -4,7 +4,7 @@ import { useState, type ReactNode } from "react";
 import { PlanList } from "@/components/exchange/PlanList";
 import { waitingFor } from "@/components/home/waiting";
 import { useGame, useSeasonView } from "@/components/GameProvider";
-import { BondIcon, Button, Card, Coin, Field, Tabs } from "@/components/ui";
+import { BondIcon, Button, Card, Coin, Field, NumberInput, Tabs } from "@/components/ui";
 import { FEE_EXCHANGE } from "@/game/config";
 import { bondMultiplier, bondResourceEligible } from "@/game/bond";
 import { BOND_MULTIPLIER_MAX } from "@/game/config";
@@ -298,7 +298,7 @@ export default function ExchangePage() {
             </fieldset>
           )}
           <Field label={res ? (currency === "gold" ? "金貨（G）" : "銀貨（S）") : `${source.label}${source.unit ? `（${source.unit}）` : ""}`}>
-            <input inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value.replace(/\D/g, ""))} placeholder="100" />
+            <NumberInput value={amount} onValueChange={setAmount} placeholder="100" />
           </Field>
 
           <div className="grid grid-cols-2 gap-2 text-center" aria-live="polite">
