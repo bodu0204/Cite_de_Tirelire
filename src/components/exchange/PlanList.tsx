@@ -59,6 +59,7 @@ export function PlanList({
   stock,
   foodNeed,
   gains,
+  waiting = [],
 }: {
   queue: PlanQueue;
   /** 今の在庫（木材・石材・都市資金） */
@@ -67,6 +68,8 @@ export function PlanList({
   foodNeed: number;
   /** この交換で街に入る資源と都市資金 */
   gains: Gains;
+  /** 具体的な計画がないとき、街が資源ではなく待っているもの（home/waiting.ts） */
+  waiting?: string[];
 }) {
   const [all, setAll] = useState(false);
   /** 交換しなくても実施できる計画を隠す（交換で実施できるようになる計画は隠さない） */
@@ -136,6 +139,16 @@ export function PlanList({
             <button type="button" className="text-sm text-muted underline" onClick={() => setAll(true)}>
               ほかの計画 {hidden}件を表示
             </button>
+          </li>
+        )}
+        {waiting.length > 0 && (
+          <li className="rounded-lg border border-line bg-surface-2 p-2 text-sm">
+            具体的な計画はありません。街は今、資源ではなく次を待っています。
+            <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs">
+              {waiting.map((w) => (
+                <li key={w}>{w}</li>
+              ))}
+            </ul>
           </li>
         )}
         <li className="rounded-lg border border-dashed border-line p-2">

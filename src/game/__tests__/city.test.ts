@@ -513,3 +513,22 @@ describe("工事中の分を完成したものとして判断する", () => {
     expect(plannedMetrics(s).housingCap).toBeGreaterThan(now);
   });
 });
+
+describe("石材を作れないうちの開拓", () => {
+  it("3区画目からの石材は、石材加工所が解放されるまでかからない", () => {
+    const s = createCity(T0);
+    s.devPoints = 50; // 発展Lv2
+    s.plots.push("1,0", "0,1");
+    expect(expandQuote(s).cost.stone).toBe(0);
+    applyTechLevel(s, 2, T0, []);
+    expect(expandQuote(s).cost.stone).toBeGreaterThan(0);
+  });
+
+  it("技術Lv1のままでも、自動開発の開拓が石材で止まらない", () => {
+    const s = createCity(T0);
+    s.treasury = 6000;
+    s.stock.wood = 3000;
+    run(s, 7 * DAY);
+    expect(s.plots.length).toBeGreaterThan(6);
+  });
+});

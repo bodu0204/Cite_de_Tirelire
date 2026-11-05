@@ -307,6 +307,15 @@ export function nextPlotIndex(s: CityState): number {
 }
 
 /**
+ * 次に開く区画の費用。最初の2区画と、石材加工所が解放されるまで（発展Lv2・技術Lv2）は石材を使わない
+ * （石材を作れないうちに石材を求めると、交換しない限り開拓が止まる）
+ */
+export function plotCost(s: CityState): Cost {
+  const n = nextPlotIndex(s);
+  return expandCost(n, n >= 2 && highestUnlockedTier("quarry", s.techLevel, devLevel(s.devPoints)) >= 0);
+}
+
+/**
  * 区画の開拓の計画（自動開発。Q9）。同時に開拓するのは1区画まで。開く区画には、土地を求めた建物の用途を付ける
  */
 function expandPlan(s: CityState, dev: number, zone: Zone | null, cache?: SiteCache): Plan | null {
@@ -316,7 +325,7 @@ function expandPlan(s: CityState, dev: number, zone: Zone | null, cache?: SiteCa
   const n = nextPlotIndex(s);
   const [px, py] = plot.split(",").map(Number);
   const tier = Math.max(0, highestUnlockedTier("road", s.techLevel, dev));
-  return { kind: "expand", line: "road", tier, level: 1, site: { x: px * PLOT_SIZE, y: py * PLOT_SIZE }, plot, zone: zone ?? undefined, cost: expandCost(n), minutes: expandMinutes(n) };
+  return { kind: "expand", line: "road", tier, level: 1, site: { x: px * PLOT_SIZE, y: py * PLOT_SIZE }, plot, zone: zone ?? undefined, cost: plotCost(s), minutes: expandMinutes(n) };
 }
 
 function evolvePlans(s: CityState, lines: LineId[], dev: number): Plan[] {

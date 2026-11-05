@@ -25,10 +25,10 @@ export const PLOT_STEP = 4;
 export const MAX_PLOTS = 400;
 /** n 区画目（初期の4区画のあとに開く順、0 から）の開拓の費用と工事時間（分）。開くたびに増える */
 export const PLOT_COST_GROWTH = 1.2;
-export const expandCost = (n: number) => {
+export const expandCost = (n: number, stone = n >= 2) => {
   const k = PLOT_COST_GROWTH ** n;
-  // 最初の2区画は木材と都市資金だけ（石材加工所は発展Lv2・技術Lv2 から）
-  return { wood: Math.round(60 * k), stone: n < 2 ? 0 : Math.round(20 * k), treasury: Math.round(150 * k) };
+  // stone が false なら木材と都市資金だけ（最初の2区画と、石材加工所が解放されるまで。sim.ts plotCost）
+  return { wood: Math.round(60 * k), stone: stone ? Math.round(20 * k) : 0, treasury: Math.round(150 * k) };
 };
 export const expandMinutes = (n: number) => Math.min(360, 60 + 15 * n);
 

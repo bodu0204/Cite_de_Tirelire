@@ -1,11 +1,11 @@
 // プレイヤーの手動操作と、特殊施設（公園・像）の同期。
 import { evolveCost, isTierUnlocked, highestUnlockedTier, LINES, SPECIAL_LABELS, tierDef, upgradeCost, upgradeMinutes, type LineId, type Zone } from "../catalog";
-import { expandCost, expandMinutes, FEE_MOVE, FEE_RUSH_PER_10MIN, feeBuild, feeUpgrade, MINUTE, PLOT_SIZE } from "../config";
+import { expandMinutes, FEE_MOVE, FEE_RUSH_PER_10MIN, feeBuild, feeUpgrade, MINUTE, PLOT_SIZE } from "../config";
 import { fail } from "../errors";
 import { devLevel, statueRank } from "../levels";
 import { snapBuilding, type Building, type CityEvent, type CityPolicy, type CityState, type NeedKey } from "../types";
 import { buildingSize, canPlace, expansionError, findSpecialSite, forestSite, inBounds, isPlaced, placeCtx, placementError, placementFor, plotOf, removalBreaks, tileKey } from "./layout";
-import { buildingName, canAfford, finishJob, levelCap, newId, nextPlotIndex, startJob } from "./sim";
+import { buildingName, canAfford, finishJob, levelCap, newId, nextPlotIndex, plotCost, startJob } from "./sim";
 
 function requireBuilding(s: CityState, id: string): Building {
   return s.buildings.find((b) => b.id === id) ?? fail("not_found", "建物が見つかりません", 404);
@@ -79,7 +79,7 @@ export const FEE_EXPAND = feeBuild(0);
 /** 次に開拓する区画の費用と工事時間（手動は都市資金を使わず、資材と銀貨で払う） */
 export function expandQuote(s: CityState): { cost: { wood: number; stone: number; treasury: number }; minutes: number; fee: number } {
   const n = nextPlotIndex(s);
-  return { cost: expandCost(n), minutes: expandMinutes(n), fee: FEE_EXPAND };
+  return { cost: plotCost(s), minutes: expandMinutes(n), fee: FEE_EXPAND };
 }
 
 /** 手動の開拓：選んだマスの区画を開く（docs/map-layout-redesign.md §7.2） */
