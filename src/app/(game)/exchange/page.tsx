@@ -218,14 +218,14 @@ export default function ExchangePage() {
             );
           })}
         </div>
-        {/* スマホでは項目ごとに改行し、広い画面では続けて書く */}
+        {/* 項目ごとに改行する */}
         <p className="mt-1.5 text-xs text-muted">
           {[
             { ok: route.savings.ok, yes: "貯金になる", no: "貯金にならない", note: route.savings.note },
             { ok: route.resource.ok, yes: "資源がもらえる", no: "資源はもらえない", note: route.resource.note },
             ...(route.speed ? [{ ok: route.speed.ok, yes: "発展が速くなる", no: "発展速度は上がらない", note: route.speed.note }] : []),
           ].map((it) => (
-            <span key={it.yes} className="block sm:inline">
+            <span key={it.yes} className="block">
               <span className={it.ok ? "font-semibold text-ink" : ""}>{it.ok ? it.yes : it.no}</span>：{it.note}。
             </span>
           ))}
