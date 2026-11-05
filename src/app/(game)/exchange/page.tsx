@@ -7,7 +7,7 @@ import { useGame, useSeasonView } from "@/components/GameProvider";
 import { BondIcon, Button, Card, Coin, Field, Tabs } from "@/components/ui";
 import { FEE_EXCHANGE } from "@/game/config";
 import { bondResourceEligible } from "@/game/bond";
-import { quoteNeedsExchange, quoteResourceExchange, totalGains, ZERO_GAINS, type Currency } from "@/game/exchange";
+import { quoteBondGains, quoteNeedsExchange, quoteResourceExchange, totalGains, ZERO_GAINS, type Currency } from "@/game/exchange";
 import type { GainKey, Gains } from "@/game/types";
 import { fmt } from "@/lib/api";
 
@@ -31,28 +31,15 @@ interface Route {
   resource: { ok: boolean; note: string };
 }
 
-/** 「貯金になる／ならない」「資源あり／なし」の札 */
-function Mark({ ok, yes, no, note }: { ok: boolean; yes: string; no: string; note: string }) {
+/** 「貯金」「資源」の札。対象外なら × と取り消し線 */
+function Chip({ ok, label }: { ok: boolean; label: string }) {
   return (
-    <div className="flex items-start gap-1.5 text-xs">
-      <span
-        className={`mt-px inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${ok ? "bg-accent text-accent-ink" : "border border-line text-muted"}`}
-        aria-hidden
-      >
-        {ok ? "✓" : "×"}
-      </span>
-      <span>
-        <span className={ok ? "font-semibold" : "text-muted"}>{ok ? yes : no}</span>
-        <span className="block text-muted">{note}</span>
-      </span>
-    </div>
-  );
-}
-
-function ResourceIcons() {
-  return (
-    <span className="inline-flex items-center gap-0.5" aria-hidden>
-      🪵🪨🌾
+    <span
+      className={`inline-flex items-center gap-0.5 rounded px-1 py-px text-[10px] font-semibold ${ok ? "bg-gold-soft text-ink" : "border border-line text-muted line-through"}`}
+      aria-label={`${label}${ok ? "あり" : "なし"}`}
+    >
+      <span aria-hidden>{ok ? "✓" : "×"}</span>
+      {label}
     </span>
   );
 }
@@ -94,7 +81,7 @@ export default function ExchangePage() {
   const eligible = bondResourceEligible(cur.bond, n, v.exchange.bondCap);
   const belowZero = cur.bond < 0 ? Math.min(n, -cur.bond) : 0;
   const overCap = Math.max(0, n - belowZero - eligible);
-  const bondGains = quoteNeedsExchange("gold", eligible, needs, lv, { fee: false }).gains;
+  const bondGains = quoteBondGains(eligible, resource, needs, lv);
 
   const customFrom = cur.custom.find((c) => c.id === bondFrom);
   const source =
@@ -115,7 +102,7 @@ export default function ExchangePage() {
       from: (
         <>
           <Coin kind="gold" />
-          金貨{cur.custom.length > 0 && "・ユーザ通貨"}
+          金貨{cur.custom.length > 0 && "等"}
         </>
       ),
       to: (
@@ -126,8 +113,8 @@ export default function ExchangePage() {
       ),
       savings: { ok: true, note: "債券として数える" },
       resource: bondFull
-        ? { ok: false, note: `債券が上限（${fmt(v.exchange.bondCap)}）に達しています` }
-        : { ok: true, note: `債券の上限 ${fmt(v.exchange.bondCap)} までの分におまかせの資源` },
+        ? { ok: false, note: `債券が上限 ${fmt(v.exchange.bondCap)} に達しているので資源はつかない` }
+        : { ok: true, note: `上限 ${fmt(v.exchange.bondCap)} までの分に、同じ量の金貨で交換した資源がつく` },
     },
     {
       value: "gres",
@@ -139,12 +126,11 @@ export default function ExchangePage() {
       ),
       to: (
         <>
-          <ResourceIcons />
-          資源・都市資金
+          🪵資源
         </>
       ),
-      savings: { ok: true, note: "使った金貨の分（1G＝1円）" },
-      resource: { ok: true, note: `交換効率が高い・手数料 ${FEE_EXCHANGE}S` },
+      savings: { ok: true, note: "使った金貨の分が貯金に（1G＝1円）" },
+      resource: { ok: true, note: `効率が高い・手数料 ${FEE_EXCHANGE}S` },
     },
     {
       value: "sres",
@@ -156,12 +142,11 @@ export default function ExchangePage() {
       ),
       to: (
         <>
-          <ResourceIcons />
-          資源・都市資金
+          🪵資源
         </>
       ),
-      savings: { ok: false, note: "銀貨は記録の報酬なので数えない" },
-      resource: { ok: true, note: `交換効率は低め・手数料 ${FEE_EXCHANGE}S` },
+      savings: { ok: false, note: "銀貨は記録の報酬なので貯金にならない" },
+      resource: { ok: true, note: `効率は低め・手数料 ${FEE_EXCHANGE}S` },
     },
     {
       value: "g2s",
@@ -177,10 +162,11 @@ export default function ExchangePage() {
           銀貨
         </>
       ),
-      savings: { ok: true, note: "使った金貨の分（1G＝1円）" },
-      resource: { ok: false, note: "1:1・無料。銀貨は手動操作の手数料に使う" },
+      savings: { ok: true, note: "使った金貨の分が貯金に（1G＝1円）" },
+      resource: { ok: false, note: "1:1・無料。資源はつかない（銀貨は手動操作の手数料や資源交換に使う）" },
     },
   ];
+  const route = routes.find((r) => r.value === mode)!;
   const resOk = n > 0 && totalGain > 0 && cur.gold >= q.goldCost && cur.silver >= q.silverCost;
   const shareText = RES.map((r) => `${r.label} ${fmt(v.exchange.needShares[r.key] * 100)}%`).join("・");
 
@@ -194,7 +180,7 @@ export default function ExchangePage() {
       </div>
       <fieldset>
         <legend className="mb-2 text-sm font-medium">何を何に交換する？</legend>
-        <div role="radiogroup" aria-label="交換のしかた" className="grid gap-2 sm:grid-cols-2">
+        <div role="radiogroup" aria-label="交換のしかた" className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
           {routes.map((r) => {
             const on = mode === r.value;
             return (
@@ -204,23 +190,27 @@ export default function ExchangePage() {
                 role="radio"
                 aria-checked={on}
                 onClick={() => setMode(r.value)}
-                className={`rounded-lg border p-3 text-left ${on ? "border-accent bg-surface shadow-sm ring-1 ring-accent" : "border-line bg-surface-2"}`}
+                className={`flex flex-col items-center gap-1 rounded-lg border px-1 py-2 ${on ? "border-accent bg-surface shadow-sm ring-1 ring-accent" : "border-line bg-surface-2"}`}
               >
-                <span className="flex flex-wrap items-center gap-1.5 text-sm font-semibold">
-                  <span className="inline-flex items-center gap-1">{r.from}</span>
+                <span className={`flex items-center gap-1 whitespace-nowrap text-sm ${on ? "font-semibold" : ""}`}>
+                  <span className="inline-flex items-center gap-0.5">{r.from}</span>
                   <span className="text-muted" aria-label="から">
                     →
                   </span>
-                  <span className="inline-flex items-center gap-1">{r.to}</span>
+                  <span className="inline-flex items-center gap-0.5">{r.to}</span>
                 </span>
-                <span className="mt-2 grid grid-cols-2 gap-2">
-                  <Mark ok={r.savings.ok} yes="貯金になる" no="貯金にならない" note={r.savings.note} />
-                  <Mark ok={r.resource.ok} yes="資源がもらえる" no="資源はもらえない" note={r.resource.note} />
+                <span className="flex gap-1">
+                  <Chip ok={r.savings.ok} label="貯金" />
+                  <Chip ok={r.resource.ok} label="資源" />
                 </span>
               </button>
             );
           })}
         </div>
+        <p className="mt-1.5 text-xs text-muted">
+          <span className={route.savings.ok ? "font-semibold text-ink" : ""}>{route.savings.ok ? "貯金になる" : "貯金にならない"}</span>：{route.savings.note}。
+          <span className={route.resource.ok ? "font-semibold text-ink" : ""}>{route.resource.ok ? "資源がもらえる" : "資源はもらえない"}</span>：{route.resource.note}。
+        </p>
       </fieldset>
       <Card>
         <form
@@ -232,7 +222,7 @@ export default function ExchangePage() {
                 ? await act("/api/exchange", { kind: "to_resource", currency, resource, amount: n })
                 : mode === "g2s"
                   ? await act("/api/exchange", { kind: "gold_to_silver", amount: n })
-                  : await act("/api/exchange", { kind: "to_bond", currency: customFrom ? "custom" : bondFrom, currencyId: customFrom?.id, amount: n });
+                  : await act("/api/exchange", { kind: "to_bond", currency: customFrom ? "custom" : bondFrom, currencyId: customFrom?.id, resource, amount: n });
             if (r) {
               const rr = r as { gains?: Gains; citySpentAdded?: number };
               const got = rr.gains ? gainsText(rr.gains) : "";
@@ -250,10 +240,10 @@ export default function ExchangePage() {
             }
           }}
         >
-          {res && (
+          {(res || (mode === "g2b" && !bondFull)) && (
             <>
               <fieldset>
-                <legend className="mb-1 text-sm font-medium">受け取る資源</legend>
+                <legend className="mb-1 text-sm font-medium">{mode === "g2b" ? "債券につく資源" : "受け取る資源"}</legend>
                 <Tabs
                   value={resource}
                   onChange={setResource}

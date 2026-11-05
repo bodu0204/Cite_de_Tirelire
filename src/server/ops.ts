@@ -19,7 +19,7 @@ import { createCity, POLICY_PRESETS } from "@/game/city/init";
 import { cityNeeds } from "@/game/city/sim";
 import { INITIAL_GOLD, INITIAL_SILVER, REWARD_DAILY_CAP, REWARD_PURCHASE, REWARD_SAVINGS, SAVINGS_DAILY_LIMIT } from "@/game/config";
 import { fail } from "@/game/errors";
-import { quoteNeedsExchange, quoteResourceExchange, totalGains, ZERO_GAINS, type Currency } from "@/game/exchange";
+import { quoteBondGains, quoteNeedsExchange, quoteResourceExchange, totalGains, ZERO_GAINS, type Currency } from "@/game/exchange";
 import { budgetOverruns, describeOverruns, startOfDay, type Overrun } from "@/game/currency";
 import { goldMineLevel, silverMineLevel } from "@/game/levels";
 import { collect, newMine } from "@/game/mine";
@@ -402,15 +402,17 @@ function addStock(ctx: GameCtx, gains: Gains) {
  * 債券は表示の達成率に直接含まれるので、見込み貯金には加えない（二重に数えない）。
  * 同じ理由で、記録の報酬（現実のお金ではない）である銀貨は替えられない。
  * ユーザ通貨は期限の近いロットから使う。
- * 債券が 0〜3M の範囲に入る分は、同じ量の金貨でおまかせ交換したのと同じ資源もつける（手数料なし。元の通貨はそれ以上減らない）。
+ * 債券が 0〜3M の範囲に入る分は、同じ量の金貨で交換したのと同じ資源もつける（種類を選ぶか、おまかせ）（手数料なし。元の通貨はそれ以上減らない）。
  */
 function exchangeToBond(ctx: GameCtx, from: "gold" | "custom", amount: number, body: Body) {
   const before = ctx.balances.bond;
+  // 債券についてくる資源の種類（省略時はおまかせ）
+  const resource = body.resource === undefined ? "auto" : oneOf(body.resource, [...RESOURCES, "treasury", "auto"] as const, "資源");
   const grant = () => {
     const eligible = bondResourceEligible(before, amount, bondCap(ctx.user.monthlyBudget));
-    const q = quoteNeedsExchange("gold", eligible, cityNeeds(ctx.city!).needs, facilityLevels(ctx), { fee: false });
-    addStock(ctx, q.gains);
-    return { resourceEligible: eligible, gains: q.gains, split: q.split };
+    const gains = quoteBondGains(eligible, resource, cityNeeds(ctx.city!).needs, facilityLevels(ctx));
+    addStock(ctx, gains);
+    return { resourceEligible: eligible, gains };
   };
   if (from === "gold") {
     addCurrency(ctx, "GOLD", -amount, "exchange_g2b");
