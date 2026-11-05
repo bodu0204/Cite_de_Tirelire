@@ -197,7 +197,14 @@ export default function HomePage() {
             <Coin kind="silver" size={18} /> 収支を記録
           </LinkButton>
           <Button variant="gold" className="min-h-14 text-base" disabled={!collector.can} onClick={collector.collect}>
-            <Coin kind="gold" size={18} /> {fmt(uncollected)}G{collector.custom.length > 0 && <span className="text-sm">＋{collector.custom.map((c) => c.icon).join("")}</span>} 受け取る
+            {/* 受け取れる通貨のアイコンを並べる（多いときははみ出た分を隠して1行に収める） */}
+            <span className="flex min-w-0 shrink items-center gap-0.5 overflow-hidden" aria-hidden>
+              {(uncollected >= 1 || collector.custom.length === 0) && <Coin kind="gold" size={18} />}
+              {collector.custom.map((c) => (
+                <CustomIcon key={c.id} icon={c.icon} size={18} />
+              ))}
+            </span>
+            <span className="shrink-0 whitespace-nowrap">受け取る</span>
           </Button>
         </div>
 
