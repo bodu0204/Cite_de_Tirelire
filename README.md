@@ -26,6 +26,7 @@ npm run dev                   # http://localhost:3000
 | `npm run typecheck`                                | 型チェック                                      |
 | `npm run build`                                    | 本番ビルド                                      |
 | `npx tsx scripts/balance.ts`                       | 貯金スケジュールに沿って50日放置したときの街の推移を表示（バランス調整用）     |
+| `npx tsx scripts/balance-scenarios.ts`             | 貯金のペース・金貨の使い方・開発方針を変えたときの推移と停滞の兆候を表示（[docs/game-balance-review.md](docs/game-balance-review.md)） |
 | `BASE=http://localhost:3000 bash scripts/smoke.sh` | APIの通しテスト（登録→シーズン→記録→交換→建設→目標達成→タイムラプス→削除） |
 | `node scripts/make-icons.mjs`                      | PWAアイコンの再生成                                |
 
