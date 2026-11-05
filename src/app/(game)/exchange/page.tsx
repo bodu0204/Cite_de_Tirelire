@@ -38,7 +38,7 @@ interface Route {
 function Chip({ ok, label }: { ok: boolean; label: string }) {
   return (
     <span
-      className={`inline-flex items-center gap-0.5 rounded px-1 py-px text-[10px] font-semibold ${ok ? "bg-gold-soft text-ink" : "border border-line text-muted line-through"}`}
+      className={`inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded px-1 py-px text-[10px] font-semibold ${ok ? "bg-gold-soft text-ink" : "border border-line text-muted line-through"}`}
       aria-label={`${label}${ok ? "あり" : "なし"}`}
     >
       <span aria-hidden>{ok ? "✓" : "×"}</span>
@@ -209,7 +209,7 @@ export default function ExchangePage() {
                   </span>
                   <span className="inline-flex items-center gap-0.5">{r.to}</span>
                 </span>
-                <span className="flex gap-1">
+                <span className="flex flex-wrap justify-center gap-1">
                   <Chip ok={r.savings.ok} label="貯金" />
                   <Chip ok={r.resource.ok} label="資源" />
                   {r.speed && <Chip ok={r.speed.ok} label="発展↑" />}
@@ -218,14 +218,17 @@ export default function ExchangePage() {
             );
           })}
         </div>
+        {/* スマホでは項目ごとに改行し、広い画面では続けて書く */}
         <p className="mt-1.5 text-xs text-muted">
-          <span className={route.savings.ok ? "font-semibold text-ink" : ""}>{route.savings.ok ? "貯金になる" : "貯金にならない"}</span>：{route.savings.note}。
-          <span className={route.resource.ok ? "font-semibold text-ink" : ""}>{route.resource.ok ? "資源がもらえる" : "資源はもらえない"}</span>：{route.resource.note}。
-          {route.speed && (
-            <>
-              <span className={route.speed.ok ? "font-semibold text-ink" : ""}>{route.speed.ok ? "発展が速くなる" : "発展速度は上がらない"}</span>：{route.speed.note}。
-            </>
-          )}
+          {[
+            { ok: route.savings.ok, yes: "貯金になる", no: "貯金にならない", note: route.savings.note },
+            { ok: route.resource.ok, yes: "資源がもらえる", no: "資源はもらえない", note: route.resource.note },
+            ...(route.speed ? [{ ok: route.speed.ok, yes: "発展が速くなる", no: "発展速度は上がらない", note: route.speed.note }] : []),
+          ].map((it) => (
+            <span key={it.yes} className="block sm:inline">
+              <span className={it.ok ? "font-semibold text-ink" : ""}>{it.ok ? it.yes : it.no}</span>：{it.note}。
+            </span>
+          ))}
         </p>
       </fieldset>
       <Card>
