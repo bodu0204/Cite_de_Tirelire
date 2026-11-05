@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useGame, useSeasonView } from "@/components/GameProvider";
-import { Button, Card, Empty, Field, Modal } from "@/components/ui";
+import { Button, Card, Empty, Field, Modal, NumberInput } from "@/components/ui";
 import { parkSize } from "@/game/city/actions";
 import { tileLabel } from "@/game/city/layout";
 import { PARK_DESCRIPTION, PARK_SIZE_LABELS as SIZE } from "@/game/describe";
@@ -59,7 +59,7 @@ function SubForm({ initial, onDone, tz }: { initial?: Sub; onDone: () => void; t
       </Field>
       <div className="grid grid-cols-2 gap-3">
         <Field label="金額（円）">
-          <input inputMode="numeric" required value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value.replace(/\D/g, "") })} />
+          <NumberInput required value={f.amount} onValueChange={(v) => setF({ ...f, amount: v })} />
         </Field>
         <Field label="支払い周期" hint={f.cycle === "YEARLY" && f.amount ? `月額換算 ${yen(Math.round(Number(f.amount) / 12))}` : undefined}>
           <select value={f.cycle} onChange={(e) => setF({ ...f, cycle: e.target.value as Sub["cycle"] })}>

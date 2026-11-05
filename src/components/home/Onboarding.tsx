@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { POLICY_PRESETS } from "@/game/city/init";
 import { useGame } from "../GameProvider";
-import { Button, Card, Field, LinkButton } from "../ui";
+import { Button, Card, Field, LinkButton, NumberInput } from "../ui";
 
 /** Phase 1：予算・目標・開発方針の設定 */
 export function Onboarding() {
@@ -30,10 +30,10 @@ export function Onboarding() {
           }}
         >
           <Field label="月間自由予算（円）" hint="固定費や予定している貯金を除いた、毎月自由に使える金額。銀行がこの額を1か月かけて金貨に変えます。">
-            <input inputMode="numeric" required value={budget} onChange={(e) => setBudget(e.target.value.replace(/\D/g, ""))} placeholder="60000" />
+            <NumberInput required value={budget} onValueChange={setBudget} placeholder="60000" />
           </Field>
           <Field label="今回の貯金目標（円）" hint="今の預金残高ではなく、これから新しく貯める金額。">
-            <input inputMode="numeric" required value={goal} onChange={(e) => setGoal(e.target.value.replace(/\D/g, ""))} placeholder="100000" />
+            <NumberInput required value={goal} onValueChange={setGoal} placeholder="100000" />
           </Field>
           <fieldset>
             <legend className="mb-1 text-sm font-medium">街の開発方針</legend>
