@@ -6,7 +6,8 @@ import { waitingFor } from "@/components/home/waiting";
 import { useGame, useSeasonView } from "@/components/GameProvider";
 import { BondIcon, Button, Card, Coin, Field, Tabs } from "@/components/ui";
 import { FEE_EXCHANGE } from "@/game/config";
-import { bondResourceEligible } from "@/game/bond";
+import { bondMultiplier, bondResourceEligible } from "@/game/bond";
+import { BOND_MULTIPLIER_MAX } from "@/game/config";
 import { quoteBondGains, quoteNeedsExchange, quoteResourceExchange, totalGains, ZERO_GAINS, type Currency } from "@/game/exchange";
 import type { GainKey, Gains } from "@/game/types";
 import { fmt } from "@/lib/api";
@@ -29,6 +30,8 @@ interface Route {
   to: ReactNode;
   savings: { ok: boolean; note: string };
   resource: { ok: boolean; note: string };
+  /** 債券だけ：発展速度が上がる */
+  speed?: { ok: boolean; note: string };
 }
 
 /** 「貯金」「資源」の札。対象外なら × と取り消し線 */
@@ -95,6 +98,10 @@ export default function ExchangePage() {
   /** この交換で増える貯金額（円） */
   const savingsAdd = mode === "g2b" ? n : mode === "g2s" ? n : mode === "gres" ? q.goldCost : 0;
   /** この交換で街に入る資源 */
+  /** 債券倍率（時間発展の速さ）の今と交換後 */
+  const speedNow = v.dev.bondMultiplier;
+  const speedAfter = mode === "g2b" ? bondMultiplier(cur.bond + n, v.user.monthlyBudget) : speedNow;
+  const speedMaxed = speedNow >= BOND_MULTIPLIER_MAX;
   const cityGains = mode === "g2b" ? bondGains : res ? q.gains : ZERO_GAINS;
   const routes: Route[] = [
     {
@@ -115,6 +122,9 @@ export default function ExchangePage() {
       resource: bondFull
         ? { ok: false, note: `債券が上限 ${fmt(v.exchange.bondCap)} に達しているので資源はつかない` }
         : { ok: true, note: `上限 ${fmt(v.exchange.bondCap)} までの分に、同じ量の金貨で交換した資源がつく` },
+      speed: speedMaxed
+        ? { ok: false, note: `発展速度は最大の ×${fmt(BOND_MULTIPLIER_MAX, 1)} に達している` }
+        : { ok: true, note: `持っている債券が多いほど街の時間発展が速くなる（今 ×${fmt(speedNow, 2)}、最大 ×${fmt(BOND_MULTIPLIER_MAX, 1)}）` },
     },
     {
       value: "gres",
@@ -202,6 +212,7 @@ export default function ExchangePage() {
                 <span className="flex gap-1">
                   <Chip ok={r.savings.ok} label="貯金" />
                   <Chip ok={r.resource.ok} label="資源" />
+                  {r.speed && <Chip ok={r.speed.ok} label="発展↑" />}
                 </span>
               </button>
             );
@@ -210,6 +221,11 @@ export default function ExchangePage() {
         <p className="mt-1.5 text-xs text-muted">
           <span className={route.savings.ok ? "font-semibold text-ink" : ""}>{route.savings.ok ? "貯金になる" : "貯金にならない"}</span>：{route.savings.note}。
           <span className={route.resource.ok ? "font-semibold text-ink" : ""}>{route.resource.ok ? "資源がもらえる" : "資源はもらえない"}</span>：{route.resource.note}。
+          {route.speed && (
+            <>
+              <span className={route.speed.ok ? "font-semibold text-ink" : ""}>{route.speed.ok ? "発展が速くなる" : "発展速度は上がらない"}</span>：{route.speed.note}。
+            </>
+          )}
         </p>
       </fieldset>
       <Card>
@@ -295,6 +311,18 @@ export default function ExchangePage() {
               <div className="num text-sm font-semibold">{mode === "g2s" ? "もらえません" : n > 0 ? gainsText(cityGains) : "—"}</div>
               {mode === "g2s" && <div className="text-[11px] text-muted">銀貨で資源に替えられます</div>}
             </div>
+            {mode === "g2b" && (
+              <div className={`col-span-2 rounded-lg border px-2 py-2 ${speedAfter > speedNow ? "border-dev bg-surface" : "border-line bg-surface-2"}`}>
+                <div className="text-xs text-muted">街の発展速度（債券倍率）</div>
+                <div className="num text-sm font-semibold">
+                  ×{fmt(speedNow, 2)} → ×{fmt(speedAfter, 2)}
+                  {speedAfter > speedNow && <span className="ml-1 text-dev">（+{fmt((speedAfter / speedNow - 1) * 100, 1)}%）</span>}
+                </div>
+                <div className="text-[11px] text-muted">
+                  {speedMaxed ? `最大の ×${fmt(BOND_MULTIPLIER_MAX, 1)} に達しています` : `債券を持っているあいだ、時間で進む発展ptが増えます（最大 ×${fmt(BOND_MULTIPLIER_MAX, 1)}）`}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="rounded-lg bg-surface-2 p-3 text-sm">
