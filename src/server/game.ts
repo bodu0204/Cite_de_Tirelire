@@ -315,8 +315,8 @@ async function load(tx: Tx, userId: string, now: number): Promise<GameCtx> {
 
 export const newLotId = () => `l${randomUUID().replace(/-/g, "")}`;
 
-export function lotFromRow(l: { id: string; currencyId: string; issuedAt: Date; expiresAt: Date | null; amount: number; remaining: number }): Lot {
-  return { id: l.id, currencyId: l.currencyId, issuedAt: l.issuedAt.getTime(), expiresAt: l.expiresAt?.getTime() ?? null, amount: l.amount, remaining: l.remaining };
+export function lotFromRow(l: { id: string; currencyId: string; issuedAt: Date; expiresAt: Date | null; amount: number; remaining: number; pending?: number }): Lot {
+  return { id: l.id, currencyId: l.currencyId, issuedAt: l.issuedAt.getTime(), expiresAt: l.expiresAt?.getTime() ?? null, amount: l.amount, remaining: l.remaining, pending: l.pending ?? 0 };
 }
 
 async function save(ctx: GameCtx) {
@@ -400,12 +400,13 @@ async function saveCurrencies(ctx: GameCtx, seasonId: string) {
         expiresAt: l.expiresAt === null ? null : new Date(l.expiresAt),
         amount: l.amount,
         remaining: l.remaining,
+        pending: Math.min(l.pending ?? 0, l.remaining),
       })),
     });
   }
   for (const l of ctx.lots) {
     if (l.isNew || !l.dirty) continue;
-    await tx.currencyLot.update({ where: { id: l.id }, data: { amount: l.amount, remaining: l.remaining } });
+    await tx.currencyLot.update({ where: { id: l.id }, data: { amount: l.amount, remaining: l.remaining, pending: Math.min(l.pending ?? 0, l.remaining) } });
   }
   for (const l of created) l.isNew = false;
   for (const l of ctx.lots) l.dirty = false;

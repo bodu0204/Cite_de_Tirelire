@@ -124,7 +124,17 @@ export function collectGold(ctx: GameCtx) {
   ctx.mine = r.mine;
   addCurrency(ctx, "GOLD", r.gold, "mine_collect");
   emitFacilityLevels(ctx, { gold: before });
-  return { collected: r.gold };
+  // 未受取のユーザ通貨もまとめて受け取る（残高の合計は変わらないので台帳には書かない）
+  const custom = new Map<string, number>();
+  for (const lot of ctx.lots) {
+    const p = Math.min(lot.pending ?? 0, lot.remaining);
+    if (p > 0) custom.set(lot.currencyId, (custom.get(lot.currencyId) ?? 0) + p);
+    if (lot.pending) {
+      lot.pending = 0;
+      lot.dirty = true;
+    }
+  }
+  return { collected: r.gold, custom: [...custom].map(([currencyId, amount]) => ({ currencyId, amount })) };
 }
 
 // ---- 銀鉱：記録と報酬 ----
@@ -422,12 +432,14 @@ function exchangeToBond(ctx: GameCtx, from: "gold" | "custom", amount: number, b
   const currencyId = str(body.currencyId, "ユーザ通貨");
   const def = ctx.defs.find((d) => d.id === currencyId);
   if (!def) fail("not_found", "ユーザ通貨が見つかりません", 404);
-  const lots = ctx.lots.filter((l) => l.currencyId === currencyId && l.remaining > 0).sort(lotOrder(() => 0));
-  const balance = lots.reduce((a, l) => a + l.remaining, 0);
-  if (balance < amount) fail("insufficient", `${def!.name}が足りません`);
+  // 受け取り済みの分だけ替えられる（未受取は配当資金で受け取ってから）
+  const held = (l: Lot) => l.remaining - (l.pending ?? 0);
+  const lots = ctx.lots.filter((l) => l.currencyId === currencyId && held(l) > 0).sort(lotOrder(() => 0));
+  const balance = lots.reduce((a, l) => a + held(l), 0);
+  if (balance < amount) fail("insufficient", `${def!.name}が足りません（未受取の分は配当資金で受け取ってから交換できます）`);
   let rest = amount;
   for (const lot of lots) {
-    const use = Math.min(rest, lot.remaining);
+    const use = Math.min(rest, held(lot));
     lot.remaining -= use;
     lot.dirty = true;
     rest -= use;

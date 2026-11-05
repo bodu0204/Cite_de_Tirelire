@@ -53,13 +53,17 @@ describe("AT-020 余りを N 日後に債券へ", () => {
     expect(w.lots).toHaveLength(1);
     expect(dayKey(w.lots[0].issuedAt, TZ)).toBe("2026-10-19");
     expect(w.lots[0].remaining).toBe(7000);
+    // 発生した分は未受取（配当資金で受け取る）。精算では未受取から先に使う
+    expect(w.lots[0].pending).toBe(7000);
     pay(w.purse, 2000, w.lots, []);
     expect(w.lots[0].remaining).toBe(5000);
+    expect(w.lots[0].pending).toBe(5000);
 
     advance(w, { plan, bondRate: 0, until: MON + 3 * DAY - 1, newId }, []);
     expect(w.purse.bond).toBe(0);
     advance(w, { plan, bondRate: 0, until: MON + 3 * DAY, newId }, []);
     expect(w.lots[0].remaining).toBe(0);
+    expect(w.lots[0].pending).toBe(0);
     expect(w.purse.bond).toBe(5000);
   });
 

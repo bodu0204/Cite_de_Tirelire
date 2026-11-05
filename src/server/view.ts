@@ -154,7 +154,7 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
     // 金貨・銀貨・ユーザ通貨は0以上。マイナスになり得るのは債券だけ
     currencies: {
       ...ctx.balances,
-      custom: custom.map((c) => ({ id: c.id, name: c.name, icon: c.icon, categoryIds: c.categoryIds, balance: c.balance, nextIssue: c.nextIssue, nextExpiry: c.nextExpiry })),
+      custom: custom.map((c) => ({ id: c.id, name: c.name, icon: c.icon, categoryIds: c.categoryIds, balance: c.balance, pending: c.pending, nextIssue: c.nextIssue, nextExpiry: c.nextExpiry })),
     },
     /** マップ上の公園・像の元データ（refId → 名前と詳細） */
     specials: {

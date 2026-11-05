@@ -111,6 +111,8 @@ export function advance(w: World, opts: AdvanceOpts, events: CityEvent[]): void 
     const lot = lotFor(def, dayStart);
     lot.amount += amount;
     lot.remaining += amount;
+    // 発生ルールの分は未受取（配当資金で受け取る）。収入の振り分けは金貨と同じくそのまま所持へ
+    if (!o.grant) lot.pending = (lot.pending ?? 0) + amount;
     lot.dirty = true;
     issued.set(def.id, (issued.get(def.id) ?? 0) + amount);
   };
@@ -194,6 +196,7 @@ export function advance(w: World, opts: AdvanceOpts, events: CityEvent[]): void 
         w.purse.moves.push({ currency: "CUSTOM", delta: -lot.remaining, reason: "currency_expire_bond", currencyId: lot.currencyId });
         depositToBond(w.purse, lot.remaining, "currency_expire_bond", lot.currencyId);
         lot.remaining = 0;
+        lot.pending = 0;
         lot.dirty = true;
       }
     }
