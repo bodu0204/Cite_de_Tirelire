@@ -2,11 +2,10 @@
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useGame, useSeasonView } from "@/components/GameProvider";
-import { BondIcon, Button, Card, Coin, CustomIcon, Empty, Field } from "@/components/ui";
+import { BondIcon, Button, Card, Coin, CustomIcon, Empty, Field, NumberInput } from "@/components/ui";
 import { REWARD_PURCHASE } from "@/game/config";
 import { api, fmt, todayIn, yen } from "@/lib/api";
 import { useList } from "@/lib/useList";
-import { digits } from "./shared";
 
 export interface PaymentRow {
   currency: "GOLD" | "SILVER" | "BOND" | "CUSTOM" | "RESERVED";
@@ -157,7 +156,7 @@ function PurchaseForm({ onDone, tz }: { onDone: () => void; tz: string }) {
     >
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label="金額（円）">
-          <input inputMode="numeric" required value={f.amount} onChange={(e) => set("amount", digits(e.target.value))} />
+          <NumberInput required value={f.amount} onValueChange={(v) => set("amount", v)} />
         </Field>
         <Field label="日付">
           <input type="date" required value={f.date} onChange={(e) => set("date", e.target.value)} />
@@ -267,7 +266,7 @@ function BaseRows({ onDone, tz }: { onDone: () => void; tz: string }) {
             <div className="text-sm font-medium">{label}</div>
             <div className="num text-xs text-muted">{sub}</div>
           </div>
-          <input aria-label="金額（円）" inputMode="numeric" className="w-28" value={amounts[key] ?? ""} onChange={(e) => setAmounts((a) => ({ ...a, [key]: digits(e.target.value) }))} />
+          <NumberInput aria-label="金額（円）" className="w-28" value={amounts[key] ?? ""} onValueChange={(v) => setAmounts((a) => ({ ...a, [key]: v }))} />
           <span className="text-sm">円</span>
           <Button
             disabled={busy || amounts[key] === "" || amount <= 0}

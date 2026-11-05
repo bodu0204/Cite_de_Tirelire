@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useGame, useSeasonView } from "@/components/GameProvider";
-import { Button, Card, Field, Modal } from "@/components/ui";
+import { Button, Card, Field, Modal, NumberInput } from "@/components/ui";
 import { NEED_LABELS, POLICY_PRESETS } from "@/game/city/init";
 import type { NeedKey } from "@/game/types";
 import { api, ApiError, yen } from "@/lib/api";
@@ -69,7 +69,7 @@ export default function SettingsPage() {
           }}
         >
           <Field label="月間自由予算（円）" hint="変更は今この時点からの配当額に反映されます。過去の配当分は変わりません。">
-            <input inputMode="numeric" value={budget} onChange={(e) => setBudget(e.target.value.replace(/\D/g, ""))} />
+            <NumberInput value={budget} onValueChange={setBudget} />
           </Field>
           <Field
             label="毎月の収入が入る日"

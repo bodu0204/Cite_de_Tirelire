@@ -4,8 +4,6 @@ import { useSeasonView } from "@/components/GameProvider";
 import { BondIcon, Coin, CustomIcon } from "@/components/ui";
 import { fmt } from "@/lib/api";
 
-export const digits = (s: string) => s.replace(/\D/g, "");
-
 export interface Gains {
   wood: number;
   stone: number;
