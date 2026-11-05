@@ -267,6 +267,22 @@ function waitHours(s: CityState, m: Metrics, cost: Cost): number {
   return h;
 }
 
+/**
+ * 工事中のジョブがすべて終わったものとした指標。自動開発の判断と計画列に使う
+ * （工事中の分を足りないと数えると、同じ不足に何件も建てて作りすぎる）
+ */
+export function plannedMetrics(s: CityState): Metrics {
+  if (s.jobs.length === 0) return computeMetrics(s);
+  const buildings = s.buildings.map((b) => {
+    const j = s.jobs.find((j) => j.buildingId === b.id);
+    if (!j) return b;
+    return j.kind === "upgrade" ? { ...b, level: j.level } : j.kind === "evolve" ? { ...b, tier: j.tier } : b;
+  });
+  for (const j of s.jobs)
+    if (j.kind === "build") buildings.push({ id: j.buildingId, line: j.line, tier: j.tier, level: 1, x: j.x, y: j.y, locked: false, manual: !j.auto, builtAt: j.finishAt });
+  return computeMetrics({ ...s, buildings });
+}
+
 const busy = (s: CityState, id: string) => s.jobs.some((j) => j.buildingId === id);
 const countLine = (s: CityState, line: LineId) =>
   s.buildings.filter((b) => b.line === line).length + s.jobs.filter((j) => j.kind === "build" && j.line === line).length;
@@ -366,8 +382,7 @@ function plansFor(need: NeedKey, s: CityState, m: Metrics, dev: number, cache = 
     }
     case "housing": {
       const vacancy = m.housingCap > 0 ? (m.housingCap - pop) / m.housingCap : 0;
-      const pending = s.jobs.some((j) => j.line === "housing");
-      if (vacancy >= HOUSING_VACANCY_TARGET || m.employment < 0.9 || pending) break;
+      if (vacancy >= HOUSING_VACANCY_TARGET || m.employment < 0.9) break;
       plans.push(buildPlan(s, "housing", dev), ...evolvePlans(s, ["housing"], dev), ...upgradePlans(s, ["housing"], dev));
       break;
     }
@@ -399,7 +414,8 @@ function plansFor(need: NeedKey, s: CityState, m: Metrics, dev: number, cache = 
 // ---- 計画列と必要資源（docs/needs-based-exchange.md §4） ----
 
 /** 計画列の具体的な計画：方針の優先順に全項目の候補を並べ、同じ建物の重複を除く */
-function concretePlans(s: CityState, m: Metrics): Plan[] {
+function concretePlans(s: CityState): Plan[] {
+  const m = plannedMetrics(s);
   const seen = new Set<string>();
   const out: Plan[] = [];
   const cache = siteCache();
@@ -438,7 +454,7 @@ export function planQueue(s: CityState, m: Metrics = computeMetrics(s)): PlanQue
     cost: p.cost,
   });
   const x = expansionPlan(s, m.devLevel);
-  return { plans: concretePlans(s, m).map(q), expansion: q({ kind: "build", line: x.line, tier: x.tier, level: 1, cost: x.cost }) };
+  return { plans: concretePlans(s).map(q), expansion: q({ kind: "build", line: x.line, tier: x.tier, level: 1, cost: x.cost }) };
 }
 
 export interface CityNeeds {
@@ -466,23 +482,25 @@ export function cityNeeds(s: CityState, m: Metrics = computeMetrics(s)): CityNee
 }
 
 /**
- * 自動開発のジョブを開始する。1ティックに、方針の優先順で、払える限り何件でも始める
- * （工事中の分は指標に入らないので、同じ必要事項でも資金が尽きるまで続けて始める）
+ * 自動開発のジョブを開始する。1ティックに、方針の優先順で、払える限り何件でも始める。
+ * 足りないものは工事中の分も終わったものとして判断する（plannedMetrics）。m は待つ時間の見積もりに使う今の指標
  */
 export function autoDevelop(s: CityState, m: Metrics, now: number): void {
   const dev = m.devLevel;
   let cache = siteCache();
+  let pm = plannedMetrics(s);
   for (const need of s.policy.priorities) {
     // 始めたジョブの分だけ候補が変わるので、何も始められなくなるまで候補を出し直す
     for (let started = true; started; ) {
       started = false;
-      for (const plan of plansFor(need, s, m, dev, cache)) {
+      for (const plan of plansFor(need, s, pm, dev, cache)) {
         if (canAfford(s, plan.cost, true)) {
           // 景観改善は余剰資金があるときだけ
           if (need === "beautify" && s.treasury - plan.cost.treasury < 500) return;
           startJob(s, plan, now, true);
-          // 盤面が変わったので、場所は探し直す
+          // 盤面と完成後の指標が変わったので、場所と指標は出し直す
           cache = siteCache();
+          pm = plannedMetrics(s);
           started = true;
           break;
         }

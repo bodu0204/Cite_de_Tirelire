@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { CityView } from "@/components/city/CityView";
 import { useGame, useSeasonView } from "@/components/GameProvider";
 import { EventLog } from "@/components/home/EventLog";
+import { NextGoal } from "@/components/home/NextGoal";
 import { DevGauge, SavingsGauge, TechGauge, WishSavingsGauge } from "@/components/home/Gauges";
 import { Onboarding } from "@/components/home/Onboarding";
 import { TilePanel } from "@/components/home/TilePanel";
@@ -142,6 +143,10 @@ export default function HomePage() {
             <TechGauge v={v} />
             <DevGauge v={v} />
           </div>
+        </Card>
+
+        <Card>
+          <NextGoal v={v} />
         </Card>
 
         <Card title="通貨" action={<Link href="/currencies" className="text-xs text-muted underline">ユーザ通貨を管理</Link>}>

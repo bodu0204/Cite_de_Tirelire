@@ -5,7 +5,7 @@ import { demolish, expandQuote, manualBuild, manualExpand, manualUpgrade, moveBu
 import { computeMetrics } from "../city/economy";
 import { createCity } from "../city/init";
 import { buildingSize, connected, dropLegacyMines, expandablePlots, expansionError, findSite, footprint, isPlaced, isPlannedRoad, isTileUnlocked, occupancy, placementFor, plotCross, plotLimit, roadNetwork, tileKey } from "../city/layout";
-import { applyTechLevel, simulate } from "../city/sim";
+import { applyTechLevel, plannedMetrics, simulate } from "../city/sim";
 import { devLevel } from "../levels";
 import { createReplay } from "../replay";
 import { snapBuilding, type Building, type CityEvent, type CityState } from "../types";
@@ -500,5 +500,16 @@ describe("タイムラプス（v2）", () => {
     const after = replay.at(T0 + 1000);
     expect(after.plots).toContain("1,0");
     expect([...after.buildings.values()].filter((b) => b.line === "road")).toHaveLength(45);
+  });
+});
+
+describe("工事中の分を完成したものとして判断する", () => {
+  it("新築中の住宅は、完成後の指標には入り、今の指標には入らない", () => {
+    const s = createCity(T0);
+    const site = findSite(s, "housing")!;
+    const now = computeMetrics(s).housingCap;
+    s.jobs.push({ id: "jx", kind: "build", auto: true, line: "housing", tier: 0, level: 1, buildingId: "bx", x: site.x, y: site.y, startedAt: T0, finishAt: T0 + HOUR });
+    expect(computeMetrics(s).housingCap).toBe(now);
+    expect(plannedMetrics(s).housingCap).toBeGreaterThan(now);
   });
 });
