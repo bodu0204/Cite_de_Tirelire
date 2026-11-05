@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useGame, useSeasonView } from "@/components/GameProvider";
-import { Button, Card, Empty, Field } from "@/components/ui";
+import { Button, Card, Empty, Field, NumberInput } from "@/components/ui";
 import { api, fmt, yen } from "@/lib/api";
 import { ResolutionPreview, type Resolution } from "./shared";
 
@@ -21,7 +21,7 @@ const LABELS: Record<Key, string> = {
   E6a: "ほしい物貯金（像の積立金貨）",
   E6b: "サブスク（まだ記録していない支払い）",
   E4a: "債券",
-  E4b: "債券以外（都市に使った金貨）",
+  E4b: "債券以外（ゲーム内で使った金貨）",
   E5: "貯金管理で生まれた（±）",
 };
 const GROUPS: { label: string; keys: Key[] }[] = [
@@ -288,7 +288,7 @@ export function AdjustTab({ onDone }: { onDone: () => void }) {
           }}
         >
           <Field label="実際の手元の額（円）" hint="財布や口座で確かめた、自由予算の手元のお金を入れてください。">
-            <input inputMode="numeric" value={actual} onChange={(e) => setActual(e.target.value.replace(/[^\d-]/g, "").replace(/(?!^)-/g, ""))} />
+            <NumberInput allowNegative value={actual} onValueChange={setActual} />
           </Field>
           {diff !== null && (
             <p className={`num text-sm font-medium ${diff > 0 ? "text-dev" : diff < 0 ? "text-danger" : ""}`}>

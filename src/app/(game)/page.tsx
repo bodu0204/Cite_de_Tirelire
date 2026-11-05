@@ -9,6 +9,7 @@ import { NextGoal } from "@/components/home/NextGoal";
 import { DevGauge, SavingsGauge, TechGauge, WishSavingsGauge } from "@/components/home/Gauges";
 import { Onboarding } from "@/components/home/Onboarding";
 import { TilePanel } from "@/components/home/TilePanel";
+import { useCollect } from "@/components/useCollect";
 import { BondIcon, Button, Card, Coin, CustomIcon, LinkButton, Modal, Stat } from "@/components/ui";
 import { expandablePlots, tileLabel } from "@/game/city/layout";
 import { fmt } from "@/lib/api";
@@ -18,6 +19,7 @@ const CUSTOM_SHOWN = 3;
 
 export default function HomePage() {
   const { view, error, act, toast, busy } = useGame();
+  const collector = useCollect();
   const v = useSeasonView();
   const [tile, setTile] = useState<{ x: number; y: number } | null>(null);
   const [moving, setMoving] = useState<string | null>(null);
@@ -176,7 +178,10 @@ export default function HomePage() {
                   {c.name}
                   {c.nextIssue && <span className="ml-1 text-xs text-muted">次 {c.nextIssue.date.slice(5)} +{fmt(c.nextIssue.amount)}</span>}
                 </span>
-                <span>{fmt(c.balance)}</span>
+                <span>
+                  {fmt(c.balance)}
+                  {c.pending > 0 && <span className="ml-1 text-xs text-muted">（未受取 {fmt(c.pending)}）</span>}
+                </span>
               </li>
             ))}
           </ul>
@@ -191,16 +196,15 @@ export default function HomePage() {
           <LinkButton href="/records" variant="primary" className="min-h-14 text-base">
             <Coin kind="silver" size={18} /> 収支を記録
           </LinkButton>
-          <Button
-            variant="gold"
-            className="min-h-14 text-base"
-            disabled={busy || uncollected < 1}
-            onClick={async () => {
-              const r = await act<{ collected: number }>("/api/mine/collect");
-              if (r) toast(`金貨 ${fmt(r.collected)}G を受け取りました`, "reward");
-            }}
-          >
-            <Coin kind="gold" size={18} /> {fmt(uncollected)}G 受け取る
+          <Button variant="gold" className="min-h-14 text-base" disabled={!collector.can} onClick={collector.collect}>
+            {/* 受け取れる通貨のアイコンを並べる（多いときははみ出た分を隠して1行に収める） */}
+            <span className="flex min-w-0 shrink items-center gap-0.5 overflow-hidden" aria-hidden>
+              {(uncollected >= 1 || collector.custom.length === 0) && <Coin kind="gold" size={18} />}
+              {collector.custom.map((c) => (
+                <CustomIcon key={c.id} icon={c.icon} size={18} />
+              ))}
+            </span>
+            <span className="shrink-0 whitespace-nowrap">受け取る</span>
           </Button>
         </div>
 

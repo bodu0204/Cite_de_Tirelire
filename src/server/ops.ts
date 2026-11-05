@@ -19,7 +19,7 @@ import { createCity, POLICY_PRESETS } from "@/game/city/init";
 import { cityNeeds } from "@/game/city/sim";
 import { INITIAL_GOLD, INITIAL_SILVER, REWARD_DAILY_CAP, REWARD_PURCHASE, REWARD_SAVINGS, SAVINGS_DAILY_LIMIT } from "@/game/config";
 import { fail } from "@/game/errors";
-import { quoteNeedsExchange, quoteResourceExchange, totalGains, ZERO_GAINS, type Currency } from "@/game/exchange";
+import { quoteBondGains, quoteNeedsExchange, quoteResourceExchange, totalGains, ZERO_GAINS, type Currency } from "@/game/exchange";
 import { budgetOverruns, describeOverruns, startOfDay, type Overrun } from "@/game/currency";
 import { goldMineLevel, silverMineLevel } from "@/game/levels";
 import { collect, newMine } from "@/game/mine";
@@ -124,7 +124,17 @@ export function collectGold(ctx: GameCtx) {
   ctx.mine = r.mine;
   addCurrency(ctx, "GOLD", r.gold, "mine_collect");
   emitFacilityLevels(ctx, { gold: before });
-  return { collected: r.gold };
+  // 未受取のユーザ通貨もまとめて受け取る（残高の合計は変わらないので台帳には書かない）
+  const custom = new Map<string, number>();
+  for (const lot of ctx.lots) {
+    const p = Math.min(lot.pending ?? 0, lot.remaining);
+    if (p > 0) custom.set(lot.currencyId, (custom.get(lot.currencyId) ?? 0) + p);
+    if (lot.pending) {
+      lot.pending = 0;
+      lot.dirty = true;
+    }
+  }
+  return { collected: r.gold, custom: [...custom].map(([currencyId, amount]) => ({ currencyId, amount })) };
 }
 
 // ---- 銀鉱：記録と報酬 ----
@@ -402,15 +412,17 @@ function addStock(ctx: GameCtx, gains: Gains) {
  * 債券は表示の達成率に直接含まれるので、見込み貯金には加えない（二重に数えない）。
  * 同じ理由で、記録の報酬（現実のお金ではない）である銀貨は替えられない。
  * ユーザ通貨は期限の近いロットから使う。
- * 債券が 0〜3M の範囲に入る分は、同じ量の金貨でおまかせ交換したのと同じ資源もつける（手数料なし。元の通貨はそれ以上減らない）。
+ * 債券が 0〜3M の範囲に入る分は、同じ量の金貨で交換したのと同じ資源もつける（種類を選ぶか、おまかせ）（手数料なし。元の通貨はそれ以上減らない）。
  */
 function exchangeToBond(ctx: GameCtx, from: "gold" | "custom", amount: number, body: Body) {
   const before = ctx.balances.bond;
+  // 債券についてくる資源の種類（省略時はおまかせ）
+  const resource = body.resource === undefined ? "auto" : oneOf(body.resource, [...RESOURCES, "treasury", "auto"] as const, "資源");
   const grant = () => {
     const eligible = bondResourceEligible(before, amount, bondCap(ctx.user.monthlyBudget));
-    const q = quoteNeedsExchange("gold", eligible, cityNeeds(ctx.city!).needs, facilityLevels(ctx), { fee: false });
-    addStock(ctx, q.gains);
-    return { resourceEligible: eligible, gains: q.gains, split: q.split };
+    const gains = quoteBondGains(eligible, resource, cityNeeds(ctx.city!).needs, facilityLevels(ctx));
+    addStock(ctx, gains);
+    return { resourceEligible: eligible, gains };
   };
   if (from === "gold") {
     addCurrency(ctx, "GOLD", -amount, "exchange_g2b");
@@ -420,12 +432,14 @@ function exchangeToBond(ctx: GameCtx, from: "gold" | "custom", amount: number, b
   const currencyId = str(body.currencyId, "ユーザ通貨");
   const def = ctx.defs.find((d) => d.id === currencyId);
   if (!def) fail("not_found", "ユーザ通貨が見つかりません", 404);
-  const lots = ctx.lots.filter((l) => l.currencyId === currencyId && l.remaining > 0).sort(lotOrder(() => 0));
-  const balance = lots.reduce((a, l) => a + l.remaining, 0);
-  if (balance < amount) fail("insufficient", `${def!.name}が足りません`);
+  // 受け取り済みの分だけ替えられる（未受取は配当資金で受け取ってから）
+  const held = (l: Lot) => l.remaining - (l.pending ?? 0);
+  const lots = ctx.lots.filter((l) => l.currencyId === currencyId && held(l) > 0).sort(lotOrder(() => 0));
+  const balance = lots.reduce((a, l) => a + held(l), 0);
+  if (balance < amount) fail("insufficient", `${def!.name}が足りません（未受取の分は配当資金で受け取ってから交換できます）`);
   let rest = amount;
   for (const lot of lots) {
-    const use = Math.min(rest, lot.remaining);
+    const use = Math.min(rest, held(lot));
     lot.remaining -= use;
     lot.dirty = true;
     rest -= use;
@@ -444,7 +458,9 @@ export function exchange(ctx: GameCtx, body: Body) {
     // 金貨→銀貨は無料（銀貨不足で操作不能にならないように）
     addCurrency(ctx, "GOLD", -amount, "exchange_g2s");
     addCurrency(ctx, "SILVER", amount, "exchange_g2s");
-    return { gold: -amount, silver: amount };
+    // 金貨（1G＝1円相当）をゲーム内で使った分なので貯金額に加える。銀貨の使い道（資源など）では数えないので二重にならない
+    ctx.citySpent += amount;
+    return { gold: -amount, silver: amount, citySpentAdded: amount };
   }
   if (kind === "gold_to_bond" || kind === "to_bond") {
     return exchangeToBond(ctx, kind === "gold_to_bond" ? "gold" : oneOf(body.currency, ["gold", "custom"] as const, "通貨"), amount, body);

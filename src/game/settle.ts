@@ -13,6 +13,8 @@ export interface Lot {
   expiresAt: number | null;
   amount: number;
   remaining: number;
+  /** remaining のうち未受取の分（発生ルールの発生。受け取るまで交換には使えない。精算では先に使う） */
+  pending?: number;
   /** 保存が必要か（新規・変更） */
   isNew?: boolean;
   dirty?: boolean;
@@ -91,6 +93,7 @@ export function pay(p: Purse, amount: number, lots: Lot[], payments: Payment[]) 
     const use = Math.min(rest, lot.remaining);
     if (use <= 0) continue;
     lot.remaining -= use;
+    lot.pending = Math.max(0, (lot.pending ?? 0) - use);
     lot.dirty = true;
     rest -= use;
     addPayment(payments, { currency: "CUSTOM", kind: "pay", currencyId: lot.currencyId, lotId: lot.id, amount: use });

@@ -148,6 +148,7 @@ export async function deleteCurrency(ctx: GameCtx, id: string) {
     ctx.ledger.push({ currency: "CUSTOM", currencyId: id, delta: -lot.remaining, reason: "currency_delete" });
     returned += lot.remaining;
     lot.remaining = 0;
+    lot.pending = 0;
     lot.dirty = true;
   }
   if (returned > 0) {
@@ -196,7 +197,10 @@ export function currencySummaries(ctx: GameCtx) {
       startDate: row.startDate,
       endDate: row.endDate,
       sortOrder: row.sortOrder,
-      balance: lots.reduce((a, l) => a + l.remaining, 0),
+      /** 受け取り済みの残高（交換に使える） */
+      balance: lots.reduce((a, l) => a + l.remaining - (l.pending ?? 0), 0),
+      /** 未受取（配当資金で受け取る） */
+      pending: lots.reduce((a, l) => a + (l.pending ?? 0), 0),
       nextIssue: next ? { date: next.date, amount: next.amount } : null,
       nextExpiry: expiring ? { at: expiring.expiresAt!, amount: expiring.remaining } : null,
     };

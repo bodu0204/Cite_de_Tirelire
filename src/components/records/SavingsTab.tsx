@@ -2,10 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useGame, useSeasonView } from "@/components/GameProvider";
-import { Button, Card, Empty, Field, Modal, Tabs } from "@/components/ui";
+import { Button, Card, Empty, Field, Modal, NumberInput, Tabs } from "@/components/ui";
 import { REWARD_SAVINGS } from "@/game/config";
 import { api, fmt, todayIn, yen } from "@/lib/api";
-import { digits } from "./shared";
 
 interface Savings {
   id: string;
@@ -50,7 +49,7 @@ function SavingsForm({ initial, onDone, tz, disabled }: { initial?: Savings; onD
       />
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label="金額（円）">
-          <input inputMode="numeric" required value={f.amount} onChange={(e) => set("amount", digits(e.target.value))} />
+          <NumberInput required value={f.amount} onValueChange={(v) => set("amount", v)} />
         </Field>
         <Field label="記録日">
           <input type="date" required value={f.date} onChange={(e) => set("date", e.target.value)} />
@@ -81,7 +80,7 @@ export function SavingsTab({ tz }: { tz: string }) {
     <div className="space-y-4">
       <Card title="貯金管理">
         <p className="mb-3 text-xs text-muted">
-          現実の貯金を別口座へ移したり、手元へ戻したりしたときに記録します。技術Lv・銀行Lv・目標達成は貯金額（債券 ＋ 都市に使った金貨）で決まるので、この記録では変わりません。手元のお金の推測に使えます。
+          現実の貯金を別口座へ移したり、手元へ戻したりしたときに記録します。技術Lv・銀行Lv・目標達成は貯金額（債券 ＋ ゲーム内で使った金貨）で決まるので、この記録では変わりません。手元のお金の推測に使えます。
         </p>
         {v && (
           <dl className="num mb-3 grid grid-cols-3 gap-2 text-center text-xs">

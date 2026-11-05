@@ -95,7 +95,7 @@ export async function resolveSurplus(ctx: GameCtx, d: number, ref: { type: RefTy
   let gains = a.gains;
   let feeSilver = 0;
   if (r.rest > 0) {
-    // 入りきらない分はおまかせ交換。金貨としては残らないが、都市に使った金貨（貯金額）に数える
+    // 入りきらない分はおまかせ交換。金貨としては残らないが、ゲーム内で使った金貨（貯金額）に数える
     const b = surplusExchange(ctx, r.rest, ctx.balances.silver);
     feeSilver = b.silverCost;
     if (feeSilver > 0) {

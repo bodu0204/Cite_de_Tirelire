@@ -6,7 +6,7 @@ import { computeMetrics } from "../city/economy";
 import { cityNeeds, expansionPlan } from "../city/sim";
 import { DAY, GOLD_RESOURCE_VALUE, HOUR } from "../config";
 import { BudgetPlan, type CurrencyDefLite } from "../currency";
-import { exchangeRate, needShares, quoteNeedsExchange, quoteResourceExchange, splitAmount, ZERO_GAINS } from "../exchange";
+import { exchangeRate, needShares, quoteBondGains, quoteNeedsExchange, quoteResourceExchange, splitAmount, ZERO_GAINS } from "../exchange";
 import { advance, type Accrual, type World } from "../idle";
 import { newMine } from "../mine";
 import { coverPlans, type PlanQueue } from "../planQueue";
@@ -247,5 +247,17 @@ describe("AT-037 余りの債券化につく資源", () => {
       expect(b.city.stock[k]).toBeCloseTo(a.city.stock[k], 6);
     }
     expect(goldOf(a.city.bondResourceTotal!)).toBeGreaterThan(0);
+  });
+});
+
+describe("債券につく資源の種類を選べる", () => {
+  const lv = { bank: 1, goldMine: 1, silverMine: 1 };
+  const needs = { wood: 100, stone: 50, food: 0, treasury: 200 };
+  it("種類を選ぶと、同じ量の金貨をその資源だけに手数料なしで替えた量になる", () => {
+    const g = quoteBondGains(300, "stone", needs, lv);
+    expect(g).toEqual({ ...ZERO_GAINS, stone: quoteResourceExchange("gold", "stone", 300, lv).gain });
+  });
+  it("おまかせは必要割合での振り分け（手数料なし）", () => {
+    expect(quoteBondGains(300, "auto", needs, lv)).toEqual(quoteNeedsExchange("gold", 300, needs, lv, { fee: false }).gains);
   });
 });

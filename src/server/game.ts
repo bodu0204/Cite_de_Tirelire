@@ -57,7 +57,7 @@ export interface GameCtx {
   grants: Grant[];
   /** 当期のユーザ通貨の未発生分から減らす額（月の収入の−差分） */
   cuts: CustomCut[];
-  /** 都市に使った金貨の累計（貯金額の債券以外） */
+  /** ゲーム内で使った金貨の累計（貯金額の債券以外） */
   citySpent: number;
   /** シーズン行の追加更新 */
   seasonPatch: Prisma.SeasonUpdateInput;
@@ -315,8 +315,8 @@ async function load(tx: Tx, userId: string, now: number): Promise<GameCtx> {
 
 export const newLotId = () => `l${randomUUID().replace(/-/g, "")}`;
 
-export function lotFromRow(l: { id: string; currencyId: string; issuedAt: Date; expiresAt: Date | null; amount: number; remaining: number }): Lot {
-  return { id: l.id, currencyId: l.currencyId, issuedAt: l.issuedAt.getTime(), expiresAt: l.expiresAt?.getTime() ?? null, amount: l.amount, remaining: l.remaining };
+export function lotFromRow(l: { id: string; currencyId: string; issuedAt: Date; expiresAt: Date | null; amount: number; remaining: number; pending?: number }): Lot {
+  return { id: l.id, currencyId: l.currencyId, issuedAt: l.issuedAt.getTime(), expiresAt: l.expiresAt?.getTime() ?? null, amount: l.amount, remaining: l.remaining, pending: l.pending ?? 0 };
 }
 
 async function save(ctx: GameCtx) {
@@ -400,12 +400,13 @@ async function saveCurrencies(ctx: GameCtx, seasonId: string) {
         expiresAt: l.expiresAt === null ? null : new Date(l.expiresAt),
         amount: l.amount,
         remaining: l.remaining,
+        pending: Math.min(l.pending ?? 0, l.remaining),
       })),
     });
   }
   for (const l of ctx.lots) {
     if (l.isNew || !l.dirty) continue;
-    await tx.currencyLot.update({ where: { id: l.id }, data: { amount: l.amount, remaining: l.remaining } });
+    await tx.currencyLot.update({ where: { id: l.id }, data: { amount: l.amount, remaining: l.remaining, pending: Math.min(l.pending ?? 0, l.remaining) } });
   }
   for (const l of created) l.isNew = false;
   for (const l of ctx.lots) l.dirty = false;
@@ -463,7 +464,7 @@ export const bigintReplacer = (_k: string, v: unknown) => (typeof v === "bigint"
 
 // ---- 貯金額の再評価（技術Lv・銀行Lv・達成率・シーズン状態。docs/record-input-redesign.md §7.1） ----
 
-/** 貯金額（債券 ＋ 都市に使った金貨）と、その最高到達額・達成率 */
+/** 貯金額（債券 ＋ ゲーム内で使った金貨）と、その最高到達額・達成率 */
 export function savingsOf(ctx: GameCtx) {
   requireSeason(ctx);
   const amount = savingsTotal({ bond: ctx.balances.bond, citySpent: ctx.citySpent });

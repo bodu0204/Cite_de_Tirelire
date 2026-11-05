@@ -50,6 +50,15 @@ export function quoteResourceExchange(
 
 // ---- おまかせ交換（docs/needs-based-exchange.md §5・§6・§13） ----
 
+/**
+ * 債券に入った分（0〜上限の範囲）につく資源：同じ量の金貨を手数料なしで交換したのと同じ量。
+ * resource が "auto" ならおまかせ（必要割合で振り分け）、それ以外はその種類だけ。
+ */
+export function quoteBondGains(eligible: number, resource: GainKey | "auto", needs: Gains, lv: FacilityLevels): Gains {
+  if (resource === "auto") return quoteNeedsExchange("gold", eligible, needs, lv, { fee: false }).gains;
+  return { ...ZERO_GAINS, [resource]: quoteResourceExchange("gold", resource, eligible, lv).gain };
+}
+
 export const GAIN_KEYS: GainKey[] = ["wood", "stone", "food", "treasury"];
 
 export const ZERO_GAINS: Gains = { wood: 0, stone: 0, food: 0, treasury: 0 };
