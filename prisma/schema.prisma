@@ -293,6 +293,8 @@ model CurrencyLot {
   expiresAt  DateTime?
   amount     Int
   remaining  Int
+  /// remaining のうち未受取の分（発生ルールで発生し、まだ受け取っていない）。受け取ると0
+  pending    Int       @default(0)
   season     Season    @relation(fields: [seasonId], references: [id], onDelete: Cascade)
 
   @@index([seasonId, currencyId, expiresAt])

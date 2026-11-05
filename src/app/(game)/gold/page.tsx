@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useGame, useSeasonView } from "@/components/GameProvider";
-import { BondIcon, Button, Card, Coin, Stat } from "@/components/ui";
+import { BondIcon, Button, Card, Coin, CustomIcon, Stat } from "@/components/ui";
+import { useCollect } from "@/components/useCollect";
 import { BOND_FORCED_RATE } from "@/game/config";
 import { goldMineBonus } from "@/game/levels";
 import { fmt, yen } from "@/lib/api";
@@ -12,6 +13,7 @@ const RATES = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
 export default function DividendPage() {
   const { act, toast, busy, receivedAt } = useGame();
   const v = useSeasonView();
+  const collector = useCollect();
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -45,17 +47,23 @@ export default function DividendPage() {
             {fmt(Math.floor(live))}
             <span className="text-lg">G</span>
           </div>
-          <Button
-            variant="gold"
-            className="min-h-12 w-full max-w-xs text-base"
-            disabled={busy || Math.floor(mine.uncollected) < 1}
-            onClick={async () => {
-              const r = await act<{ collected: number }>("/api/mine/collect");
-              if (r) toast(`金貨 ${fmt(r.collected)}G を受け取りました`, "reward");
-            }}
-          >
+          {v.currencies.custom.length > 0 && (
+            <ul className="num w-full max-w-xs space-y-1 text-sm">
+              {v.currencies.custom.map((c) => (
+                <li key={c.id} className="flex items-center gap-2">
+                  <CustomIcon icon={c.icon} />
+                  <span className="min-w-0 flex-1 truncate text-muted">未受取の{c.name}</span>
+                  <span className={c.pending > 0 ? "font-semibold" : "text-muted"}>{fmt(c.pending)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <Button variant="gold" className="min-h-12 w-full max-w-xs text-base" disabled={!collector.can} onClick={collector.collect}>
             受け取る
           </Button>
+          {v.currencies.custom.length > 0 && (
+            <p className="text-center text-xs text-muted">金貨と一緒に、発生したユーザ通貨も受け取ります。未受取のユーザ通貨も購入の精算には使われます（交換は受け取ってから）。</p>
+          )}
         </div>
       </Card>
 

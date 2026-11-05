@@ -22,6 +22,8 @@ interface Currency {
   startDate: string;
   endDate: string | null;
   balance: number;
+  /** 未受取（配当資金で受け取る） */
+  pending: number;
   nextIssue: { date: string; amount: number } | null;
   nextExpiry: { at: number; amount: number } | null;
 }
@@ -607,7 +609,7 @@ export default function CurrenciesPage() {
                 <div className="flex items-center gap-2">
                   <CustomIcon icon={c.icon} size={20} />
                   <span className="flex-1 font-medium">{c.name}</span>
-                  <span className="num font-pixel text-lg">{fmt(c.balance)}</span>
+                  <span className="num font-pixel text-lg">{fmt(c.balance)}{c.pending > 0 && <span className="ml-1 text-xs text-muted">＋未受取 {fmt(c.pending)}</span>}</span>
                 </div>
                 <div className="text-xs text-muted">
                   {c.rules.map(describeRule).join(" ＋ ")}
@@ -628,7 +630,7 @@ export default function CurrenciesPage() {
                   <button
                     className="text-danger underline"
                     onClick={async () => {
-                      if (!confirm(`${c.name}を削除しますか？今の残高 ${fmt(c.balance)} は金貨に戻ります。`)) return;
+                      if (!confirm(`${c.name}を削除しますか？今の残高 ${fmt(c.balance + c.pending)}（未受取を含む）は金貨に戻ります。`)) return;
                       if (await act(`/api/currencies/${c.id}`, undefined, "DELETE")) currencies.reload();
                     }}
                   >
