@@ -47,6 +47,9 @@ function Chip({ ok, label }: { ok: boolean; label: string }) {
   );
 }
 
+/** 有効数字2桁で表示する（少額でも 0.0% にならないように） */
+const sig2 = (x: number) => x.toLocaleString("ja-JP", { maximumSignificantDigits: 2 });
+
 const gainsText = (g: Gains) =>
   RES.filter((r) => g[r.key] > 0)
     .map((r) => `${r.label} +${fmt(g[r.key])}`)
@@ -319,7 +322,7 @@ export default function ExchangePage() {
                 <div className="text-xs text-muted">街の発展速度（債券倍率）</div>
                 <div className="num text-sm font-semibold">
                   ×{fmt(speedNow, 2)} → ×{fmt(speedAfter, 2)}
-                  {speedAfter > speedNow && <span className="ml-1 text-dev">（+{fmt((speedAfter / speedNow - 1) * 100, 1)}%）</span>}
+                  {speedAfter > speedNow && <span className="ml-1 text-dev">（+{sig2((speedAfter / speedNow - 1) * 100)}%）</span>}
                 </div>
                 <div className="text-[11px] text-muted">
                   {speedMaxed ? `最大の ×${fmt(BOND_MULTIPLIER_MAX, 1)} に達しています` : `債券を持っているあいだ、時間で進む発展ptが増えます（最大 ×${fmt(BOND_MULTIPLIER_MAX, 1)}）`}
