@@ -46,7 +46,7 @@ async function main() {
     simulate(city, at, events);
     records.push({ kind, amount, at });
     const { net, max } = savingsProgress(records);
-    applyTechLevel(city, techLevel(max), at, events);
+    applyTechLevel(city, techLevel(max, 100000), at, events);
     const lv = bankLevel(achievementRate(net, 100000));
     if (lv !== city.bankLevel) {
       events.push({ at, type: "BANK_LEVEL", auto: false, important: lv > city.bankLevel, payload: { level: lv } });

@@ -10,13 +10,13 @@
 //
 // 単純化：採掘は B ÷ 30 を毎日、貯金はその SAVE 倍とする（収入期間・サブスク・ユーザ通貨・購入の精算は扱わない）。
 // GOLD=city / bond では、その日の貯金分を日の始めに手数料なしのおまかせ交換と同じ資源にして街に入れる。
-import { bondCap, bondMultiplier } from "../src/game/bond";
+import { bondCap, bondMultiplier, bondResourceEligible } from "../src/game/bond";
 import type { LineId } from "../src/game/catalog";
 import { computeMetrics } from "../src/game/city/economy";
 import { createCity, POLICY_PRESETS } from "../src/game/city/init";
 import { alignTick, applyTechLevel, cityNeeds, tick } from "../src/game/city/sim";
 import { DAY, TICK_MS } from "../src/game/config";
-import { quoteNeedsExchange } from "../src/game/exchange";
+import { cityScale, quoteNeedsExchange } from "../src/game/exchange";
 import { bankLevel, devLevel, goldMineLevel, silverMineLevel, techLevel } from "../src/game/levels";
 import type { CityEvent, CityPolicy } from "../src/game/types";
 
@@ -43,7 +43,6 @@ const s = createCity(T0, PRESET);
 const events: CityEvent[] = [];
 let savings = 0;
 let bond = 0;
-let mined = 0;
 let idleDays = 0;
 const devDay: Record<number, number> = {};
 const techDay: Record<number, number> = {};
@@ -51,22 +50,21 @@ const techDay: Record<number, number> = {};
 console.log(`PACE=${PACE} GOLD=${GOLD} PRESET=${PRESET} B=${BUDGET} SAVE=${SAVE} GOAL=${GOAL} DAYS=${DAYS}`);
 for (let d = 1; d <= DAYS; d++) {
   const minedToday = BUDGET / 30;
-  mined += minedToday;
   const add = PACE === "fast" ? FAST.filter(([day]) => day === d).reduce((a, [, amt]) => a + amt, 0) : minedToday * SAVE;
   savings += add;
-  applyTechLevel(s, techLevel(savings), s.simTime, events);
+  applyTechLevel(s, techLevel(savings, GOAL), s.simTime, events);
   if (GOLD !== "none" && add > 0) {
     // 債券は上限（3M）までしか資源がつかない
-    const amount = GOLD === "bond" ? Math.max(0, Math.min(add, bondCap(BUDGET) - bond)) : add;
-    const lv = { bank: bankLevel((savings / GOAL) * 100), goldMine: goldMineLevel(mined), silverMine: silverMineLevel(d * RECORDS_PER_DAY) };
-    const q = quoteNeedsExchange("gold", amount, cityNeeds(s).needs, lv, { fee: false, floor: false });
+    const amount = GOLD === "bond" ? bondResourceEligible(bond, add, bondCap(BUDGET)) : add;
+    const lv = { bank: bankLevel((savings / GOAL) * 100), goldMine: goldMineLevel(savings), silverMine: silverMineLevel(d * RECORDS_PER_DAY), city: cityScale(s.population) };
+    const q = quoteNeedsExchange("gold", amount, cityNeeds(s).target, lv, { fee: false, floor: false });
     s.stock.wood += q.gains.wood;
     s.stock.stone += q.gains.stone;
     s.stock.food += q.gains.food;
     s.treasury += q.gains.treasury;
     if (GOLD === "bond") bond += add;
   }
-  const k = GOLD === "bond" ? bondMultiplier(bond, BUDGET) : 1;
+  const k = GOLD === "bond" ? bondMultiplier(bond, GOAL) : 1;
   const before = events.length;
   while (s.simTime < alignTick(T0 + d * DAY)) tick(s, s.simTime + TICK_MS, events, k);
   if (!events.slice(before).some((e) => WORK.has(e.type))) idleDays++;

@@ -9,6 +9,7 @@ import { dropLegacyMines } from "@/game/city/layout";
 import { BudgetPlan, type CurrencyDefLite, type Rule } from "@/game/currency";
 import { fail } from "@/game/errors";
 import { advance, type Accrual, type CustomCut, type Grant } from "@/game/idle";
+import { cityScale } from "@/game/exchange";
 import { achievementRate, bankLevel, goldMineLevel, savingsTotal, silverMineLevel, techLevel } from "@/game/levels";
 import { floorMinute, type GoldWindow, type MineState, type SubWindow } from "@/game/mine";
 import type { Lot, Purse } from "@/game/settle";
@@ -59,6 +60,8 @@ export interface GameCtx {
   cuts: CustomCut[];
   /** ゲーム内で使った金貨の累計（貯金額の債券以外） */
   citySpent: number;
+  /** 資源をつけた債券の最高到達額（これを超えて債券に入った分にだけ資源をつける。GB-10） */
+  bondPeak: number;
   /** シーズン行の追加更新 */
   seasonPatch: Prisma.SeasonUpdateInput;
 }
@@ -169,11 +172,13 @@ export function withPurse<T>(ctx: GameCtx, fn: (p: Purse) => T): T {
     silver: ctx.balances.silver,
     bond: ctx.balances.bond,
     bondCap: bondCap(ctx.user.monthlyBudget),
+    bondPeak: ctx.bondPeak,
     moves: [],
     overspend: 0,
   };
   const result = fn(p);
   ctx.mine = p.mine;
+  ctx.bondPeak = p.bondPeak ?? ctx.bondPeak;
   ctx.balances.gold = p.gold;
   ctx.balances.silver = p.silver;
   ctx.balances.bond = p.bond;
@@ -267,6 +272,7 @@ async function load(tx: Tx, userId: string, now: number): Promise<GameCtx> {
     grants: [],
     cuts: [],
     citySpent: season?.citySpentGold ?? 0,
+    bondPeak: season?.bondResourcePeak ?? 0,
     seasonPatch: {},
   };
   if (!season) return ctx;
@@ -296,17 +302,21 @@ async function load(tx: Tx, userId: string, now: number): Promise<GameCtx> {
   ctx.grants = due.map((g) => ({ id: g.id, at: g.at.getTime(), currency: g.currency as Grant["currency"], currencyId: g.currencyId, amount: g.amount, dividend: g.dividend, grantedAt: null }));
   ctx.cuts = ((season.customCuts as CustomCut[] | null) ?? []).filter((c) => c.remaining > 0);
 
-  // 放置計算：10分ティックごとに 金鉱 → ユーザ通貨 → 街
-  const goldLevel = goldMineLevel(ctx.mine.totalCollected);
+  // 放置計算：10分ティックごとに 金鉱 → ユーザ通貨 → 街。債券倍率は貯金目標、債券化の資源は配当Lv（貯金額の最高到達額）で決める
   withPurse(ctx, (purse) => {
     advance(
       { purse, city: ctx.city!, lots: ctx.lots, accruals: ctx.accruals, grants: ctx.grants, cuts: ctx.cuts },
-      { plan: budgetPlan(ctx), bondRate: user.bondMiningRate, until: now, newId: newLotId },
+      {
+        plan: budgetPlan(ctx),
+        bondRate: user.bondMiningRate,
+        until: now,
+        newId: newLotId,
+        goal: season.goalAmount,
+        goldMine: goldMineLevel(season.maxSavingsAmount),
+      },
       ctx.events,
     );
   });
-  // 債券化した採掘も金鉱Lvの経験値に含める
-  emitFacilityLevels(ctx, { gold: goldLevel });
   await syncSpecials(ctx);
   // 放置中の債券化で貯金額が変わるので、技術Lv・銀行Lv・達成率を確かめ直す
   refreshSavings(ctx);
@@ -331,6 +341,7 @@ async function save(ctx: GameCtx) {
       reservedGold: ctx.balances.reserved,
       bond: ctx.balances.bond,
       citySpentGold: ctx.citySpent,
+      bondResourcePeak: ctx.bondPeak,
       customCuts: ctx.cuts.filter((c) => c.remaining > 0 && c.periodKey === ctx.mine!.monthKey) as unknown as Prisma.InputJsonValue,
       ...ctx.seasonPatch,
     },
@@ -479,11 +490,15 @@ export function refreshSavings(ctx: GameCtx) {
   const status = (ctx.seasonPatch.status as string | undefined) ?? ctx.season.status;
   if (status === "COMPLETED") return null;
   const { season, city } = ctx;
+  const prevMax = (ctx.seasonPatch.maxSavingsAmount as number | undefined) ?? season.maxSavingsAmount;
   const s = savingsOf(ctx);
   if (s.max !== season.maxSavingsAmount) ctx.seasonPatch.maxSavingsAmount = s.max;
 
-  // 技術Lvは最高到達額で決まり、下がらない
-  applyTechLevel(city, Math.max(city.techLevel, techLevel(s.max)), ctx.now, ctx.events);
+  // 技術Lvは最高到達額の目標に対する割合で決まり、下がらない
+  applyTechLevel(city, Math.max(city.techLevel, techLevel(s.max, season.goalAmount)), ctx.now, ctx.events);
+  // 配当Lvも最高到達額で決まる（GB-14）
+  const gold = goldMineLevel(s.max);
+  if (gold > goldMineLevel(prevMax)) ctx.events.push({ at: ctx.now, type: "GOLD_MINE_LEVEL", auto: false, important: true, payload: { level: gold } });
 
   const lv = bankLevel(s.rate);
   if (lv !== city.bankLevel) {
@@ -513,22 +528,20 @@ export function refreshSavings(ctx: GameCtx) {
   return s;
 }
 
+/** 交換効率を決めるレベル：銀行Lv・配当Lv（貯金額の最高到達額）・記録Lv と、街の規模の倍率 */
 export function facilityLevels(ctx: GameCtx) {
   requireSeason(ctx);
   return {
     bank: ctx.city.bankLevel,
-    goldMine: goldMineLevel(ctx.mine.totalCollected),
+    goldMine: goldMineLevel(savingsOf(ctx).max),
     silverMine: silverMineLevel((ctx.seasonPatch.rewardedRecords as number | undefined) ?? ctx.season.rewardedRecords),
+    city: cityScale(ctx.city.population),
   };
 }
 
-/** 金鉱・銀鉱のレベルが before から上がっていればイベントを出す */
-export function emitFacilityLevels(ctx: GameCtx, before: { gold?: number; silver?: number }) {
+/** 記録Lv（銀鉱）のレベルが before から上がっていればイベントを出す。配当Lvは refreshSavings で出す */
+export function emitFacilityLevels(ctx: GameCtx, before: { silver?: number }) {
   requireSeason(ctx);
-  if (before.gold !== undefined) {
-    const g = goldMineLevel(ctx.mine.totalCollected);
-    if (g > before.gold) ctx.events.push({ at: ctx.now, type: "GOLD_MINE_LEVEL", auto: false, important: true, payload: { level: g } });
-  }
   if (before.silver !== undefined) {
     const rewarded = (ctx.seasonPatch.rewardedRecords as number | undefined) ?? ctx.season.rewardedRecords;
     const s = silverMineLevel(rewarded);

@@ -35,7 +35,7 @@ const sumGains = (a: Gains, b: Gains): Gains => Object.fromEntries(GAIN_KEYS.map
 /** 金貨 amount をおまかせ交換したときの資源（手数料は銀貨が足りるときだけ） */
 function surplusExchange(ctx: GameCtx, amount: number, silver: number) {
   const fee = silver >= FEE_EXCHANGE;
-  return quoteNeedsExchange("gold", amount, cityNeeds(ctx.city!).needs, facilityLevels(ctx), { fee });
+  return quoteNeedsExchange("gold", amount, cityNeeds(ctx.city!).target, facilityLevels(ctx), { fee });
 }
 
 /** ＋差分の解消のプレビュー（状態は変えない） */
@@ -44,9 +44,9 @@ export function previewSurplus(ctx: GameCtx, d: number): ResolutionView {
   const cap = bondCap(ctx.user.monthlyBudget);
   const bond = ctx.balances.bond;
   const toBond = Math.min(d, Math.max(0, cap - bond));
-  const resourced = bondResourceEligible(bond, toBond, cap);
+  const resourced = bondResourceEligible(bond, toBond, cap, ctx.bondPeak);
   const lv = facilityLevels(ctx);
-  const needs = cityNeeds(ctx.city).needs;
+  const needs = cityNeeds(ctx.city).target;
   const a = quoteNeedsExchange("gold", resourced, needs, lv, { fee: false });
   const rest = d - toBond;
   const b = rest > 0 ? surplusExchange(ctx, rest, ctx.balances.silver) : null;
@@ -90,7 +90,7 @@ export async function resolveSurplus(ctx: GameCtx, d: number, ref: { type: RefTy
   requireSeason(ctx);
   const from = ctx.ledger.length;
   const r = withPurse(ctx, (p) => absorbSurplus(p, d, `${ref.type}_surplus`));
-  const a = quoteNeedsExchange("gold", r.eligible, cityNeeds(ctx.city).needs, facilityLevels(ctx), { fee: false });
+  const a = quoteNeedsExchange("gold", r.eligible, cityNeeds(ctx.city).target, facilityLevels(ctx), { fee: false });
   addGains(ctx, a.gains);
   let gains = a.gains;
   let feeSilver = 0;

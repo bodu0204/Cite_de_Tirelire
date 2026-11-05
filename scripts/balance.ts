@@ -10,13 +10,15 @@ import type { CityEvent } from "../src/game/types";
 
 const T0 = Date.UTC(2026, 9, 1);
 const K = Number(process.env.K ?? 1);
+/** 貯金目標（技術Lvは目標に対する割合で決まる）。下のスケジュールは40日目に20万円 */
+const GOAL = Number(process.env.GOAL ?? 200000);
 const s = createCity(T0);
 // 1日目 5,000円、7日目 +10,000円、14日目 +15,000円、21日目 +30,000円、28日目 +40,000円
 const savings: [number, number][] = [[1, 5000], [7, 10000], [14, 15000], [21, 30000], [28, 40000], [40, 100000]];
 let total = 0;
 const events: CityEvent[] = [];
 for (let d = 1; d <= 50; d++) {
-  for (const [day, amt] of savings) if (day === d) { total += amt; applyTechLevel(s, techLevel(total), s.simTime, events); }
+  for (const [day, amt] of savings) if (day === d) { total += amt; applyTechLevel(s, techLevel(total, GOAL), s.simTime, events); }
   while (s.simTime < alignTick(T0 + d * DAY)) tick(s, s.simTime + TICK_MS, events, K);
   const m = computeMetrics(s);
   const count = (l: string) => s.buildings.filter((b) => b.line === l).length;

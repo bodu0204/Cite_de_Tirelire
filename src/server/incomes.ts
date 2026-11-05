@@ -215,7 +215,7 @@ async function executeRows(ctx: GameCtx, income: Income, rows: AllocationRow[], 
 function autoExchange(ctx: GameCtx, gold: number, refId: string): Gains | null {
   if (gold <= 0) return null;
   const fee = ctx.balances.silver >= FEE_EXCHANGE;
-  const q = quoteNeedsExchange("gold", gold, cityNeeds(ctx.city!).needs, facilityLevels(ctx), { fee });
+  const q = quoteNeedsExchange("gold", gold, cityNeeds(ctx.city!).target, facilityLevels(ctx), { fee });
   addCurrency(ctx, "GOLD", -gold, "exchange_resource", refId);
   addCurrency(ctx, "SILVER", -q.silverCost, "exchange_resource", refId);
   for (const k of ["wood", "stone", "food"] as const) ctx.city!.stock[k] += q.gains[k];

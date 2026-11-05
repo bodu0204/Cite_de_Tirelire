@@ -75,19 +75,23 @@ export default function ExchangePage() {
   const currency: Currency = mode === "sres" ? "silver" : "gold";
   const lv = v.exchange.levels;
   const needs = v.exchange.needs;
+  /** おまかせの振り分け先（計画列を先頭から順に満たす） */
+  const target = v.exchange.target;
   const auto = resource === "auto";
   const one = auto ? null : quoteResourceExchange(currency, resource, n, lv);
-  const q = auto ? quoteNeedsExchange(currency, n, needs, lv) : { ...one!, gains: { ...ZERO_GAINS, [resource]: one!.gain } };
+  const q = auto ? quoteNeedsExchange(currency, n, target, lv) : { ...one!, gains: { ...ZERO_GAINS, [resource]: one!.gain } };
   const totalGain = totalGains(q.gains);
   const resLabel = auto ? "おまかせ" : RES.find((r) => r.key === resource)!.label;
   const next = v.exchange.nextPlan;
   const nextLabel = next.expansion ? `拡張計画（${next.name}相当）` : `${next.name}${next.kind === "upgrade" ? ` Lv${next.level}` : ""}`;
 
   // 債券に入る分のうち、資源がつく分（マイナスを0に戻す分・上限を超える分は対象外）
-  const eligible = bondResourceEligible(cur.bond, n, v.exchange.bondCap);
+  // 使った債券を、資源をつけた最高到達額まで戻す分にも資源はつかない
+  const eligible = bondResourceEligible(cur.bond, n, v.exchange.bondCap, v.exchange.bondPeak);
   const belowZero = cur.bond < 0 ? Math.min(n, -cur.bond) : 0;
-  const overCap = Math.max(0, n - belowZero - eligible);
-  const bondGains = quoteBondGains(eligible, resource, needs, lv);
+  const refill = Math.max(0, Math.min(n - belowZero, Math.min(v.exchange.bondPeak, v.exchange.bondCap) - Math.max(cur.bond, 0)));
+  const overCap = Math.max(0, n - belowZero - refill - eligible);
+  const bondGains = quoteBondGains(eligible, resource, target, lv);
 
   const customFrom = cur.custom.find((c) => c.id === bondFrom);
   const source =
@@ -101,9 +105,9 @@ export default function ExchangePage() {
   /** この交換で増える貯金額（円） */
   const savingsAdd = mode === "g2b" ? n : mode === "g2s" ? n : mode === "gres" ? q.goldCost : 0;
   /** この交換で街に入る資源 */
-  /** 債券倍率（時間発展の速さ）の今と交換後 */
+  /** 債券倍率（発展・人口増加・工事の速さ）の今と交換後 */
   const speedNow = v.dev.bondMultiplier;
-  const speedAfter = mode === "g2b" ? bondMultiplier(cur.bond + n, v.user.monthlyBudget) : speedNow;
+  const speedAfter = mode === "g2b" ? bondMultiplier(cur.bond + n, v.season.goal) : speedNow;
   const speedMaxed = speedNow >= BOND_MULTIPLIER_MAX;
   const cityGains = mode === "g2b" ? bondGains : res ? q.gains : ZERO_GAINS;
   const routes: Route[] = [
@@ -127,7 +131,7 @@ export default function ExchangePage() {
         : { ok: true, note: `上限 ${fmt(v.exchange.bondCap)} までの分に、同じ量の金貨で交換した資源がつく` },
       speed: speedMaxed
         ? { ok: false, note: `発展速度は最大の ×${fmt(BOND_MULTIPLIER_MAX, 1)} に達している` }
-        : { ok: true, note: `持っている債券が多いほど街の時間発展が速くなる（今 ×${fmt(speedNow, 2)}、最大 ×${fmt(BOND_MULTIPLIER_MAX, 1)}）` },
+        : { ok: true, note: `持っている債券が多いほど街の発展・人口増加・工事が速くなる（今 ×${fmt(speedNow, 2)}、目標の半分で最大 ×${fmt(BOND_MULTIPLIER_MAX, 1)}）` },
     },
     {
       value: "gres",
@@ -181,7 +185,10 @@ export default function ExchangePage() {
   ];
   const route = routes.find((r) => r.value === mode)!;
   const resOk = n > 0 && totalGain > 0 && cur.gold >= q.goldCost && cur.silver >= q.silverCost;
-  const shareText = RES.map((r) => `${r.label} ${fmt(v.exchange.needShares[r.key] * 100)}%`).join("・");
+  // おまかせは入力した額で計画列を先頭から満たすので、割合は額によって変わる
+  const split = auto && n > 0 && "split" in q ? q.split : null;
+  const shares: Gains = split ? { wood: split.wood / n, stone: split.stone / n, food: split.food / n, treasury: split.treasury / n } : v.exchange.needShares;
+  const shareText = RES.map((r) => `${r.label} ${fmt(shares[r.key] * 100)}%`).join("・");
 
   return (
     <div className="mx-auto max-w-xl space-y-4">
@@ -325,7 +332,7 @@ export default function ExchangePage() {
                   {speedAfter > speedNow && <span className="ml-1 text-dev">（+{sig2((speedAfter / speedNow - 1) * 100)}%）</span>}
                 </div>
                 <div className="text-[11px] text-muted">
-                  {speedMaxed ? `最大の ×${fmt(BOND_MULTIPLIER_MAX, 1)} に達しています` : `債券を持っているあいだ、時間で進む発展ptが増えます（最大 ×${fmt(BOND_MULTIPLIER_MAX, 1)}）`}
+                  {speedMaxed ? `最大の ×${fmt(BOND_MULTIPLIER_MAX, 1)} に達しています` : `債券を持っているあいだ、時間で進む発展pt・人口増加・自動開発の工事が速くなります（目標の半分の債券で最大 ×${fmt(BOND_MULTIPLIER_MAX, 1)}）`}
                 </div>
               </div>
             )}
@@ -347,9 +354,10 @@ export default function ExchangePage() {
                   <>
                     <dt className="text-muted">街に入る資源</dt>
                     <dd className="num text-right font-semibold">{gainsText(bondGains)}</dd>
-                    {(belowZero > 0 || overCap > 0) && n > 0 && (
+                    {(belowZero > 0 || refill > 0 || overCap > 0) && n > 0 && (
                       <dd className="col-span-2 text-xs text-muted">
                         {belowZero > 0 && `債券がマイナスの間の ${fmt(belowZero)} は資源なし。`}
+                        {refill > 0 && `使った債券を戻す ${fmt(refill)} は資源なし（資源は今までの最高額 ${fmt(v.exchange.bondPeak)} を超えた分につく）。`}
                         {overCap > 0 && `上限 ${fmt(v.exchange.bondCap)} を超える ${fmt(overCap)} は資源なし。`}
                       </dd>
                     )}
@@ -445,7 +453,7 @@ export default function ExchangePage() {
           </tbody>
         </table>
         <p className="mt-2 text-xs text-muted">
-          銀行 Lv{lv.bank}・配当 Lv{lv.goldMine}・記録 Lv{lv.silverMine} のボーナス込み。手元の資材：木材 {fmt(Math.floor(v.city.stock.wood))}・石材 {fmt(Math.floor(v.city.stock.stone))}・食料 {fmt(Math.floor(v.city.stock.food))}・都市資金 {fmt(Math.floor(v.city.treasury))}
+          銀行 Lv{lv.bank}・配当 Lv{lv.goldMine}・記録 Lv{lv.silverMine} のボーナスと、街の規模の倍率 ×{fmt(lv.city ?? 1, 2)}（人口1,000人ごとに +1）込み。手元の資材：木材 {fmt(Math.floor(v.city.stock.wood))}・石材 {fmt(Math.floor(v.city.stock.stone))}・食料 {fmt(Math.floor(v.city.stock.food))}・都市資金 {fmt(Math.floor(v.city.treasury))}
         </p>
       </Card>
     </div>

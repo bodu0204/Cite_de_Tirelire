@@ -105,7 +105,7 @@ export default function BankPage() {
       <Card>
         <TechGauge v={v} />
         <p className="mt-3 text-xs text-muted">
-          技術Lvはこのシーズンの貯金額の最高到達額（{yen(s.max)}）で決まります。債券を使って貯金額が下がっても、解放済みの技術は失われません。現在の達成率は {fmt(s.rate, 1)}% です。
+          技術Lvはこのシーズンの貯金額の最高到達額（{yen(s.max)}）が貯金目標の何%かで決まります（目標の5%でLv2、70%でLv7）。債券を使って貯金額が下がっても、解放済みの技術は失われません。現在の達成率は {fmt(s.rate, 1)}% です。
         </p>
       </Card>
       <LinkButton href="/records" variant="primary" className="w-full">

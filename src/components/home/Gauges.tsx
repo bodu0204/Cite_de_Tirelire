@@ -1,6 +1,6 @@
 "use client";
 
-import { DEV_THRESHOLDS, MAX_DEV, MAX_TECH, TECH_THRESHOLDS } from "@/game/config";
+import { DEV_THRESHOLDS, MAX_DEV, MAX_TECH } from "@/game/config";
 import { bankLevelBand } from "@/game/levels";
 import { fmt, yen } from "@/lib/api";
 import type { ActiveView } from "@/server/view";
@@ -59,7 +59,7 @@ export function WishSavingsGauge({ v }: { v: ActiveView }) {
 
 export function TechGauge({ v }: { v: ActiveView }) {
   const t = v.tech;
-  const prev = TECH_THRESHOLDS[t.level - 1];
+  const prev = t.from;
   return (
     <div>
       <div className="flex items-baseline justify-between">

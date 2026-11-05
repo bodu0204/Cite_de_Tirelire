@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { STATUE_GOLD_FROM } from "../config";
-import { exchangeRate, quoteResourceExchange } from "../exchange";
-import { achievementRate, bankLevel, bankLevelBand, savingsProgress, savingsRate, savingsTotal, statueRank, techLevel } from "../levels";
+import { cityScale, exchangeRate, quoteResourceExchange } from "../exchange";
+import { achievementRate, bankLevel, bankLevelBand, goldMineLevel, savingsProgress, savingsRate, savingsTotal, statueRank, techLevel } from "../levels";
 
 describe("AT-003 貯金額と銀行", () => {
   it("目標100,000円に貯金額20,000円で達成率20%・銀行Lv2", () => {
@@ -33,13 +33,26 @@ describe("AT-053 貯金額 ＝ 債券 ＋ ゲーム内で使った金貨", () =>
 
   it("技術Lvは最高到達額で決まり、債券を使って貯金額が下がっても下がらない", () => {
     const max = Math.max(savingsTotal({ bond: 30000, citySpent: 0 }), savingsTotal({ bond: 10000, citySpent: 0 }));
-    expect(techLevel(max)).toBe(4);
+    expect(techLevel(max, 100000)).toBe(4);
   });
 });
 
 describe("技術Lv", () => {
-  it("AT-010 15,000円で技術Lv3", () => {
-    expect(techLevel(15000)).toBe(3);
+  it("AT-010 目標10万円で 15,000円（15%）なら技術Lv3", () => {
+    expect(techLevel(15000, 100000)).toBe(3);
+    expect(techLevel(14999, 100000)).toBe(2);
+  });
+
+  it("閾値は目標に対する割合：どの目標でも目標の70%で技術Lv7に届く（GB-04）", () => {
+    for (const goal of [30000, 100000, 1000000]) {
+      expect(techLevel(goal * 0.05, goal)).toBe(2);
+      expect(techLevel(goal * 0.7, goal)).toBe(7);
+      expect(techLevel(goal * 0.69, goal)).toBe(6);
+    }
+  });
+
+  it("配当Lvは貯金額の最高到達額で上がる（予算の大きさによらない。GB-14）", () => {
+    expect([0, 2999, 3000, 10000, 25000, 50000, 100000].map(goldMineLevel)).toEqual([1, 1, 2, 3, 4, 5, 6]);
   });
 
   it("貯金管理の純増額と最高到達額（推測 E5 用）", () => {
@@ -73,6 +86,13 @@ describe("資源交換", () => {
         expect(exchangeRate("silver", r, lv)).toBeLessThanOrEqual(exchangeRate("gold", r, lv));
       }
     }
+  });
+
+  it("街の規模の倍率は金貨・銀貨に同じく掛かる（人口1,000で2倍。GB-05）", () => {
+    const lv = { bank: 1, goldMine: 1, silverMine: 1, city: cityScale(1000) };
+    expect(exchangeRate("gold", "treasury", lv)).toBe(20);
+    expect(exchangeRate("silver", "treasury", lv)).toBe(2);
+    expect(exchangeRate("silver", "wood", lv)).toBeLessThanOrEqual(exchangeRate("gold", "wood", lv));
   });
 
   it("銀貨払いは代金＋手数料、金貨払いは手数料のみ銀貨", () => {

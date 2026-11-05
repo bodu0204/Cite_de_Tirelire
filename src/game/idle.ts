@@ -2,12 +2,11 @@
 // 債券倍率が街の発展に効くため、10分ティックごとに「金鉱（債券化含む）→ ユーザ通貨の発生・期限 → 街の1ティック」を繰り返す。
 // 街はティック開始時の債券残高で倍率を決める。債券化でつく資源（docs/needs-based-exchange.md §7）もティックの前に入れる。
 // ティック境界は絶対時刻に揃えるので、同じ経過時間なら同じ結果になる。
-import { bondCap, bondMultiplier, bondResourceEligible } from "./bond";
+import { bondCap, bondMultiplier, bondResourceEligible, nextBondPeak } from "./bond";
 import { alignTick, cityNeeds, tick } from "./city/sim";
 import { MICRO_PER_GOLD, TICK_MS } from "./config";
 import { dayEvents, dayGrid, minuteRule, shiftDays, startOfDay, validWindow, type BudgetPlan, type CurrencyDefLite } from "./currency";
-import { GAIN_KEYS, quoteNeedsExchange, ZERO_GAINS } from "./exchange";
-import { goldMineLevel } from "./levels";
+import { cityScale, GAIN_KEYS, quoteNeedsExchange, ZERO_GAINS } from "./exchange";
 import { accrue, floorMinute } from "./mine";
 import { depositToBond, type Lot, type Purse } from "./settle";
 import { periodKey, type PeriodCal } from "./time";
@@ -62,6 +61,10 @@ export interface AdvanceOpts {
   bondRate: number;
   until: number;
   newId: () => string;
+  /** 貯金目標（債券倍率の基準。省略すると倍率は 1.0） */
+  goal?: number;
+  /** 配当Lv（債券化につく資源の交換効率。省略すると 1） */
+  goldMine?: number;
 }
 
 /** 金鉱・ユーザ通貨・街を until まで進める */
@@ -162,7 +165,8 @@ export function advance(w: World, opts: AdvanceOpts, events: CityEvent[]): void 
       bond: { balance: w.purse.bond, rate: opts.bondRate, cap: w.purse.bondCap },
     });
     w.purse.mine = r.mine;
-    w.purse.bondResource = (w.purse.bondResource ?? 0) + bondResourceEligible(w.purse.bond, r.toBond, w.purse.bondCap);
+    w.purse.bondResource = (w.purse.bondResource ?? 0) + bondResourceEligible(w.purse.bond, r.toBond, w.purse.bondCap, w.purse.bondPeak);
+    w.purse.bondPeak = nextBondPeak(w.purse.bondPeak ?? 0, w.purse.bond, r.toBond, w.purse.bondCap);
     w.purse.bond = r.bond;
     toBond += r.toBond;
 
@@ -205,10 +209,10 @@ export function advance(w: World, opts: AdvanceOpts, events: CityEvent[]): void 
   const target = alignTick(until);
   while (w.city.simTime < target) {
     const end = w.city.simTime + TICK_MS;
-    const k = bondMultiplier(w.purse.bond, plan.budget);
+    const k = bondMultiplier(w.purse.bond, opts.goal ?? 0);
     advanceMoney(end);
     holdBondResource(w);
-    grantBondResources(w.city, goldMineLevel(w.purse.mine.totalCollected));
+    grantBondResources(w.city, opts.goldMine ?? 1);
     tick(w.city, end, events, k);
   }
   // 最後の端数は金鉱・ユーザ通貨だけ進め、街は次のティックまで待つ（債券化の資源も次のティックの前に入れる）
@@ -231,7 +235,7 @@ function holdBondResource(w: World) {
 export function grantBondResources(city: CityState, goldMine: number) {
   const amount = city.bondResourcePending ?? 0;
   if (amount <= 0) return;
-  const q = quoteNeedsExchange("gold", amount, cityNeeds(city).needs, { bank: city.bankLevel, goldMine, silverMine: 1 }, { fee: false, floor: false });
+  const q = quoteNeedsExchange("gold", amount, cityNeeds(city).target, { bank: city.bankLevel, goldMine, silverMine: 1, city: cityScale(city.population) }, { fee: false, floor: false });
   // 都市資金を足す前の記録には treasury が無い
   const total = (city.bondResourceTotal ??= { ...ZERO_GAINS });
   total.treasury ??= 0;

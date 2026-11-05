@@ -11,38 +11,45 @@ const TZ = "Asia/Tokyo";
 const OCT1 = zonedTimeToUtc(2026, 10, 1, TZ);
 const M = 60000;
 
-describe("AT-015 債券倍率", () => {
-  it("M＝60,000：債券 −3,000 / 0 / 90,000 / 180,000 / 300,000 で 1.0 / 1.0 / 1.25 / 1.5 / 1.5", () => {
-    expect([-3000, 0, 90000, 180000, 300000].map((b) => bondMultiplier(b, M))).toEqual([1, 1, 1.25, 1.5, 1.5]);
+describe("AT-015 債券倍率（目標を基準にする。GB-07）", () => {
+  const GOAL = 100000;
+  it("目標10万円：債券 −3,000 / 0 / 25,000 / 50,000 / 300,000 で 1.0 / 1.0 / 1.25 / 1.5 / 1.5", () => {
+    expect([-3000, 0, 25000, 50000, 300000].map((b) => bondMultiplier(b, GOAL))).toEqual([1, 1, 1.25, 1.5, 1.5]);
   });
 
-  it("予算が0なら倍率は1.0", () => {
+  it("目標が0なら倍率は1.0", () => {
     expect(bondMultiplier(10000, 0)).toBe(1);
   });
 
-  it("倍率が上限になる額と債券化の上限は一致する（3M）", () => {
+  it("目標の半分の債券で最大。予算（債券化の上限 3M）にはよらない", () => {
     expect(bondCap(M)).toBe(180000);
-    expect(bondMultiplier(bondCap(M), M)).toBe(1.5);
+    expect(bondMultiplier(GOAL / 2, GOAL)).toBe(1.5);
+    expect(bondMultiplier(GOAL / 2 - 1, GOAL)).toBeLessThan(1.5);
   });
 });
 
-describe("AT-015a 債券倍率は時間発展にだけ掛かる", () => {
-  it("k＝1.25 で時間発展が1.25倍。建設・人口は k＝1.0 と同じ", () => {
+describe("AT-015a 債券倍率は時間発展・人口増加・自動開発の工事に掛かる", () => {
+  it("k＝1.25 で、同じ状態からの1ティックの時間発展と人口の増え方が1.25倍", () => {
     const a = createCity(OCT1);
     const b = createCity(OCT1);
-    // 時間発展だけを比べるため自動開発を止める
+    // 時間発展と人口だけを比べるため自動開発を止める
     a.policy.autoEnabled = false;
     b.policy.autoEnabled = false;
-    const before = a.devPoints;
-    for (let t = OCT1 + TICK_MS; t <= OCT1 + 6 * HOUR; t += TICK_MS) {
-      tick(a, t, [], 1);
-      tick(b, t, [], 1.25);
-    }
-    expect(b.population).toBeCloseTo(a.population, 10);
+    tick(a, OCT1 + TICK_MS, [], 1);
+    tick(b, OCT1 + TICK_MS, [], 1.25);
+    expect(b.population - 4).toBeCloseTo((a.population - 4) * 1.25, 10);
+    expect(b.devPoints).toBeCloseTo(a.devPoints * 1.25, 10);
     expect(b.buildings.length).toBe(a.buildings.length);
-    // 人口の節目による発展ptは同じなので、差は時間発展ぶんだけ
-    const popPts = Math.floor(a.peakPopulation / 25) - Math.floor(4 / 25);
-    expect(b.devPoints - before - popPts).toBeCloseTo((a.devPoints - before - popPts) * 1.25, 6);
+  });
+
+  it("k＝1.5 なら自動開発の工事の時間が 1/1.5 になる", () => {
+    const a = createCity(OCT1);
+    const b = createCity(OCT1);
+    tick(a, OCT1 + TICK_MS, [], 1);
+    tick(b, OCT1 + TICK_MS, [], 1.5);
+    const ja = a.jobs[0];
+    const jb = b.jobs.find((j) => j.line === ja.line && j.kind === ja.kind)!;
+    expect(jb.finishAt - jb.startedAt).toBe(Math.round((ja.finishAt - ja.startedAt) / 1.5));
   });
 });
 
@@ -86,7 +93,7 @@ describe("採掘の債券化", () => {
     expect(collect(r.mine).gold).toBe(Math.floor(perMinute * 1440) - 10);
   });
 
-  it("BND-09 債券化した採掘は金鉱Lvの累計に含める", () => {
+  it("BND-09 債券化した採掘は累計配当（totalCollected）に含める（配当Lvは貯金額の最高到達額で決まる）", () => {
     const r = accrue(newMine(OCT1, TZ), { plan, tz: TZ, until: OCT1 + DAY, bond: { balance: 0, rate: 100, cap: bondCap(M) } });
     expect(collect(r.mine).gold).toBe(0);
     expect(r.mine.totalCollected).toBe(r.toBond);

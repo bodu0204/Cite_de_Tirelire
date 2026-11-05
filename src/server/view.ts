@@ -13,7 +13,7 @@ import {
   GOLD_MINE_LEVEL_THRESHOLDS,
   REWARD_DAILY_CAP,
   SILVER_MINE_LEVEL_THRESHOLDS,
-  TECH_THRESHOLDS,
+  techThresholds,
 } from "@/game/config";
 import { exchangeRate, GAIN_KEYS, needShares, ZERO_GAINS } from "@/game/exchange";
 import { devLevel, goldMineLevel, nextThreshold, savingsProgress, silverMineLevel } from "@/game/levels";
@@ -114,11 +114,12 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
   });
   const fresh = ctx.events.filter((e) => e.important).reverse();
 
-  const nextTech = nextThreshold(TECH_THRESHOLDS, city.techLevel);
+  const techSteps = techThresholds(season.goalAmount);
+  const nextTech = nextThreshold(techSteps, city.techLevel);
   const nextDev = nextThreshold(DEV_THRESHOLDS, dev);
   const overspends = await tx.monthlyOverspend.findMany({ where: { seasonId: season.id }, orderBy: { monthKey: "desc" } });
   const bond = ctx.balances.bond;
-  const k = bondMultiplier(bond, user.monthlyBudget);
+  const k = bondMultiplier(bond, season.goalAmount);
   const cap = bondCap(user.monthlyBudget);
   const plan = budgetPlan(ctx);
   const custom = currencySummaries(ctx);
@@ -191,9 +192,11 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
       minedThisMonth: microToGold(mine.minedThisMonth),
       settledThisMonth: mine.settledThisMonth,
       monthKey: mine.monthKey,
-      level: goldMineLevel(mine.totalCollected),
+      /** 配当Lv：貯金額の最高到達額（levelBasis）で決まる */
+      level: goldMineLevel(saved.max),
+      levelBasis: saved.max,
       totalCollected: mine.totalCollected,
-      nextLevelAt: nextThreshold(GOLD_MINE_LEVEL_THRESHOLDS, goldMineLevel(mine.totalCollected)),
+      nextLevelAt: nextThreshold(GOLD_MINE_LEVEL_THRESHOLDS, goldMineLevel(saved.max)),
       overspends: overspends.map((o) => ({ monthKey: o.monthKey, amount: o.amount })),
       subscriptionsMonthly: ctx.subs.filter((s) => !s.endDate || s.endDate > dayKey(ctx.now, tz)).reduce((a, s) => a + monthlyEquivalent(s), 0),
     },
@@ -213,14 +216,20 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
       /** 都市の必要資源・必要割合と、在庫が最初に足りなくなる計画（おまかせ交換・債券化の資源の割合） */
       needs: needs.needs,
       needShares: needShares(needs.needs),
+      /** おまかせ交換の振り分け先（計画列を先頭から順に満たす） */
+      target: needs.target,
       nextPlan: needs.next,
       /** 計画列（交換後の在庫で実施できる計画のプレビューに使う） */
       planQueue: needs.queue,
       bondCap: cap,
+      /** 資源をつけた債券の最高到達額（これを超えて入った分に資源がつく） */
+      bondPeak: ctx.bondPeak,
     },
     tech: {
       level: city.techLevel,
       max: saved.max,
+      /** 今の技術Lvに届いた額（目標に対する割合で決まる） */
+      from: techSteps[city.techLevel - 1] ?? 0,
       next: nextTech,
       remaining: nextTech !== null ? Math.max(0, nextTech - saved.max) : 0,
       nextUnlocks: nextTech !== null ? unlocksAtTech(city.techLevel + 1) : [],

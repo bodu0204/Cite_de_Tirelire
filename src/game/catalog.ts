@@ -51,7 +51,7 @@ export interface TierDef {
   stone?: number;
   revenue?: number; // 都市資金
   customers?: number; // 商業の受け入れ人数
-  logistics?: number; // 物流容量（建物何棟分）
+  logistics?: number; // 物流容量（建物何棟分。建物は Lv 倍率で数える）
   serve?: number; // 公共施設がカバーする人口
   happiness?: number;
 }
@@ -91,7 +91,7 @@ export const LINES: Record<LineId, LineDef> = {
       { name: "農場", tech: 2, dev: 1, cost: c(30, 0, 60), buildMinutes: 40, food: 9, workers: 3 },
       { name: "機械化農場", tech: 3, dev: 2, cost: c(40, 30, 200), buildMinutes: 60, food: 15, workers: 3, power: 2 },
       { name: "大規模農場", tech: 4, dev: 3, cost: c(60, 70, 450), buildMinutes: 90, food: 24, workers: 4, power: 3 },
-      { name: "自動農場", tech: 6, dev: 5, cost: c(80, 140, 1000), buildMinutes: 150, food: 38, workers: 2, power: 5 },
+      { name: "自動農場", tech: 6, dev: 5, cost: c(80, 140, 1000), buildMinutes: 150, food: 38, workers: 5, power: 5 },
     ],
   },
   lumber: {
@@ -117,7 +117,7 @@ export const LINES: Record<LineId, LineDef> = {
       { name: "工房", tech: 2, dev: 2, cost: c(40, 20, 150), buildMinutes: 50, wood: 3, stone: 2, revenue: 8, workers: 4 },
       { name: "工場", tech: 3, dev: 2, cost: c(60, 60, 350), buildMinutes: 80, wood: 6, stone: 5, revenue: 18, workers: 6, power: 4 },
       { name: "大規模工場", tech: 4, dev: 4, cost: c(100, 140, 800), buildMinutes: 120, wood: 10, stone: 8, revenue: 32, workers: 10, power: 8 },
-      { name: "自動化工場", tech: 6, dev: 5, cost: c(140, 220, 1500), buildMinutes: 180, wood: 16, stone: 12, revenue: 55, workers: 6, power: 12 },
+      { name: "自動化工場", tech: 6, dev: 5, cost: c(140, 220, 1500), buildMinutes: 180, wood: 16, stone: 12, revenue: 55, workers: 12, power: 12 },
     ],
   },
   commerce: {
@@ -149,10 +149,10 @@ export const LINES: Record<LineId, LineDef> = {
     category: "infra",
     zone: "any",
     tiers: [
-      { name: "未舗装道路", tech: 1, dev: 1, cost: c(5, 0, 10), buildMinutes: 10, logistics: 6 },
-      { name: "舗装道路", tech: 3, dev: 2, cost: c(0, 15, 40), buildMinutes: 20, logistics: 9 },
-      { name: "幹線道路", tech: 4, dev: 3, cost: c(0, 40, 120), buildMinutes: 40, logistics: 14 },
-      { name: "高度交通網", tech: 6, dev: 5, cost: c(0, 80, 400), buildMinutes: 80, logistics: 22 },
+      { name: "未舗装道路", tech: 1, dev: 1, cost: c(5, 0, 10), buildMinutes: 10, logistics: 0.5 },
+      { name: "舗装道路", tech: 3, dev: 2, cost: c(0, 15, 40), buildMinutes: 20, logistics: 0.8 },
+      { name: "幹線道路", tech: 4, dev: 3, cost: c(0, 40, 120), buildMinutes: 40, logistics: 1.2 },
+      { name: "高度交通網", tech: 6, dev: 5, cost: c(0, 80, 400), buildMinutes: 80, logistics: 2 },
     ],
   },
   power: {
@@ -171,14 +171,14 @@ export const LINES: Record<LineId, LineDef> = {
     label: "鉄道",
     category: "infra",
     zone: "any",
-    tiers: [{ name: "鉄道駅", tech: 4, dev: 4, cost: c(60, 160, 900), buildMinutes: 120, logistics: 25, workers: 4, power: 3 }],
+    tiers: [{ name: "鉄道駅", tech: 4, dev: 4, cost: c(60, 160, 900), buildMinutes: 120, logistics: 30, workers: 4, power: 3 }],
   },
   logistics: {
     id: "logistics",
     label: "物流",
     category: "infra",
     zone: "industrial",
-    tiers: [{ name: "物流センター", tech: 5, dev: 4, cost: c(80, 200, 1100), buildMinutes: 120, logistics: 35, workers: 8, power: 3 }],
+    tiers: [{ name: "物流センター", tech: 5, dev: 4, cost: c(80, 200, 1100), buildMinutes: 120, logistics: 50, workers: 8, power: 3 }],
   },
   school: {
     id: "school",

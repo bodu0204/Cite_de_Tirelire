@@ -17,7 +17,7 @@ import {
   type Zone,
 } from "@/game/catalog";
 import { buildingOutput } from "@/game/city/economy";
-import { expandQuote } from "@/game/city/actions";
+import { expandQuote, manualPayment } from "@/game/city/actions";
 import {
   buildingSize,
   contains,
@@ -32,7 +32,7 @@ import {
   plotOf,
   zoneAt,
 } from "@/game/city/layout";
-import { FEE_MOVE, FEE_RUSH_PER_10MIN, feeBuild, feeUpgrade, MINUTE } from "@/game/config";
+import { FEE_MOVE, feeBuild, feeUpgrade, MINUTE, rushFeeFor } from "@/game/config";
 import { PARK_DESCRIPTION, PARK_SIZE_LABELS, STATUE_DESCRIPTION, statueStageLabel } from "@/game/describe";
 import { STATUE_RANK_LABELS } from "@/game/levels";
 import type { Building } from "@/game/types";
@@ -41,13 +41,22 @@ import type { ActiveView } from "@/server/view";
 import { useGame } from "../GameProvider";
 import { Button } from "../ui";
 
-function CostLine({ cost, fee, treasury }: { cost: Cost; fee?: number; treasury?: boolean }) {
+/** 手動操作の費用：資材・都市資金（足りない分は銀貨）・銀貨の手数料 */
+function CostLine({ cost, fee, treasury }: { cost: Cost; fee?: number; treasury?: number }) {
   const parts = [];
   if (cost.wood) parts.push(`木材${fmt(cost.wood)}`);
   if (cost.stone) parts.push(`石材${fmt(cost.stone)}`);
-  if (treasury && cost.treasury) parts.push(`都市資金${fmt(cost.treasury)}`);
-  if (fee) parts.push(`銀貨${fee}S`);
+  if (cost.treasury) {
+    const pay = manualPayment({ treasury: treasury ?? Infinity }, cost, 0);
+    parts.push(pay.shortfall > 0 ? `都市資金${fmt(cost.treasury)}（足りない${fmt(pay.shortfall)}は銀貨${fmt(pay.silver)}S）` : `都市資金${fmt(cost.treasury)}`);
+  }
+  if (fee) parts.push(`手数料 銀貨${fee}S`);
   return <span className="num text-xs text-muted">{parts.join("・") || "無料"}</span>;
+}
+
+/** 手動操作に必要なものが揃っているか（資材と、手数料 ＋ 都市資金の足りない分の銀貨） */
+function canPay(city: ActiveView["city"], silver: number, cost: Cost, fee: number): boolean {
+  return city.stock.wood >= cost.wood && city.stock.stone >= cost.stone && silver >= manualPayment(city, cost, fee).silver;
 }
 
 function outputText(v: ActiveView, b: Building): string {
@@ -132,7 +141,7 @@ function ExpandPanel({ v, tile }: { v: ActiveView; tile: { x: number; y: number 
   const job = city.jobs.find((j) => j.kind === "expand" && j.plot === plotKey(px, py));
   const plots = v.dev.plots;
   if (job) {
-    const fee = Math.max(1, Math.ceil(Math.max(0, job.finishAt - v.serverNow) / (10 * MINUTE))) * FEE_RUSH_PER_10MIN;
+    const fee = rushFeeFor(job.finishAt - v.serverNow);
     return (
       <div className="space-y-2 text-sm">
         <p className="font-semibold">区画を開拓中</p>
@@ -147,7 +156,7 @@ function ExpandPanel({ v, tile }: { v: ActiveView; tile: { x: number; y: number 
   }
   const why = expansionError(city, px, py);
   const q = expandQuote(city);
-  const ok = !why && city.stock.wood >= q.cost.wood && city.stock.stone >= q.cost.stone && silver >= q.fee;
+  const ok = !why && canPay(city, silver, q.cost, q.fee);
   return (
     <div className="space-y-2 text-sm">
       <p>まだ開拓されていない土地です。5×5 マスの区画ごとに、資材を使って開拓できます。開拓すると区画の真ん中に十字の道路が通ります。</p>
@@ -164,7 +173,7 @@ function ExpandPanel({ v, tile }: { v: ActiveView; tile: { x: number; y: number 
             この区画を開拓する（約{q.minutes}分）
           </Button>
           <div className="mt-1 text-center">
-            <CostLine cost={q.cost} fee={q.fee} />
+            <CostLine cost={q.cost} fee={q.fee} treasury={city.treasury} />
           </div>
         </div>
       )}
@@ -240,7 +249,7 @@ export function TilePanel({
   }
 
   if (job && job.kind === "build") {
-    const fee = Math.max(1, Math.ceil(Math.max(0, job.finishAt - v.serverNow) / (10 * MINUTE))) * FEE_RUSH_PER_10MIN;
+    const fee = rushFeeFor(job.finishAt - v.serverNow);
     return (
       <div className="space-y-2 text-sm">
         <p className="font-semibold">{tierDef(job.line, job.tier).name}を建設中</p>
@@ -269,7 +278,7 @@ export function TilePanel({
     const canUpgrade = b.line && b.level < v.dev.levelCap;
     const nextTier = b.line && b.tier + 1 < LINES[b.line].tiers.length ? b.tier + 1 : null;
     const evolveOk = b.line && nextTier !== null && isTierUnlocked(b.line, nextTier, city.techLevel, dev);
-    const rushFee = bJob ? Math.max(1, Math.ceil(Math.max(0, bJob.finishAt - v.serverNow) / (10 * MINUTE))) * FEE_RUSH_PER_10MIN : 0;
+    const rushFee = bJob ? rushFeeFor(bJob.finishAt - v.serverNow) : 0;
     return (
       <div className="space-y-3 text-sm">
         <div>
@@ -298,20 +307,29 @@ export function TilePanel({
             <div className="grid gap-2 sm:grid-cols-2">
               {evolveOk && nextTier !== null && (
                 <div className="rounded-lg bg-surface-2 p-2">
-                  <Button className="w-full" disabled={busy || silver < feeBuild(nextTier)} onClick={() => cityAct({ type: "evolve", buildingId: b.id })}>
+                  <Button className="w-full" disabled={busy || !canPay(city, silver, evolveCost(b.line, nextTier), feeBuild(nextTier))} onClick={() => cityAct({ type: "evolve", buildingId: b.id })}>
                     {tierDef(b.line, nextTier).name}へ進化
                   </Button>
                   <div className="mt-1 text-center">
-                    <CostLine cost={evolveCost(b.line, nextTier)} fee={feeBuild(nextTier)} />
+                    <CostLine cost={evolveCost(b.line, nextTier)} fee={feeBuild(nextTier)} treasury={city.treasury} />
                   </div>
                 </div>
               )}
               <div className="rounded-lg bg-surface-2 p-2">
-                <Button className="w-full" variant="secondary" disabled={busy || !canUpgrade || silver < feeUpgrade(b.level)} onClick={() => cityAct({ type: "upgrade", buildingId: b.id })}>
+                <Button
+                  className="w-full"
+                  variant="secondary"
+                  disabled={busy || !canUpgrade || !canPay(city, silver, upgradeCost(b.line, b.tier, b.level), feeUpgrade(b.level))}
+                  onClick={() => cityAct({ type: "upgrade", buildingId: b.id })}
+                >
                   Lv{b.level + 1}にアップグレード
                 </Button>
                 <div className="mt-1 text-center">
-                  {canUpgrade ? <CostLine cost={upgradeCost(b.line, b.tier, b.level)} fee={feeUpgrade(b.level)} /> : <span className="text-xs text-muted">発展Lvを上げると上限が上がります</span>}
+                  {canUpgrade ? (
+                    <CostLine cost={upgradeCost(b.line, b.tier, b.level)} fee={feeUpgrade(b.level)} treasury={city.treasury} />
+                  ) : (
+                    <span className="text-xs text-muted">発展Lvを上げると上限が上がります</span>
+                  )}
                 </div>
               </div>
             </div>
@@ -358,13 +376,13 @@ export function TilePanel({
   return (
     <div className="text-sm">
       <p className="mb-2 text-muted">
-        空き地（{ZONE_LABELS[zone]}）。手動建設は資材と銀貨で支払います。
+        空き地（{ZONE_LABELS[zone]}）。手動建設は資材・都市資金（足りない分は銀貨）と銀貨の手数料で支払います。
       </p>
       <ul className="grid gap-2 sm:grid-cols-2">
         {list.map(({ line, tier, size, why }) => {
           const t = tierDef(line, tier);
           const fee = feeBuild(tier);
-          const ok = !why && city.stock.wood >= t.cost.wood && city.stock.stone >= t.cost.stone && silver >= fee;
+          const ok = !why && canPay(city, silver, t.cost, fee);
           return (
             <li key={line}>
               <button
@@ -376,7 +394,7 @@ export function TilePanel({
                   {t.name}
                   <span className="ml-1 text-xs text-muted">{LINES[line].label}</span>
                 </span>
-                <CostLine cost={t.cost} fee={fee} />
+                <CostLine cost={t.cost} fee={fee} treasury={city.treasury} />
                 {(why || size > 1) && <span className="text-xs text-muted">{why ?? `${size}×${size} マス`}</span>}
               </button>
             </li>

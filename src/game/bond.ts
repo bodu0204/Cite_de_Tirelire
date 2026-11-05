@@ -1,13 +1,16 @@
 // 債券：急な出費に備えるお金。持っているほど時間発展が速くなり、足りない支払いを肩代わりする。
-import { BOND_CAP_MONTHS, BOND_FEE_CAP, BOND_FEE_RATE, BOND_FORCED_RATE, BOND_MULTIPLIER_MAX, BOND_MULTIPLIER_MONTHS } from "./config";
+import { BOND_CAP_MONTHS, BOND_FEE_CAP, BOND_FEE_RATE, BOND_FORCED_RATE, BOND_MULTIPLIER_GOAL_RATE, BOND_MULTIPLIER_MAX } from "./config";
 
 /** 債券化が止まる額（3M） */
 export const bondCap = (monthlyBudget: number) => Math.max(0, monthlyBudget) * BOND_CAP_MONTHS;
 
-/** 債券倍率：時間発展にだけ掛ける。マイナスでも 1.0 より下げない（設計原則5） */
-export function bondMultiplier(bond: number, monthlyBudget: number): number {
-  if (bond <= 0 || monthlyBudget <= 0) return 1;
-  return Math.min(BOND_MULTIPLIER_MAX, 1 + bond / (monthlyBudget * BOND_MULTIPLIER_MONTHS));
+/**
+ * 債券倍率：時間発展・人口増加・自動開発の工事の速さに掛ける。貯金目標の BOND_MULTIPLIER_GOAL_RATE 倍の債券で最大（GB-07）。
+ * マイナスでも 1.0 より下げない（設計原則5）
+ */
+export function bondMultiplier(bond: number, goal: number): number {
+  if (bond <= 0 || goal <= 0) return 1;
+  return 1 + (BOND_MULTIPLIER_MAX - 1) * Math.min(1, bond / (goal * BOND_MULTIPLIER_GOAL_RATE));
 }
 
 /** 債券を used 使ったときの銀貨の手数料（500 以下は10%、超えたら一律 50S） */
@@ -31,9 +34,15 @@ export function bondMiningStatus(bond: number, rate: number, cap: number): "forc
 
 /**
  * 債券に amount 入るとき、資源をつける分（docs/needs-based-exchange.md §6.2）。
- * 債券が動く区間 [bond, bond + amount] のうち [0, cap] に入る部分だけ。マイナスを0に戻す分と上限を超える分は対象外。
+ * 債券が動く区間 [bond, bond + amount] のうち [peak, cap] に入る部分だけ。peak はシーズン中に資源をつけた債券の最高到達額（0 以上）。
+ * マイナスを0に戻す分・上限を超える分に加えて、使った債券を最高到達額まで戻す分も対象外（使って戻すたびに資源がつかないように。GB-10）。
  */
-export function bondResourceEligible(bond: number, amount: number, cap: number): number {
+export function bondResourceEligible(bond: number, amount: number, cap: number, peak = 0): number {
   if (amount <= 0) return 0;
-  return Math.max(0, Math.min(bond + amount, cap) - Math.max(bond, 0));
+  return Math.max(0, Math.min(bond + amount, cap) - Math.max(bond, peak, 0));
+}
+
+/** 債券に amount 入ったあとの、資源をつけた債券の最高到達額（上限まで） */
+export function nextBondPeak(peak: number, bond: number, amount: number, cap: number): number {
+  return Math.max(peak, Math.min(bond + Math.max(0, amount), cap));
 }

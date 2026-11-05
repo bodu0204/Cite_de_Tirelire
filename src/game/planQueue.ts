@@ -22,6 +22,14 @@ export interface PlanQueue {
 
 /** 計画に割り当てるもの（Cost と同じ並び） */
 export type PlanStock = Cost;
+
+/** おまかせ交換の振り分け先：食料の不足と、計画列・今の在庫（exchange.ts fillNeeds で先頭から順に満たす） */
+export interface NeedsTarget {
+  /** 食料の24時間分の不足 */
+  food: number;
+  queue: PlanQueue;
+  stock: PlanStock;
+}
 export const PLAN_KEYS: (keyof Cost)[] = ["wood", "stone", "treasury"];
 
 export interface PlanCoverage {

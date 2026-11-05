@@ -1,6 +1,6 @@
 // プレイヤーの手動操作と、特殊施設（公園・像）の同期。
-import { evolveCost, isTierUnlocked, highestUnlockedTier, LINES, SPECIAL_LABELS, tierDef, upgradeCost, upgradeMinutes, type LineId, type Zone } from "../catalog";
-import { expandMinutes, FEE_MOVE, FEE_RUSH_PER_10MIN, feeBuild, feeUpgrade, MINUTE, PLOT_SIZE } from "../config";
+import { evolveCost, isTierUnlocked, highestUnlockedTier, LINES, SPECIAL_LABELS, tierDef, upgradeCost, upgradeMinutes, type Cost, type LineId, type Zone } from "../catalog";
+import { expandMinutes, FEE_MOVE, feeBuild, feeUpgrade, MANUAL_SILVER_PER_TREASURY, PLOT_SIZE, rushFeeFor } from "../config";
 import { fail } from "../errors";
 import { devLevel, statueRank } from "../levels";
 import { snapBuilding, type Building, type CityEvent, type CityPolicy, type CityState, type NeedKey } from "../types";
@@ -55,10 +55,30 @@ function requireRoadRemovable(s: CityState, road: Building) {
 }
 
 export interface ManualResult {
+  /** 銀貨の合計（手数料 ＋ 都市資金の足りない分） */
   silverFee: number;
 }
 
-/** 手動建設：資材＋銀貨手数料で支払う（都市資金は使わない） */
+/**
+ * 手動操作の支払い（GB-06）：資材 ＋ 都市資金 ＋ 銀貨の手数料。都市資金が足りない分は銀貨で払う（都市資金 1 につき MANUAL_SILVER_PER_TREASURY）。
+ * treasury は街の都市資金から払う額、silver は銀貨の合計（手数料を含む）
+ */
+export function manualPayment(s: Pick<CityState, "treasury">, cost: Cost, fee: number): { treasury: number; silver: number; shortfall: number } {
+  const treasury = Math.max(0, Math.min(cost.treasury, Math.floor(s.treasury)));
+  const shortfall = cost.treasury - treasury;
+  return { treasury, silver: fee + Math.ceil(shortfall * MANUAL_SILVER_PER_TREASURY), shortfall };
+}
+
+/** 資材を確かめ、都市資金（足りない分は銀貨）と手数料を払ってジョブを始める */
+function startManual(s: CityState, plan: Parameters<typeof startJob>[1], now: number, silver: number, fee: number): ManualResult {
+  const pay = manualPayment(s, plan.cost, fee);
+  requireSilver(silver, pay.silver);
+  requireMaterials(s, plan.cost);
+  startJob(s, plan, now, false, { treasury: pay.treasury });
+  return { silverFee: pay.silver };
+}
+
+/** 手動建設：資材 ＋ 都市資金（足りない分は銀貨）＋ 銀貨手数料で支払う */
 export function manualBuild(s: CityState, input: { line: LineId; tier?: number; x: number; y: number }, now: number, silver: number): ManualResult {
   if (!LINES[input.line]) fail("bad_line", "建物の種類が不正です");
   const dev = devLevel(s.devPoints);
@@ -66,17 +86,13 @@ export function manualBuild(s: CityState, input: { line: LineId; tier?: number; 
   if (tier < 0 || !isTierUnlocked(input.line, tier, s.techLevel, dev)) fail("not_unlocked", "まだ解放されていない建物です");
   const site = requireSite(s, input.x, input.y, { line: input.line, tier });
   const t = tierDef(input.line, tier);
-  const fee = feeBuild(tier);
-  requireSilver(silver, fee);
-  requireMaterials(s, t.cost);
-  startJob(s, { kind: "build", line: input.line, tier, level: 1, site, cost: t.cost, minutes: t.buildMinutes }, now, false);
-  return { silverFee: fee };
+  return startManual(s, { kind: "build", line: input.line, tier, level: 1, site, cost: t.cost, minutes: t.buildMinutes }, now, silver, feeBuild(tier));
 }
 
 /** 手動の開拓の銀貨手数料（手動建設と同じ。Q7） */
 export const FEE_EXPAND = feeBuild(0);
 
-/** 次に開拓する区画の費用と工事時間（手動は都市資金を使わず、資材と銀貨で払う） */
+/** 次に開拓する区画の費用と工事時間（手動も自動と同じ費用。都市資金の足りない分は銀貨で払う） */
 export function expandQuote(s: CityState): { cost: { wood: number; stone: number; treasury: number }; minutes: number; fee: number } {
   const n = nextPlotIndex(s);
   return { cost: plotCost(s), minutes: expandMinutes(n), fee: FEE_EXPAND };
@@ -89,11 +105,8 @@ export function manualExpand(s: CityState, x: number, y: number, now: number, si
   const why = expansionError(s, px, py);
   if (why) fail("bad_plot", why);
   const q = expandQuote(s);
-  requireSilver(silver, q.fee);
-  requireMaterials(s, q.cost);
   const tier = Math.max(0, highestUnlockedTier("road", s.techLevel, devLevel(s.devPoints)));
-  startJob(s, { kind: "expand", line: "road", tier, level: 1, site: { x: px * PLOT_SIZE, y: py * PLOT_SIZE }, plot: `${px},${py}`, cost: q.cost, minutes: q.minutes }, now, false);
-  return { silverFee: q.fee };
+  return startManual(s, { kind: "expand", line: "road", tier, level: 1, site: { x: px * PLOT_SIZE, y: py * PLOT_SIZE }, plot: `${px},${py}`, cost: q.cost, minutes: q.minutes }, now, silver, q.fee);
 }
 
 function requireIdle(s: CityState, b: Building) {
@@ -106,12 +119,9 @@ export function manualUpgrade(s: CityState, id: string, now: number, silver: num
   requireIdle(s, b);
   if (b.level >= levelCap(devLevel(s.devPoints))) fail("level_cap", "建物Lvの上限です。発展Lvを上げると上限が上がります");
   const cost = upgradeCost(b.line!, b.tier, b.level);
-  const fee = feeUpgrade(b.level);
-  requireSilver(silver, fee);
-  requireMaterials(s, cost);
+  const r = startManual(s, { kind: "upgrade", line: b.line!, tier: b.tier, level: b.level + 1, building: b, cost, minutes: upgradeMinutes(b.line!, b.tier, b.level) }, now, silver, feeUpgrade(b.level));
   b.manual = true;
-  startJob(s, { kind: "upgrade", line: b.line!, tier: b.tier, level: b.level + 1, building: b, cost, minutes: upgradeMinutes(b.line!, b.tier, b.level) }, now, false);
-  return { silverFee: fee };
+  return r;
 }
 
 export function manualEvolve(s: CityState, id: string, now: number, silver: number): ManualResult {
@@ -121,12 +131,9 @@ export function manualEvolve(s: CityState, id: string, now: number, silver: numb
   const to = b.tier + 1;
   if (!isTierUnlocked(b.line!, to, s.techLevel, devLevel(s.devPoints))) fail("not_unlocked", "次の段階はまだ解放されていません");
   const cost = evolveCost(b.line!, to);
-  const fee = feeBuild(to);
-  requireSilver(silver, fee);
-  requireMaterials(s, cost);
+  const r = startManual(s, { kind: "evolve", line: b.line!, tier: to, level: b.level, building: b, cost, minutes: tierDef(b.line!, to).buildMinutes }, now, silver, feeBuild(to));
   b.manual = true;
-  startJob(s, { kind: "evolve", line: b.line!, tier: to, level: b.level, building: b, cost, minutes: tierDef(b.line!, to).buildMinutes }, now, false);
-  return { silverFee: fee };
+  return r;
 }
 
 export function moveBuilding(s: CityState, id: string, x: number, y: number, now: number, silver: number, events: CityEvent[]): ManualResult {
@@ -157,9 +164,10 @@ export function demolish(s: CityState, id: string, now: number, events: CityEven
   events.push({ at: now, type: "DEMOLISH", auto: false, important: true, payload: { buildingId: id, name: b.line ? buildingName(b) : "閉園した公園" } });
 }
 
+/** 即時完了の銀貨（残りが長いほど上がる。config.ts rushFeeFor） */
 export function rushFee(s: CityState, jobId: string, now: number): number {
   const job = s.jobs.find((j) => j.id === jobId) ?? fail("not_found", "工事が見つかりません", 404);
-  return Math.max(1, Math.ceil(Math.max(0, job.finishAt - now) / (10 * MINUTE))) * FEE_RUSH_PER_10MIN;
+  return rushFeeFor(job.finishAt - now);
 }
 
 /** 即時完了（建築時間の短縮） */

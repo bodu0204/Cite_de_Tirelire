@@ -91,7 +91,7 @@ export default function DividendPage() {
           <span className={`num font-pixel text-2xl ${v.currencies.bond < 0 ? "text-danger" : ""}`}>{fmt(v.currencies.bond)}</span>
         </div>
         <p className="mt-1 text-xs text-muted">
-          配当の一部を債券に回します。債券は急な出費（金貨が足りない購入）を肩代わりし、持っているほど街の時間発展が速くなります（今 ×{fmt(v.dev.bondMultiplier, 2)}）。上限 {fmt(bond.cap)}（自由予算の3か月分）に達したら自動で止まります。
+          配当の一部を債券に回します。債券は急な出費（金貨が足りない購入）を肩代わりし、持っているほど街の発展・人口増加・工事が速くなります（今 ×{fmt(v.dev.bondMultiplier, 2)}、貯金目標の半分で最大）。上限 {fmt(bond.cap)}（自由予算の3か月分）に達したら自動で止まります。
         </p>
         <label className="mt-3 block text-sm">
           <span className="mb-1 block font-medium">債券化率</span>
@@ -136,7 +136,7 @@ export default function DividendPage() {
         <Stat
           label={`配当 Lv${mine.level}`}
           value={`交換 +${Math.round(goldMineBonus(mine.level) * 100)}%`}
-          sub={mine.nextLevelAt !== null ? `次のLvまで ${fmt(mine.nextLevelAt - mine.totalCollected)}G` : "最大レベル"}
+          sub={mine.nextLevelAt !== null ? `貯金があと ${yen(mine.nextLevelAt - mine.levelBasis)}で次のLv` : "最大レベル"}
         />
       </div>
       {mine.overspends.length > 0 && (
@@ -152,7 +152,7 @@ export default function DividendPage() {
           <p className="mt-2 text-xs text-muted">ユーザ通貨と金貨で払いきれず、債券から払った購入額です。建物や資源は没収されません。</p>
         </Card>
       )}
-      <p className="text-xs text-muted">配当Lvは受け取った金貨と債券化した配当の累計で上がり、金貨から資源への交換効率が上がります。配当額（現実の予算）は増えません。</p>
+      <p className="text-xs text-muted">配当Lvは貯金額の最高到達額で上がり（予算の大きさにはよりません）、金貨から資源への交換効率が上がります。配当額（現実の予算）は増えません。</p>
     </div>
   );
 }

@@ -8,7 +8,7 @@ import {
   SILVER_MINE_LEVEL_THRESHOLDS,
   STATUE_GOLD_FROM,
   STATUE_SILVER_FROM,
-  TECH_THRESHOLDS,
+  techThresholds,
 } from "./config";
 
 /** 閾値の配列からレベル（1始まり）を求める */
@@ -60,17 +60,21 @@ export function bankLevelBand(goal: number, lv: number): { from: number; next: n
   return { from, next: nextPct === undefined ? null : Math.round((goal * nextPct) / 100) };
 }
 
-/** 技術Lv：貯金額の最高到達額で決まる（D-7。債券を使って貯金額が下がっても下がらない） */
-export function techLevel(maxSavings: number): number {
-  return levelFrom(TECH_THRESHOLDS, maxSavings);
+/**
+ * 技術Lv：貯金額の最高到達額の、貯金目標に対する割合で決まる（D-7・GB-04。債券を使って貯金額が下がっても下がらない）。
+ * 目標が大きくても小さくても、シーズンの中で全段階を見られる
+ */
+export function techLevel(maxSavings: number, goal: number): number {
+  return levelFrom(techThresholds(goal), maxSavings);
 }
 
 export function devLevel(points: number): number {
   return levelFrom(DEV_THRESHOLDS, points);
 }
 
-export function goldMineLevel(totalCollected: number): number {
-  return levelFrom(GOLD_MINE_LEVEL_THRESHOLDS, totalCollected);
+/** 配当Lv：貯金額の最高到達額で決まる（予算の大きさではなく、貯めた額で上がる。GB-14） */
+export function goldMineLevel(maxSavings: number): number {
+  return levelFrom(GOLD_MINE_LEVEL_THRESHOLDS, maxSavings);
 }
 
 export function silverMineLevel(rewardedRecords: number): number {

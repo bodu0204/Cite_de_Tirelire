@@ -23,11 +23,14 @@ export const PLOT_LIMIT = [4, 8, 14, 22, 30, 40];
 export const PLOT_STEP_POINTS = 150;
 export const PLOT_STEP = 4;
 export const MAX_PLOTS = 400;
-/** n 区画目（初期の4区画のあとに開く順、0 から）の開拓の費用と工事時間（分）。開くたびに増える */
-export const PLOT_COST_GROWTH = 1.2;
+/**
+ * n 区画目（初期の4区画のあとに開く順、0 から）の開拓の費用と工事時間（分）。開くたびに増える。
+ * 伸び率は、区画数の上限（PLOT_LIMIT・PLOT_STEP）が費用より先に効く程度にする（docs/game-balance-review.md GB-12）
+ */
+export const PLOT_COST_GROWTH = 1.06;
 export const expandCost = (n: number, stone = n >= 2) => {
   const k = PLOT_COST_GROWTH ** n;
-  // stone が false なら木材と都市資金だけ（最初の2区画と、石材加工所が解放されるまで。sim.ts plotCost）
+  // stone が false なら木材と都市資金だけ（最初の2区画と、石材を作る建物が建つまで。sim.ts plotCost）
   return { wood: Math.round(60 * k), stone: stone ? Math.round(20 * k) : 0, treasury: Math.round(150 * k) };
 };
 export const expandMinutes = (n: number) => Math.min(360, 60 + 15 * n);
@@ -49,8 +52,11 @@ export const INITIAL_POPULATION = 4;
 // ---- 債券（docs/bond-and-custom-currency.md §4） ----
 /** 債券化が止まる額 ＝ 月間自由予算 × この値 */
 export const BOND_CAP_MONTHS = 3;
-/** 債券倍率 ＝ min(BOND_MULTIPLIER_MAX, 1 + 債券 / (月間自由予算 × BOND_MULTIPLIER_MONTHS)) */
-export const BOND_MULTIPLIER_MONTHS = 6;
+/**
+ * 債券倍率 ＝ 1 + (BOND_MULTIPLIER_MAX − 1) × min(1, 債券 / (貯金目標 × BOND_MULTIPLIER_GOAL_RATE))。
+ * 目標の半分を債券で持てば最大。時間発展・人口増加・自動開発の工事の速さに掛かる（GB-07）
+ */
+export const BOND_MULTIPLIER_GOAL_RATE = 0.5;
 export const BOND_MULTIPLIER_MAX = 1.5;
 /** 債券がマイナスの間に採掘から強制的に債券へ回す割合（%） */
 export const BOND_FORCED_RATE = 20;
@@ -67,8 +73,8 @@ export const BUDGET_CHECK_MONTHS = 12;
 export const BANK_LEVEL_THRESHOLDS = [0, 20, 40, 60, 80, 100];
 export const BANK_EXCHANGE_BONUS = [0, 0.05, 0.1, 0.15, 0.2, 0.3];
 
-/** 金鉱：累計回収金貨 */
-export const GOLD_MINE_LEVEL_THRESHOLDS = [0, 5_000, 15_000, 40_000, 80_000, 150_000];
+/** 配当Lv（金鉱）：貯金額の最高到達額（円）。予算の大きさではなく、貯めた額で上がる（GB-14） */
+export const GOLD_MINE_LEVEL_THRESHOLDS = [0, 3_000, 10_000, 25_000, 50_000, 100_000];
 export const GOLD_MINE_EXCHANGE_BONUS = [0, 0.04, 0.08, 0.12, 0.16, 0.2];
 
 /** 銀鉱：有効な記録件数 */
@@ -79,22 +85,39 @@ export const SILVER_MINE_EXCHANGE_BONUS = [0, 0.04, 0.08, 0.12, 0.16, 0.2];
 /** 1G あたりの基準獲得量。銀貨はその 1/10（都市資金も同じ） */
 export const GOLD_RESOURCE_VALUE = { wood: 10, stone: 5, food: 10, treasury: 10 } as const;
 export const SILVER_VALUE_RATIO = 0.1;
+/**
+ * 街の規模による交換量の倍率 ＝ 1 + 人口 ÷ この値（金貨・銀貨・債券化の資源に同じく掛かる）。
+ * 街が大きくなっても、貯金を街に使う効果が街の収入に対して小さくなりすぎないようにする（GB-05）
+ */
+export const CITY_EXCHANGE_POP = 1000;
 
 // ---- 手動操作の銀貨手数料 ----
 export const FEE_EXCHANGE = 5;
 export const FEE_MOVE = 5;
 export const feeBuild = (tier: number) => 10 + 5 * (tier + 1);
 export const feeUpgrade = (level: number) => 10 + 5 * level;
-/** 即時完了：残り10分ごと */
+/** 手動の建設・開拓で、都市資金が足りない分は銀貨で払う：都市資金 1 につき銀貨（GB-06） */
+export const MANUAL_SILVER_PER_TREASURY = 1;
+/** 即時完了：残り10分ごと（残りが長いほど上がる。rushFeeFor） */
 export const FEE_RUSH_PER_10MIN = 2;
+export const RUSH_ESCALATION = 10;
+/** 即時完了の銀貨：残り u 単位（10分）で 2u + ⌊u² ÷ 10⌋（最低 1 単位） */
+export const rushFeeFor = (remainingMs: number) => {
+  const u = Math.max(1, Math.ceil(Math.max(0, remainingMs) / (10 * MINUTE)));
+  return u * FEE_RUSH_PER_10MIN + Math.floor((u * u) / RUSH_ESCALATION);
+};
 
-// ---- 技術Lv（貯金最高到達額、円） ----
-export const TECH_THRESHOLDS = [0, 5_000, 15_000, 30_000, 60_000, 100_000, 200_000];
+// ---- 技術Lv（貯金額の最高到達額 ÷ 貯金目標。GB-04） ----
+/** 技術Lvに必要な貯金額の最高到達額（目標に対する割合）。どのシーズンでも全段階を見られ、最後の段階は目標の手前で届く */
+export const TECH_THRESHOLD_RATES = [0, 0.05, 0.15, 0.25, 0.4, 0.55, 0.7];
 export const TECH_MULTIPLIER = [1.0, 1.1, 1.25, 1.4, 1.6, 1.8, 2.0];
-export const MAX_TECH = TECH_THRESHOLDS.length;
+export const MAX_TECH = TECH_THRESHOLD_RATES.length;
+/** 目標 goal のシーズンの技術Lvの閾値（円） */
+export const techThresholds = (goal: number) => TECH_THRESHOLD_RATES.map((r) => Math.ceil(Math.max(0, goal) * r));
 
 // ---- 発展Lv ----
-export const DEV_THRESHOLDS = [0, 50, 150, 350, 700, 1200];
+/** 発展Lvの閾値（発展pt）。目安：Lv2 1日目、Lv4 1週間前後、Lv5 2週間前後、Lv6 1か月前後（GB-04） */
+export const DEV_THRESHOLDS = [0, 50, 150, 450, 1200, 3000];
 export const DEV_NAMES = ["集落", "村", "町", "地方都市", "大都市", "巨大都市"];
 export const MAX_DEV = DEV_THRESHOLDS.length;
 export const DEV_PER_HOUR = 2;
@@ -121,15 +144,50 @@ export const REVENUE_SCALE = 0.6;
 export const HAPPINESS_EASE_HOUR = 0.2;
 export const LOGISTICS_FLOOR = 0.6;
 export const OPERATION_FLOOR = 0.3;
-/** 自動開発：これ以上待たないと払えない目標は後回しにする */
+/** 電力が足りないときも、電力を使う建物はこの割合までは動く（技術Lvが上がって街が止まらないように。GB-01） */
+export const POWER_FLOOR = 0.3;
+/** 自動開発：電力の余力（供給 − 需要）がこれを下回ったら発電所を増やす。max(最小, 需要 × 割合) */
+export const POWER_RESERVE_MIN = 4;
+export const POWER_RESERVE_RATE = 0.15;
+/** 自動開発：次の区画の開拓に要る木材・石材を、この時間の生産で貯められなければ加工所を増やす（GB-02） */
+export const MATERIAL_TARGET_HOURS = 24;
+/** 自動開発：これ以内に払える目標は、下位に資金を回さずに待つ */
 export const AUTO_MAX_WAIT_HOURS = 12;
+/**
+ * 自動開発：これ以内に払える目標は、そのコストを取り置いたうえで、残りの資金だけを下位に回す（GB-03）。
+ * これより先の目標は後回しにする。収入が少ない街でも、安い計画に資金が流れ続けて大きな計画が貯まらない、ということがないようにする
+ */
+export const AUTO_SAVE_HOURS = 48;
+/**
+ * 自動開発：「生産効率の改善」が同時に進める工事（自動の進化・Lvアップ）の数。
+ * これ以上あれば、下位の必要事項に先に資金を回し、それでも余れば上限なしで進める（GB-03）
+ */
+export const AUTO_EFFICIENCY_JOBS = 2;
 /** 住宅の空きがこの割合を下回ったら住宅を増やす */
 export const HOUSING_VACANCY_TARGET = 0.15;
 
-// ---- 公園の幸福度（逓減） ----
-export const PARK_HAPPINESS_FIRST = 6;
+// ---- 資材の売却（内部の市場。GB-05） ----
+/** 木材・石材は、残しておく量を超えた分を少しずつ都市資金に替える。残す量 ＝ 基本 ＋ 次の区画の開拓費 × 区画数 */
+export const MARKET_RESERVE_BASE = 3000;
+export const MARKET_RESERVE_PLOTS = 3;
+/** 超えた分のうち1時間に売る割合 */
+export const MARKET_SELL_PER_HOUR = 0.1;
+/** 1単位の売値（都市資金）。金貨で買うときの価値（木材 1 ＝ 0.1G、石材 1 ＝ 0.2G）の 1/4 */
+export const MARKET_PRICE = { wood: 0.25, stone: 0.5 } as const;
+/**
+ * 1単位の買値（都市資金）。都市資金が MATERIAL_TARGET_HOURS 分の収入より多く余っていて、先頭の計画が資材だけ足りないとき、
+ * 余った分で足りない資材を買う（自動開発。売値の8倍なので、売り買いを繰り返して増やすことはできない）
+ */
+export const MARKET_BUY_PRICE = { wood: 2, stone: 4 } as const;
+
+// ---- 公園の幸福度（月額に比例し、逓減。GB-13） ----
+/**
+ * 公園1つの幸福度：段階（月額 500円未満・500円〜・1,500円〜・3,000円〜）の下限の月額 1,000円あたり +1。
+ * 月額の安いサブスクほど得にならず、どの公園も減った配当より大きな得にならない量にする
+ */
+export const PARK_HAPPINESS_BY_TIER = [0.1, 0.5, 1.5, 3];
 export const PARK_HAPPINESS_DECAY = 0.6;
-export const PARK_HAPPINESS_CAP = 15;
+export const PARK_HAPPINESS_CAP = 6;
 
 // ---- 像の分類（円） ----
 export const STATUE_SILVER_FROM = 5_000;

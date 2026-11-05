@@ -74,6 +74,8 @@ model Season {
   reservedGold Int @default(0)
   /// 債券（マイナス可）。急な出費の肩代わりと発展速度の倍率に使う
   bond         Int @default(0)
+  /// 資源をつけた債券の最高到達額（0〜上限）。これを超えて債券に入った分にだけ資源をつける（使って戻す分にはつけない）
+  bondResourcePeak Int @default(0)
 
   // 金鉱（金額は 10^-6 G 単位）
   mineUncollected    BigInt   @default(0)

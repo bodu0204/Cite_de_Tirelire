@@ -1,6 +1,6 @@
 // ゲーム操作。すべて withGame の中（同期済み・ロック済み）で呼ばれる。
 import { Prisma } from "@prisma/client";
-import { bondCap, bondResourceEligible } from "@/game/bond";
+import { bondCap, bondResourceEligible, nextBondPeak } from "@/game/bond";
 import { LINE_IDS, type LineId, type Zone } from "@/game/catalog";
 import {
   demolish,
@@ -21,7 +21,7 @@ import { INITIAL_GOLD, INITIAL_SILVER, REWARD_DAILY_CAP, REWARD_PURCHASE, REWARD
 import { fail } from "@/game/errors";
 import { quoteBondGains, quoteNeedsExchange, quoteResourceExchange, totalGains, ZERO_GAINS, type Currency } from "@/game/exchange";
 import { budgetOverruns, describeOverruns, startOfDay, type Overrun } from "@/game/currency";
-import { goldMineLevel, silverMineLevel } from "@/game/levels";
+import { silverMineLevel } from "@/game/levels";
 import { collect, newMine } from "@/game/mine";
 import { lotOrder, pay, summarize, type Lot, type Payment } from "@/game/settle";
 import { changePayday, dayKey, isValidTimeZone, parseDateInTz, periodKey } from "@/game/time";
@@ -119,11 +119,9 @@ export async function completeSeason(ctx: GameCtx) {
 
 export function collectGold(ctx: GameCtx) {
   requireOpen(ctx);
-  const before = goldMineLevel(ctx.mine!.totalCollected);
   const r = collect(ctx.mine!);
   ctx.mine = r.mine;
   addCurrency(ctx, "GOLD", r.gold, "mine_collect");
-  emitFacilityLevels(ctx, { gold: before });
   // 未受取のユーザ通貨もまとめて受け取る（残高の合計は変わらないので台帳には書かない）
   const custom = new Map<string, number>();
   for (const lot of ctx.lots) {
@@ -419,8 +417,11 @@ function exchangeToBond(ctx: GameCtx, from: "gold" | "custom", amount: number, b
   // 債券についてくる資源の種類（省略時はおまかせ）
   const resource = body.resource === undefined ? "auto" : oneOf(body.resource, [...RESOURCES, "treasury", "auto"] as const, "資源");
   const grant = () => {
-    const eligible = bondResourceEligible(before, amount, bondCap(ctx.user.monthlyBudget));
-    const gains = quoteBondGains(eligible, resource, cityNeeds(ctx.city!).needs, facilityLevels(ctx));
+    // 資源をつけた債券の最高到達額を超えた分だけ（使った債券を戻す分にはつけない。GB-10）
+    const cap = bondCap(ctx.user.monthlyBudget);
+    const eligible = bondResourceEligible(before, amount, cap, ctx.bondPeak);
+    ctx.bondPeak = nextBondPeak(ctx.bondPeak, before, amount, cap);
+    const gains = quoteBondGains(eligible, resource, cityNeeds(ctx.city!).target, facilityLevels(ctx));
     addStock(ctx, gains);
     return { resourceEligible: eligible, gains };
   };
@@ -471,7 +472,7 @@ export function exchange(ctx: GameCtx, body: Body) {
   // おまかせ：都市の必要資源の割合で振り分ける（手数料は1回分）
   const q =
     resource === "auto"
-      ? quoteNeedsExchange(currency, amount, cityNeeds(ctx.city!).needs, lv)
+      ? quoteNeedsExchange(currency, amount, cityNeeds(ctx.city!).target, lv)
       : (() => {
           const one = quoteResourceExchange(currency, resource, amount, lv);
           const gains: Gains = { ...ZERO_GAINS };

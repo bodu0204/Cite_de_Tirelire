@@ -1,18 +1,18 @@
 // 必要資源の割合による交換と、債券化につく資源（docs/needs-based-exchange.md §11）
 import { describe, expect, it } from "vitest";
-import { bondCap, bondResourceEligible } from "../bond";
+import { bondCap, bondResourceEligible, nextBondPeak } from "../bond";
 import { createCity } from "../city/init";
 import { computeMetrics } from "../city/economy";
 import { cityNeeds, expansionPlan } from "../city/sim";
 import { DAY, GOLD_RESOURCE_VALUE, HOUR } from "../config";
 import { BudgetPlan, type CurrencyDefLite } from "../currency";
-import { exchangeRate, needShares, quoteBondGains, quoteNeedsExchange, quoteResourceExchange, splitAmount, ZERO_GAINS } from "../exchange";
+import { cityScale, exchangeRate, fillNeeds, needShares, quoteBondGains, quoteNeedsExchange, quoteResourceExchange, splitAmount, ZERO_GAINS } from "../exchange";
 import { advance, type Accrual, type World } from "../idle";
 import { newMine } from "../mine";
 import { coverPlans, type PlanQueue } from "../planQueue";
-import { pay } from "../settle";
+import { depositToBond, pay, type Purse } from "../settle";
 import { zonedTimeToUtc } from "../time";
-import type { Gains } from "../types";
+import type { CityState, Gains } from "../types";
 
 const TZ = "Asia/Tokyo";
 const MON = zonedTimeToUtc(2026, 10, 19, TZ);
@@ -21,6 +21,15 @@ const LV1 = { bank: 1, goldMine: 1, silverMine: 1 };
 /** 資源・都市資金を金貨換算した額（Lvボーナスなし） */
 const goldOf = (s: Gains) =>
   s.wood / GOLD_RESOURCE_VALUE.wood + s.stone / GOLD_RESOURCE_VALUE.stone + s.food / GOLD_RESOURCE_VALUE.food + s.treasury / GOLD_RESOURCE_VALUE.treasury;
+/**
+ * 債券化でついた資源が、gold G 分（街の規模の倍率を掛ける前）と合っているか。
+ * 倍率はティックごとの人口で決まるので、1.0 と今の人口の倍率のあいだに入ることを確かめる
+ */
+function expectGold(gains: Gains | undefined, gold: number, city: CityState) {
+  const v = goldOf(gains ?? ZERO_GAINS);
+  expect(v).toBeGreaterThanOrEqual(gold - 1e-6);
+  expect(v).toBeLessThanOrEqual(gold * cityScale(city.population) + 1e-6);
+}
 
 function world(defs: CurrencyDefLite[], o: { bond?: number } = {}): World {
   const accruals = new Map<string, Accrual>(defs.map((d) => [d.id, { currencyId: d.id, lastAccrualAt: START, fraction: 0n }]));
@@ -185,7 +194,7 @@ describe("AT-036 採掘の債券化につく資源", () => {
     const w = world([], { bond: bondCap(60000) - 10 });
     advance(w, { plan, bondRate: 50, until: START + DAY, newId }, []);
     expect(w.purse.bond).toBe(bondCap(60000));
-    expect(goldOf(w.city.bondResourceTotal!)).toBeCloseTo(10, 6);
+    expectGold(w.city.bondResourceTotal, 10, w.city);
   });
 
   it("債券 −3,050・債券化率 0%：0で止まるので資源は一度もつかない", () => {
@@ -199,7 +208,7 @@ describe("AT-036 採掘の債券化につく資源", () => {
   it("債券 −100・債券化率 50%：0に戻るまでの 100 は資源なし", () => {
     const w = world([], { bond: -100 });
     advance(w, { plan, bondRate: 50, until: START + DAY, newId }, []);
-    expect(goldOf(w.city.bondResourceTotal!)).toBeCloseTo(w.purse.bond, 6);
+    expectGold(w.city.bondResourceTotal, w.purse.bond, w.city);
   });
 });
 
@@ -225,14 +234,14 @@ describe("AT-037 余りの債券化につく資源", () => {
     pay(w.purse, 2000, w.lots, []);
     advance(w, { plan, bondRate: 0, until: MON + 3 * DAY, newId }, []);
     expect(w.purse.bond).toBe(5000);
-    expect(goldOf(w.city.bondResourceTotal!)).toBeCloseTo(5000, 6);
+    expectGold(w.city.bondResourceTotal, 5000, w.city);
   });
 
   it("上限を超えて金貨になった分には資源がつかない", () => {
     const w = world([food], { bond: bondCap(60000) - 1000 });
     advance(w, { plan, bondRate: 0, until: MON + 3 * DAY, newId }, []);
     expect(w.purse.gold).toBe(6000);
-    expect(goldOf(w.city.bondResourceTotal!)).toBeCloseTo(1000, 6);
+    expectGold(w.city.bondResourceTotal, 1000, w.city);
   });
 
   it("1回で計算しても1時間ごとに計算しても、債券化で得た資源が一致する", () => {
@@ -259,5 +268,59 @@ describe("債券につく資源の種類を選べる", () => {
   });
   it("おまかせは必要割合での振り分け（手数料なし）", () => {
     expect(quoteBondGains(300, "auto", needs, lv)).toEqual(quoteNeedsExchange("gold", 300, needs, lv, { fee: false }).gains);
+  });
+});
+
+describe("使った債券を戻す分には資源がつかない（GB-10）", () => {
+  const cap = bondCap(60000);
+  it("最高到達額 50,000 から 30,000 使って戻しても資源はつかず、最高額を超えた分にだけつく", () => {
+    expect(bondResourceEligible(20000, 30000, cap, 50000)).toBe(0);
+    expect(bondResourceEligible(20000, 40000, cap, 50000)).toBe(10000);
+    expect(nextBondPeak(50000, 20000, 40000, cap)).toBe(60000);
+    // 上限で止まる
+    expect(nextBondPeak(170000, 170000, 50000, cap)).toBe(cap);
+  });
+
+  it("購入を債券で払ってから余りの債券化で戻しても、2回目の資源はつかない", () => {
+    const p: Purse = { mine: newMine(START, TZ), gold: 0, silver: 100, bond: 0, bondCap: cap, bondPeak: 0, moves: [], overspend: 0 };
+    depositToBond(p, 10000, "test");
+    expect(p.bondResource).toBe(10000);
+    pay(p, 4000, [], []);
+    expect(p.bond).toBeLessThan(10000);
+    depositToBond(p, 4000, "test");
+    expect(p.bondResource).toBe(10000);
+    depositToBond(p, 1000, "test");
+    expect(p.bondResource).toBe(10000 + (p.bond - 10000));
+  });
+});
+
+describe("おまかせは計画列を先頭から順に満たす（GB-11）", () => {
+  const plan = (name: string, wood: number, stone: number, treasury = 0) => ({ kind: "build" as const, line: "housing" as const, tier: 0, level: 1, name, cost: { wood, stone, treasury } });
+  const queue: PlanQueue = { plans: [plan("A", 100, 0), plan("B", 0, 100)], expansion: plan("X", 50, 50) };
+  const target = { food: 0, queue, stock: { wood: 0, stone: 0, treasury: 0 } };
+  const rate = { wood: 10, stone: 5, food: 10, treasury: 10 };
+
+  it("少ない額は最初の計画の不足だけに入る", () => {
+    expect(fillNeeds(target, 5, rate)).toEqual({ ...ZERO_GAINS, wood: 5 });
+  });
+
+  it("先頭の計画を満たしたら次の計画へ（A の木材 10G → B の石材 20G）", () => {
+    const q = quoteNeedsExchange("gold", 30, target, LV1);
+    expect(q.split).toEqual({ ...ZERO_GAINS, wood: 10, stone: 20 });
+    expect(q.gains).toEqual({ ...ZERO_GAINS, wood: 100, stone: 100 });
+  });
+
+  it("大きな額は拡張計画の割合で続き、1つの資源に偏らない", () => {
+    const s = fillNeeds(target, 1030, rate);
+    // A・B の 30G のあと、拡張計画は1件 木材 5G・石材 10G
+    expect(s.wood).toBeCloseTo(10 + 1000 / 3, 6);
+    expect(s.stone).toBeCloseTo(20 + 2000 / 3, 6);
+  });
+
+  it("食料の不足を先に満たし、在庫で足りる分は振り分けない", () => {
+    const s = fillNeeds({ food: 100, queue, stock: { wood: 100, stone: 0, treasury: 0 } }, 30, rate);
+    expect(s.food).toBe(10);
+    expect(s.wood).toBe(0);
+    expect(s.stone).toBe(20);
   });
 });

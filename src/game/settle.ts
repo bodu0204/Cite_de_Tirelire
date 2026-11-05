@@ -1,7 +1,7 @@
 // 購入の精算と払い戻し（docs/bond-and-custom-currency.md §6）。
 // 支払い順：（像の積立金貨は呼び出し側）→ ジャンルが一致するユーザ通貨 → 未回収の金貨 → 所持金貨 → 債券（マイナス可）＋ 銀貨の手数料。
 // 払い戻しは逆順：債券 → 所持金貨 → ユーザ通貨（元のロットへ）。手数料は債券の支払い合計から計算し直す。
-import { bondFee, bondResourceEligible } from "./bond";
+import { bondFee, bondResourceEligible, nextBondPeak } from "./bond";
 import { payWithGold, type MineState } from "./mine";
 
 export type PayCurrency = "GOLD" | "SILVER" | "BOND" | "CUSTOM" | "RESERVED";
@@ -48,6 +48,8 @@ export interface Purse {
   overspend: number;
   /** 債券化で債券に入った額のうち、街に資源をつける分（docs/needs-based-exchange.md §6） */
   bondResource?: number;
+  /** シーズン中に資源をつけた債券の最高到達額（0〜上限）。これを超えて入った分にだけ資源をつける（GB-10） */
+  bondPeak?: number;
 }
 
 function move(p: Purse, m: Move) {
@@ -75,7 +77,8 @@ export function lotOrder(sortOf: (currencyId: string) => number) {
 export function depositToBond(p: Purse, amount: number, reason: string, currencyId?: string) {
   if (amount <= 0) return;
   const toBond = Math.max(0, Math.min(amount, p.bondCap - p.bond));
-  p.bondResource = (p.bondResource ?? 0) + bondResourceEligible(p.bond, toBond, p.bondCap);
+  p.bondResource = (p.bondResource ?? 0) + bondResourceEligible(p.bond, toBond, p.bondCap, p.bondPeak);
+  p.bondPeak = nextBondPeak(p.bondPeak ?? 0, p.bond, toBond, p.bondCap);
   p.bond += toBond;
   p.gold += amount - toBond;
   move(p, { currency: "BOND", delta: toBond, reason, currencyId });
@@ -208,7 +211,8 @@ export function summarize(payments: Payment[]) {
 export function absorbSurplus(p: Purse, d: number, reason: string): { toBond: number; eligible: number; rest: number } {
   if (d <= 0) return { toBond: 0, eligible: 0, rest: 0 };
   const toBond = Math.min(d, Math.max(0, p.bondCap - p.bond));
-  const eligible = bondResourceEligible(p.bond, toBond, p.bondCap);
+  const eligible = bondResourceEligible(p.bond, toBond, p.bondCap, p.bondPeak);
+  p.bondPeak = nextBondPeak(p.bondPeak ?? 0, p.bond, toBond, p.bondCap);
   p.bond += toBond;
   move(p, { currency: "BOND", delta: toBond, reason });
   return { toBond, eligible, rest: d - toBond };
