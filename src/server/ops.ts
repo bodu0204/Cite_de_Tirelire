@@ -444,7 +444,9 @@ export function exchange(ctx: GameCtx, body: Body) {
     // 金貨→銀貨は無料（銀貨不足で操作不能にならないように）
     addCurrency(ctx, "GOLD", -amount, "exchange_g2s");
     addCurrency(ctx, "SILVER", amount, "exchange_g2s");
-    return { gold: -amount, silver: amount };
+    // 金貨（1G＝1円相当）をゲーム内で使った分なので貯金額に加える。銀貨の使い道（資源など）では数えないので二重にならない
+    ctx.citySpent += amount;
+    return { gold: -amount, silver: amount, citySpentAdded: amount };
   }
   if (kind === "gold_to_bond" || kind === "to_bond") {
     return exchangeToBond(ctx, kind === "gold_to_bond" ? "gold" : oneOf(body.currency, ["gold", "custom"] as const, "通貨"), amount, body);

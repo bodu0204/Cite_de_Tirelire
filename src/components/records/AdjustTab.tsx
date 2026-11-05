@@ -21,7 +21,7 @@ const LABELS: Record<Key, string> = {
   E6a: "ほしい物貯金（像の積立金貨）",
   E6b: "サブスク（まだ記録していない支払い）",
   E4a: "債券",
-  E4b: "債券以外（都市に使った金貨）",
+  E4b: "債券以外（ゲーム内で使った金貨）",
   E5: "貯金管理で生まれた（±）",
 };
 const GROUPS: { label: string; keys: Key[] }[] = [

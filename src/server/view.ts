@@ -136,7 +136,7 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
       goal: season.goalAmount,
       startedAt: season.startedAt.getTime(),
       reachedAt: season.reachedAt?.getTime() ?? null,
-      /** 貯金額 ＝ 債券 ＋ 都市に使った金貨（技術Lv・銀行Lv・達成率の根拠） */
+      /** 貯金額 ＝ 債券 ＋ ゲーム内で使った金貨（技術Lv・銀行Lv・達成率の根拠） */
       savings: saved.amount,
       citySpent: saved.citySpent,
       bond,
