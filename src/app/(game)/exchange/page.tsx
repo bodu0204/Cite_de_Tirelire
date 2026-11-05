@@ -189,7 +189,7 @@ export default function ExchangePage() {
         </p>
       </div>
       <fieldset>
-        <legend className="mb-2 text-sm font-medium">何を何に交換する？</legend>
+        <legend className="mb-2 text-sm font-medium">何に交換する？</legend>
         <div role="radiogroup" aria-label="交換のしかた" className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
           {routes.map((r) => {
             const on = mode === r.value;
