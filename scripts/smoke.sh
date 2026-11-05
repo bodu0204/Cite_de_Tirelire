@@ -89,13 +89,9 @@ EST=$(req GET /api/adjustments/estimate | j 'o.estimated')
 echo "== adjustment quote/record: actual = estimate - 1000"; req POST /api/adjustments/quote "{\"actual\":$((EST - 1000))}" | j '[o.diff, o.resolution.bond, o.resolution.feeSilver]'
 req POST /api/adjustments "{\"actual\":$((EST - 1000))}" | j '[o.diff, o.resolution.amount]'
 echo "== income day 25: next payday onward"; req PATCH /api/settings '{"incomeDay":25}'; req GET /api/state | j '[o.user.incomeDay, o.income]'
-echo "== manual build";  req POST /api/city '{"type":"build","line":"housing","x":4,"y":3}'
-echo "== rush";          JOB=$(req GET /api/state | j 'o.city.jobs.find(j=>!j.auto)?.id'); req POST /api/city "{\"type\":\"rush\",\"jobId\":\"$JOB\"}"
-echo "== zone + policy"; req POST /api/city '{"type":"zone","x":5,"y":6,"zone":"residential"}'; req POST /api/city '{"type":"policy","preset":"housing"}'
 echo "== timelapse locked"; SID=$(req GET /api/state | j 'o.season.id'); req GET /api/seasons/$SID/timelapse
 echo "== reach goal (savings amount >= goal)"; req GET /api/state | j '[o.season.status, o.season.rate, o.season.savings, o.tech.level]'
 echo "== complete";      req POST /api/season/complete
-echo "== build after complete fails"; req POST /api/city '{"type":"build","line":"housing","x":3,"y":6}'
 echo "== timelapse";     req GET /api/seasons/$SID/timelapse | j '[o.season.number, !!o.start, !!o.final, o.events.length, o.events.map(e=>e.type).filter((v,i,a)=>a.indexOf(v)===i).join(",")]'
 echo "== new season keeps history, resets bond and custom balances"; req POST /api/season '{"goalAmount":50000}'; req GET /api/state | j '[o.season.number, o.season.savings, o.currencies, o.tech.level, o.hasArchive]'
 req GET /api/purchases | j 'o.items.length'

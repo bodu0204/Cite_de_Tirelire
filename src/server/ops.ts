@@ -1,21 +1,7 @@
 // ゲーム操作。すべて withGame の中（同期済み・ロック済み）で呼ばれる。
 import { Prisma } from "@prisma/client";
 import { bondCap, bondResourceEligible } from "@/game/bond";
-import { LINE_IDS, type LineId, type Zone } from "@/game/catalog";
-import {
-  demolish,
-  manualBuild,
-  manualEvolve,
-  manualExpand,
-  manualUpgrade,
-  moveBuilding,
-  rushJob,
-  setLocked,
-  setNoAuto,
-  setPolicy,
-  setZone,
-} from "@/game/city/actions";
-import { createCity, POLICY_PRESETS } from "@/game/city/init";
+import { createCity } from "@/game/city/init";
 import { cityNeeds } from "@/game/city/sim";
 import { INITIAL_GOLD, INITIAL_SILVER, REWARD_DAILY_CAP, REWARD_PURCHASE, REWARD_SAVINGS, SAVINGS_DAILY_LIMIT } from "@/game/config";
 import { fail } from "@/game/errors";
@@ -25,7 +11,7 @@ import { goldMineLevel, silverMineLevel } from "@/game/levels";
 import { collect, newMine } from "@/game/mine";
 import { lotOrder, pay, summarize, type Lot, type Payment } from "@/game/settle";
 import { changePayday, dayKey, isValidTimeZone, parseDateInTz, periodKey } from "@/game/time";
-import { DEFAULT_PRIORITIES, type CityPolicy, type Gains, type NeedKey, type StockKey } from "@/game/types";
+import type { Gains, StockKey } from "@/game/types";
 import {
   addCurrency,
   budgetPlan,
@@ -47,8 +33,6 @@ export { facilityLevels };
 
 type Body = Record<string, unknown>;
 
-const PRESETS = ["balanced", "housing", "industry", "commerce", "custom"] as const;
-
 function requireOpen(ctx: GameCtx) {
   requireSeason(ctx);
   return ctx;
@@ -59,14 +43,13 @@ function requireOpen(ctx: GameCtx) {
 export async function startSeason(ctx: GameCtx, body: Body) {
   if (ctx.season) fail("season_exists", "進行中のシーズンがあります", 409);
   const goal = int(body.goalAmount, "貯金目標額", { min: 1000, max: 100_000_000 });
-  const preset = body.preset ? oneOf(body.preset, PRESETS, "開発方針") : "balanced";
   if (body.monthlyBudget !== undefined) {
     ctx.user = await ctx.tx.user.update({ where: { id: ctx.user.id }, data: { monthlyBudget: int(body.monthlyBudget, "月間自由予算", { max: 10_000_000 }) } });
   }
   const tz = ctx.user.timezone;
   const number = (await ctx.tx.season.count({ where: { userId: ctx.user.id } })) + 1;
   const mine = newMine(ctx.now, ctx.cal);
-  const city = createCity(ctx.now, preset);
+  const city = createCity(ctx.now);
   const season = await ctx.tx.season.create({
     data: {
       userId: ctx.user.id,
@@ -486,87 +469,6 @@ export function exchange(ctx: GameCtx, body: Body) {
   // 金貨（1G＝1円相当）をゲーム内で使った分は、現実で使わずに済んだお金＝見込み貯金
   if (q.goldCost > 0) ctx.citySpent += q.goldCost;
   return { ...q, gain, citySpentAdded: q.goldCost };
-}
-
-// ---- 街の操作 ----
-
-const ZONES: Zone[] = ["residential", "commercial", "industrial", "agricultural", "public", "special", "none"];
-const NEEDS: NeedKey[] = DEFAULT_PRIORITIES;
-
-export function cityAction(ctx: GameCtx, body: Body) {
-  requireOpen(ctx);
-  const city = ctx.city!;
-  const silver = ctx.balances.silver;
-  const type = oneOf(
-    body.type,
-    ["build", "upgrade", "evolve", "move", "demolish", "rush", "lock", "zone", "noAuto", "policy", "expand"] as const,
-    "操作",
-  );
-  // 範囲の確かめは actions.ts で行う（銀行の中心が原点なので負の座標もある）
-  const xy = () => ({ x: int(body.x, "X", { min: -100_000, max: 100_000 }), y: int(body.y, "Y", { min: -100_000, max: 100_000 }) });
-  const id = () => str(body.buildingId ?? body.jobId, "対象");
-  let fee = 0;
-  switch (type) {
-    case "build": {
-      const line = oneOf(body.line, LINE_IDS, "建物") as LineId;
-      const tier = body.tier === undefined ? undefined : int(body.tier, "段階", { max: 10 });
-      fee = manualBuild(city, { line, tier, ...xy() }, ctx.now, silver).silverFee;
-      break;
-    }
-    case "upgrade":
-      fee = manualUpgrade(city, id(), ctx.now, silver).silverFee;
-      break;
-    case "evolve":
-      fee = manualEvolve(city, id(), ctx.now, silver).silverFee;
-      break;
-    case "move": {
-      const { x, y } = xy();
-      fee = moveBuilding(city, id(), x, y, ctx.now, silver, ctx.events).silverFee;
-      break;
-    }
-    case "demolish":
-      demolish(city, id(), ctx.now, ctx.events);
-      break;
-    case "expand": {
-      // 選んだマスの区画を開拓する（docs/map-layout-redesign.md §7.2）
-      const { x, y } = xy();
-      fee = manualExpand(city, x, y, ctx.now, silver).silverFee;
-      break;
-    }
-    case "rush":
-      fee = rushJob(city, id(), ctx.now, silver, ctx.events).silverFee;
-      break;
-    case "lock":
-      setLocked(city, id(), bool(body.locked));
-      break;
-    case "zone": {
-      const { x, y } = xy();
-      setZone(city, x, y, oneOf(body.zone, ZONES, "土地用途"));
-      break;
-    }
-    case "noAuto": {
-      const { x, y } = xy();
-      setNoAuto(city, x, y, bool(body.noAuto));
-      break;
-    }
-    case "policy": {
-      const patch: Partial<CityPolicy> = {};
-      if (body.preset !== undefined) {
-        patch.preset = oneOf(body.preset, PRESETS, "開発方針");
-        if (patch.preset !== "custom") patch.priorities = [...POLICY_PRESETS[patch.preset].priorities];
-      }
-      if (Array.isArray(body.priorities)) {
-        patch.priorities = body.priorities.map((p) => oneOf(p, NEEDS, "優先順位"));
-        patch.preset = "custom";
-      }
-      if (body.autoEnabled !== undefined) patch.autoEnabled = bool(body.autoEnabled);
-      if (body.autoExpand !== undefined) patch.autoExpand = bool(body.autoExpand);
-      setPolicy(city, patch);
-      break;
-    }
-  }
-  addCurrency(ctx, "SILVER", -fee, `city_${type}`);
-  return { silverFee: fee };
 }
 
 // ---- サブスク ----

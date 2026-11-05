@@ -3,10 +3,11 @@
 import { randomUUID } from "node:crypto";
 import { Prisma, type CurrencyDef, type Season, type Subscription, type User, type WishItem } from "@prisma/client";
 import { bondCap } from "@/game/bond";
-import { FEE_INSTANT_ROAD, placeOffMapSpecials, syncParks, syncStatues, type ParkSource, type StatueSource } from "@/game/city/actions";
+import { placeOffMapSpecials, syncParks, syncStatues, type ParkSource, type StatueSource } from "@/game/city/actions";
 import { applyTechLevel } from "@/game/city/sim";
 import { dropLegacyMines } from "@/game/city/layout";
 import { BudgetPlan, type CurrencyDefLite, type Rule } from "@/game/currency";
+import { FEE_INSTANT_ROAD } from "@/game/config";
 import { fail } from "@/game/errors";
 import { advance, type Accrual, type CustomCut, type Grant } from "@/game/idle";
 import { achievementRate, bankLevel, goldMineLevel, savingsTotal, silverMineLevel, techLevel } from "@/game/levels";

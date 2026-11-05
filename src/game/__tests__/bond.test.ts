@@ -30,9 +30,12 @@ describe("AT-015a 債券倍率は時間発展にだけ掛かる", () => {
   it("k＝1.25 で時間発展が1.25倍。建設・人口は k＝1.0 と同じ", () => {
     const a = createCity(OCT1);
     const b = createCity(OCT1);
-    // 時間発展だけを比べるため自動開発を止める
-    a.policy.autoEnabled = false;
-    b.policy.autoEnabled = false;
+    // 時間発展だけを比べるため、6時間の生産では払えないほど資材と都市資金を減らし、街が工事を始められないようにする
+    for (const c of [a, b]) {
+      c.stock.wood = -1e6;
+      c.stock.stone = -1e6;
+      c.treasury = -1e6;
+    }
     const before = a.devPoints;
     for (let t = OCT1 + TICK_MS; t <= OCT1 + 6 * HOUR; t += TICK_MS) {
       tick(a, t, [], 1);

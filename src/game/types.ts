@@ -26,10 +26,6 @@ export interface Building {
   y: number;
   /** false はマップ外（土地が足りない特殊施設）。x, y は意味を持たない */
   placed?: false;
-  /** 固定：自動開発の対象外、移動不可 */
-  locked: boolean;
-  /** 手動で配置・編集された（自動配置変更の対象外） */
-  manual: boolean;
   /** 公園の閉園など */
   closed?: boolean;
   builtAt: number;
@@ -41,7 +37,6 @@ export type JobKind = "build" | "upgrade" | "evolve" | "expand";
 export interface Job {
   id: string;
   kind: JobKind;
-  auto: boolean;
   line: LineId;
   tier: number;
   level: number;
@@ -50,7 +45,7 @@ export interface Job {
   /** 対象のマス。expand は区画の左上のマス */
   x: number;
   y: number;
-  /** expand：開く区画（"px,py"）と、その土地用途（自動開発が土地を求めた建物の用途。手動は未指定） */
+  /** expand：開く区画（"px,py"）と、その土地用途（土地を求めた建物の用途） */
   plot?: string;
   zone?: Zone;
   startedAt: number;
@@ -59,7 +54,8 @@ export interface Job {
 
 export type NeedKey = "shortage" | "jobs" | "housing" | "logistics" | "efficiency" | "industry" | "beautify";
 
-export const DEFAULT_PRIORITIES: NeedKey[] = [
+/** 街の発展が必要事項を検討する順（すべての街で同じ） */
+export const NEED_ORDER: NeedKey[] = [
   "shortage",
   "jobs",
   "housing",
@@ -68,15 +64,6 @@ export const DEFAULT_PRIORITIES: NeedKey[] = [
   "industry",
   "beautify",
 ];
-
-export interface CityPolicy {
-  preset: "balanced" | "housing" | "industry" | "commerce" | "custom";
-  priorities: NeedKey[];
-  /** false で自動開発を止める */
-  autoEnabled: boolean;
-  /** false で自動開発の開拓を止める（省略すると開拓する。Q9） */
-  autoExpand?: boolean;
-}
 
 export interface CityState {
   v: 1;
@@ -94,11 +81,8 @@ export interface CityState {
   peaks: Record<string, number>;
   /** マスの土地用途（キーは "x,y"）。書いていないマスは未指定 */
   zones: Record<string, Zone>;
-  /** 自動建設を禁止したマス（"x,y"） */
-  noAuto: string[];
   /** 開拓した区画（"px,py"。区画 (px, py) はマス x = 5px〜5px+4、y = 5py〜5py+4） */
   plots: string[];
-  policy: CityPolicy;
   techLevel: number;
   /** 銀行Lv（達成率から決まる。タイムラプスの外観用に街の状態にも持つ） */
   bankLevel: number;
@@ -136,8 +120,9 @@ export type CityEventType =
 export interface CityEvent {
   at: number;
   type: CityEventType;
+  /** 街が自ら起こしたできごと（建設・人口・不足など）。家計から起きたもの（公園・像・技術Lv・銀行など）は false */
   auto: boolean;
-  /** 自動発展ログに出す重要イベントか */
+  /** 街のできごとに出す重要イベントか */
   important: boolean;
   payload: Record<string, unknown>;
 }

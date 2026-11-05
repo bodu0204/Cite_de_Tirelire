@@ -76,7 +76,6 @@ export function CityPlayground() {
         buildings={city.buildings}
         jobs={city.jobs}
         zones={city.zones}
-        noAuto={city.noAuto}
         bankLevel={city.bankLevel}
         showZones={showZones}
         fixedHour={night ? 22 : undefined}

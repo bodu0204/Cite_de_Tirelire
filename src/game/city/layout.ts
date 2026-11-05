@@ -113,14 +113,10 @@ export function landBounds(s: Pick<CityState, "plots">): Rect {
   return r.minX === Infinity ? { minX: 0, minY: 0, maxX: 0, maxY: 0 } : r;
 }
 
-// ---- 土地用途と自動建設の禁止 ----
+// ---- 土地用途 ----
 
 export function zoneAt(s: Pick<CityState, "zones">, x: number, y: number): Zone {
   return s.zones[tileKey(x, y)] ?? "none";
-}
-
-export function isNoAuto(s: Pick<CityState, "noAuto">, x: number, y: number): boolean {
-  return asSet(s.noAuto).has(tileKey(x, y));
 }
 
 /**
@@ -178,12 +174,12 @@ export function jobSize(j: Pick<Job, "line" | "tier">): number {
   return buildingSize({ line: j.line, tier: j.tier });
 }
 
-/** 占有範囲がすべて開いていて空いているか（ignore の建物は空きとみなす。移動用） */
-export function fits(s: CityState, x: number, y: number, size: number, occ = occupancy(s), ignore?: string): boolean {
+/** 占有範囲がすべて開いていて空いているか */
+export function fits(s: CityState, x: number, y: number, size: number, occ = occupancy(s)): boolean {
   for (const t of footprint(x, y, size)) {
     if (!isTileUnlocked(s, t.x, t.y)) return false;
     const o = occ.get(tileKey(t.x, t.y));
-    if (o && o !== ignore) return false;
+    if (o) return false;
   }
   return true;
 }
@@ -206,12 +202,11 @@ export interface RoadNetwork {
 
 /**
  * 道路網：銀行に接する道路から、辺で隣り合う道路をたどって行ける道路（Q4）。建設中の道路も含める。
- * without の道路は無いものとして作る（撤去・移動の確かめ）
  */
-export function roadNetwork(s: CityState, without?: string): RoadNetwork {
+export function roadNetwork(s: CityState): RoadNetwork {
   const roads = new Set<string>();
-  for (const b of s.buildings) if (b.line === "road" && isPlaced(b) && b.id !== without) roads.add(tileKey(b.x, b.y));
-  for (const j of s.jobs) if (j.kind === "build" && j.line === "road" && j.buildingId !== without) roads.add(tileKey(j.x, j.y));
+  for (const b of s.buildings) if (b.line === "road" && isPlaced(b)) roads.add(tileKey(b.x, b.y));
+  for (const j of s.jobs) if (j.kind === "build" && j.line === "road") roads.add(tileKey(j.x, j.y));
   const bank = new Set<string>();
   const b = s.buildings.find((o) => o.special === "bank" && isPlaced(o));
   const tiles = new Set<string>();
@@ -254,48 +249,16 @@ export function connected(s: CityState, net: RoadNetwork, b: Kind, x: number, y:
 export interface PlaceCtx {
   occ: Map<string, string>;
   net: RoadNetwork;
-  /** 空きとみなす建物（移動する建物自身） */
-  ignore?: string;
 }
 
-/** 配置の確かめに使う盤面の情報。道路を動かす時は、その道路を除いた道路網で確かめる */
-export function placeCtx(s: CityState, ignore?: string): PlaceCtx {
-  const moving = ignore ? s.buildings.find((b) => b.id === ignore) : undefined;
-  return { occ: occupancy(s), net: roadNetwork(s, moving?.line === "road" ? ignore : undefined), ignore };
+/** 配置の確かめに使う盤面の情報 */
+export function placeCtx(s: CityState): PlaceCtx {
+  return { occ: occupancy(s), net: roadNetwork(s) };
 }
 
 /** (x, y) を左上にして置けるか（開いた区画・空き・道路網） */
 export function canPlace(s: CityState, b: Kind, x: number, y: number, c = placeCtx(s)): boolean {
-  return fits(s, x, y, buildingSize(b), c.occ, c.ignore) && connected(s, c.net, b, x, y);
-}
-
-/**
- * 選んだマス（tx, ty）を含むように置ける左上のマス。選んだマスを左上にできればそれを、
- * できなければ占有範囲が選んだマスを含むほかの置き方を、左上から順に試す
- */
-export function placementFor(s: CityState, b: Kind, tx: number, ty: number, c = placeCtx(s)): { x: number; y: number } | null {
-  const size = buildingSize(b);
-  if (canPlace(s, b, tx, ty, c)) return { x: tx, y: ty };
-  for (let dy = 0; dy < size; dy++)
-    for (let dx = 0; dx < size; dx++) {
-      if ((dx || dy) && canPlace(s, b, tx - dx, ty - dy, c)) return { x: tx - dx, y: ty - dy };
-    }
-  return null;
-}
-
-/** 選んだマスに置けない理由（置けるなら null） */
-export function placementError(s: CityState, b: Kind, tx: number, ty: number, c = placeCtx(s)): string | null {
-  if (placementFor(s, b, tx, ty, c)) return null;
-  if (!inBounds(tx, ty)) return "マップの外です";
-  if (!isTileUnlocked(s, tx, ty)) return "まだ解放されていない区画です";
-  const o = c.occ.get(tileKey(tx, ty));
-  if (o && o !== c.ignore) return "そのマスは使用中です";
-  const size = buildingSize(b);
-  // 空きはあるのに置けない：道路網に接していない
-  let room = false;
-  for (let dy = 0; dy < size && !room; dy++) for (let dx = 0; dx < size && !room; dx++) room = fits(s, tx - dx, ty - dy, size, c.occ, c.ignore);
-  if (!room) return `${size}×${size} マスの空きがありません`;
-  return b.line === "road" ? "道路は、銀行までつながった道路の隣に建ててください" : "銀行までつながった道路に接していません";
+  return fits(s, x, y, buildingSize(b), c.occ) && connected(s, c.net, b, x, y);
 }
 
 /**
@@ -345,15 +308,14 @@ function lineGrid(s: CityState): Map<string, LineId | "special"> {
   return grid;
 }
 
-/** 自動開発が使ってよい場所か（道路は推奨道路の上だけ、ほかの建物は推奨道路をふさがない。§5.3） */
-function autoAllowed(s: CityState, line: LineId, x: number, y: number, size: number): boolean {
-  if (footprint(x, y, size).some((t) => isNoAuto(s, t.x, t.y))) return false;
+/** 街の発展が使ってよい場所か（道路は推奨道路の上だけ、ほかの建物は推奨道路をふさがない。§5.3） */
+function siteAllowed(line: LineId, x: number, y: number, size: number): boolean {
   if (line === "road") return isPlannedRoad(x, y);
   return !footprint(x, y, size).some((t) => isPlannedRoad(t.x, t.y));
 }
 
 /**
- * 自動開発の1回の計画で使い回す盤面の情報（計画を立てる間は街が変わらないので、系統ごとに作り直さない）
+ * 発展の1回の計画で使い回す盤面の情報（計画を立てる間は街が変わらないので、系統ごとに作り直さない）
  */
 export interface SiteCache {
   ctx?: PlaceCtx;
@@ -391,7 +353,7 @@ export function findSite(s: CityState, line: LineId, cache?: SiteCache): { x: nu
 
   let best: { x: number; y: number; score: number } | null = null;
   for (const { x, y } of cachedSites(s, kind, cache)) {
-    if (!autoAllowed(s, line, x, y, size)) continue;
+    if (!siteAllowed(line, x, y, size)) continue;
     const zone = zoneAt(s, x, y);
     let score: number;
     if (def.zone === "any") {
@@ -509,23 +471,6 @@ export function forestSite(s: CityState, b: Kind): ForestSite | null {
   return null;
 }
 
-/**
- * 道路 roadId を外すと、銀行とのつながりが切れるもの（なければ null）。
- * 道路網から外れる道路があるか、道路網に接しなくなる建物・工事があれば、その名前の代わりに建物ID を返す
- */
-export function removalBreaks(s: CityState, roadId: string): string | null {
-  const net = roadNetwork(s, roadId);
-  for (const b of s.buildings) {
-    if (b.id === roadId || !isPlaced(b)) continue;
-    if (b.line === "road" ? !net.tiles.has(tileKey(b.x, b.y)) : !connected(s, net, b, b.x, b.y)) return b.id;
-  }
-  for (const j of s.jobs) {
-    if (j.kind !== "build" || j.buildingId === roadId) continue;
-    if (j.line === "road" ? !net.tiles.has(tileKey(j.x, j.y)) : !connected(s, net, j, j.x, j.y)) return j.buildingId;
-  }
-  return null;
-}
-
 // ---- 開拓（docs/map-layout-redesign.md §7） ----
 
 /** 開拓できる区画数の上限（初期の区画を含む。Q8） */
@@ -605,7 +550,7 @@ function plotZone(s: CityState, px: number, py: number): Zone | null {
 }
 
 /**
- * 自動開発が開く区画：同じ用途の区画の隣を優先し、次に銀行に近いもの。決定的にタイブレークする
+ * 街が開く区画：同じ用途の区画の隣を優先し、次に銀行に近いもの。決定的にタイブレークする
  */
 export function choosePlot(s: CityState, zone: Zone | null, cache?: SiteCache): string | null {
   let best: { k: string; score: number } | null = null;
