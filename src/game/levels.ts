@@ -27,13 +27,13 @@ export function achievementRate(netSavings: number, goal: number): number {
 export interface SavingsParts {
   /** 債券（マイナス可） */
   bond: number;
-  /** 都市に使った金貨の累計（金貨 → 資源・都市資金。＋差分のおまかせ交換を含む） */
+  /** ゲーム内で使った金貨の累計（金貨 → 資源・都市資金・銀貨。＋差分のおまかせ交換を含む） */
   citySpent: number;
 }
 
 /**
- * 貯金額 ＝ 債券 ＋ 都市に使った金貨（docs/record-input-redesign.md §7.1）。
- * 金貨はゲーム内で使っても現実のお金は出ていかないので、都市に使った金貨はそのまま貯金になる。債券は現実の支払いに使うと減る。
+ * 貯金額 ＝ 債券 ＋ ゲーム内で使った金貨（docs/record-input-redesign.md §7.1）。
+ * 金貨はゲーム内で使っても現実のお金は出ていかないので、ゲーム内で使った金貨はそのまま貯金になる。債券は現実の支払いに使うと減る。
  * 技術Lv（最高到達額）・銀行Lv・目標達成の判定と表示はこの額で行う。債券がマイナスなら減らす。
  */
 export function savingsTotal(p: SavingsParts): number {

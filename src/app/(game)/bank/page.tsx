@@ -57,7 +57,7 @@ export default function BankPage() {
       </Card>
       <Card title="貯金額の内訳">
         <dl className="num grid grid-cols-[1fr_auto] gap-y-1 text-sm">
-          <dt className="text-muted">債券以外（都市に使った金貨）</dt>
+          <dt className="text-muted">債券以外（ゲーム内で使った金貨）</dt>
           <dd className="text-right">{yen(s.citySpent)}</dd>
           <dt className="text-muted">債券</dt>
           <dd className={`text-right ${s.bond < 0 ? "text-danger" : ""}`}>
@@ -70,7 +70,7 @@ export default function BankPage() {
           </dd>
         </dl>
         <p className="mt-2 text-xs text-muted">
-          貯金額は、都市に使った現実のお金（金貨は使っても現実のお金は出ていきません）と債券の合計です。債券を現実の支払いに使うと貯金額は減ります。銀行Lv・技術Lv・目標達成はこの額で決まります。
+          貯金額は、ゲーム内で使った金貨（資源・都市資金・銀貨への交換。金貨は使っても現実のお金は出ていきません）と債券の合計です。債券を現実の支払いに使うと貯金額は減ります。銀行Lv・技術Lv・目標達成はこの額で決まります。
         </p>
       </Card>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">

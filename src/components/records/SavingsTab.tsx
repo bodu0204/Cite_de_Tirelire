@@ -80,7 +80,7 @@ export function SavingsTab({ tz }: { tz: string }) {
     <div className="space-y-4">
       <Card title="貯金管理">
         <p className="mb-3 text-xs text-muted">
-          現実の貯金を別口座へ移したり、手元へ戻したりしたときに記録します。技術Lv・銀行Lv・目標達成は貯金額（債券 ＋ 都市に使った金貨）で決まるので、この記録では変わりません。手元のお金の推測に使えます。
+          現実の貯金を別口座へ移したり、手元へ戻したりしたときに記録します。技術Lv・銀行Lv・目標達成は貯金額（債券 ＋ ゲーム内で使った金貨）で決まるので、この記録では変わりません。手元のお金の推測に使えます。
         </p>
         {v && (
           <dl className="num mb-3 grid grid-cols-3 gap-2 text-center text-xs">

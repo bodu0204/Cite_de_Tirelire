@@ -57,7 +57,7 @@ export interface GameCtx {
   grants: Grant[];
   /** 当期のユーザ通貨の未発生分から減らす額（月の収入の−差分） */
   cuts: CustomCut[];
-  /** 都市に使った金貨の累計（貯金額の債券以外） */
+  /** ゲーム内で使った金貨の累計（貯金額の債券以外） */
   citySpent: number;
   /** シーズン行の追加更新 */
   seasonPatch: Prisma.SeasonUpdateInput;
@@ -463,7 +463,7 @@ export const bigintReplacer = (_k: string, v: unknown) => (typeof v === "bigint"
 
 // ---- 貯金額の再評価（技術Lv・銀行Lv・達成率・シーズン状態。docs/record-input-redesign.md §7.1） ----
 
-/** 貯金額（債券 ＋ 都市に使った金貨）と、その最高到達額・達成率 */
+/** 貯金額（債券 ＋ ゲーム内で使った金貨）と、その最高到達額・達成率 */
 export function savingsOf(ctx: GameCtx) {
   requireSeason(ctx);
   const amount = savingsTotal({ bond: ctx.balances.bond, citySpent: ctx.citySpent });
