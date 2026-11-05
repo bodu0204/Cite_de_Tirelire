@@ -80,11 +80,10 @@ export const SILVER_MINE_EXCHANGE_BONUS = [0, 0.04, 0.08, 0.12, 0.16, 0.2];
 export const GOLD_RESOURCE_VALUE = { wood: 10, stone: 5, food: 10, treasury: 10 } as const;
 export const SILVER_VALUE_RATIO = 0.1;
 
-// ---- 手動操作の銀貨手数料 ----
+// ---- 銀貨の手数料 ----
 export const FEE_EXCHANGE = 5;
-export const FEE_MOVE = 5;
-export const feeBuild = (tier: number) => 10 + 5 * (tier + 1);
-export const feeUpgrade = (level: number) => 10 + 5 * level;
+/** 公園・像のために林を押しのけて敷く道路1マス */
+export const FEE_INSTANT_ROAD = 15;
 /** 即時完了：残り10分ごと */
 export const FEE_RUSH_PER_10MIN = 2;
 

@@ -40,8 +40,6 @@ export interface CityInput {
   jobs?: CityJob[];
   /** マスの土地用途（"x,y"） */
   zones: Record<string, Zone>;
-  /** 自動建設を禁止したマス（"x,y"） */
-  noAuto?: string[];
   bankLevel: number;
   highlights?: Set<string>;
   showZones?: boolean;
@@ -264,14 +262,11 @@ export function cityToIso(input: CityInput): { map: IsoMap; overlay: IsoOverlay 
 
   // 重ね描きの配列は、盤面の範囲の行優先
   const zones: Zone[] = new Array(n);
-  const noAutoSet = new Set(input.noAuto ?? []);
-  const noAuto: boolean[] = new Array(n).fill(false);
   const plannedRoads: boolean[] = new Array(n).fill(false);
   for (let y = rect.minY; y <= rect.maxY; y++)
     for (let x = rect.minX; x <= rect.maxX; x++) {
       const i = tileIndex(shape, x, y);
       zones[i] = input.zones[tileKey(x, y)] ?? "none";
-      if (noAutoSet.has(tileKey(x, y))) noAuto[i] = true;
       if (!locked[i] && !road[i] && !lot[i] && isPlannedRoad(x, y)) plannedRoads[i] = true;
     }
 
@@ -283,7 +278,6 @@ export function cityToIso(input: CityInput): { map: IsoMap; overlay: IsoOverlay 
     overlay: {
       zones,
       showZones: input.showZones,
-      noAuto: noAutoSet.size ? noAuto : undefined,
       plannedRoads: plannedRoads.some(Boolean) ? plannedRoads : undefined,
       jobs: input.jobs?.map((j) => ({ x: j.x, y: j.y, size: jobSize(j), startedAt: j.startedAt, finishAt: j.finishAt })),
       highlights: input.highlights ? [...input.highlights] : undefined,

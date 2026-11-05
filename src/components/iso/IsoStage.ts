@@ -612,23 +612,12 @@ export class IsoStage {
     }
   }
 
-  /** 工事のバーと対象外の印（毎フレーム。工事中だけ） */
+  /** 工事のバー（毎フレーム。工事中だけ） */
   private drawFx(now: number) {
     const g = this.fxGfx;
     g.clear();
     const u = this.p.tw / 64;
-    const { noAuto, jobs } = this.overlay;
-    if (noAuto)
-      noAuto.forEach((on, i) => {
-        if (!on) return;
-        // ひし形の左の角に、鍵の形の印（OBJ-09）
-        const t = tileAt(this.map, i);
-        const c = toScreen(this.p, t.x, t.y);
-        const x = c.sx - 26 * u;
-        const y = c.sy - 2 * u;
-        g.roundRect(x - 3 * u, y - u, 6 * u, 5 * u, u).fill(0x5d4037);
-        g.circle(x, y - 2 * u, 2 * u).stroke({ color: 0x5d4037, width: u });
-      });
+    const { jobs } = this.overlay;
     for (const j of jobs ?? []) {
       const ratio = Math.max(0, Math.min(1, (now - j.startedAt) / Math.max(1, j.finishAt - j.startedAt)));
       const jc = objectCenter(j);
@@ -931,10 +920,10 @@ export class IsoStage {
       const want = this.overlay.highlights ?? [];
       this.highlightSprites.forEach((sp, i) => (sp.visible = !!want[i] && on));
     }
-    if (this.overlay.jobs?.length || this.overlay.noAuto || this.effects.length || this.fxDrawn) {
+    if (this.overlay.jobs?.length || this.effects.length || this.fxDrawn) {
       this.drawFx(Date.now() + (this.opts.serverOffset ?? 0));
       this.drawEffects(now);
-      this.fxDrawn = !!(this.overlay.jobs?.length || this.overlay.noAuto || this.effects.length);
+      this.fxDrawn = !!(this.overlay.jobs?.length || this.effects.length);
     }
 
     if (this.camDirty) {

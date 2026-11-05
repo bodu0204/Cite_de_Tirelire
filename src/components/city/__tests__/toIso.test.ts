@@ -48,7 +48,6 @@ describe("盤面の変換", () => {
       plots: INITIAL_PLOTS,
       buildings: [b({ id: "r", line: "road", tier: 0, x: -3, y: 2 }), b({ id: "h", line: "housing", x: -5, y: -5 })],
       zones: { "-5,-5": "residential" },
-      noAuto: ["4,4"],
       bankLevel: 1,
     });
     expect({ x0: map.x0, y0: map.y0, width: map.width, height: map.height }).toEqual({ x0: -5 - LOCKED_BAND, y0: -5 - LOCKED_BAND, width: 10 + LOCKED_BAND * 2, height: 10 + LOCKED_BAND * 2 });
@@ -58,7 +57,6 @@ describe("盤面の変換", () => {
     expect(map.home).toEqual({ x: 0, y: 0 });
     expect(overlay.zones![tileIndex(map, -5, -5)]).toBe("residential");
     expect(overlay.zones![tileIndex(map, 0, 0)]).toBe("none");
-    expect(overlay.noAuto![tileIndex(map, 4, 4)]).toBe(true);
     // 範囲（開いた区画の隣の区画まで）の未開放のマスはすべて林か岩。範囲の外は描画側が同じ並びで埋める
     expect(map.outside).toBe("locked");
     const locked = map.objects.filter((o) => o.key.startsWith("locked/"));

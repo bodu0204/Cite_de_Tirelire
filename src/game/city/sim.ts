@@ -35,7 +35,7 @@ import {
 import { devLevel } from "../levels";
 import { coverPlans, firstShort, type PlanQueue, type QueuePlan } from "../planQueue";
 import type { Zone } from "../catalog";
-import { snapBuilding, type Building, type CityEvent, type CityState, type Gains, type Job, type NeedKey } from "../types";
+import { NEED_ORDER, snapBuilding, type Building, type CityEvent, type CityState, type Gains, type Job, type NeedKey } from "../types";
 import { computeMetrics, type Metrics } from "./economy";
 import { choosePlot, findSite, occupancy, placeWaitingSpecials, plotCross, plotsUsed, siteCache, tileKey, type SiteCache } from "./layout";
 
@@ -107,7 +107,7 @@ export function tick(s: CityState, end: number, events: CityEvent[], devMultipli
   shortageEvent(s, "food", foodShort, end, events);
   shortageEvent(s, "power", powerShort, end, events);
 
-  if (s.policy.autoEnabled) autoDevelop(s, computeMetrics(s), end);
+  autoDevelop(s, computeMetrics(s), end);
   s.simTime = end;
 }
 
@@ -164,7 +164,7 @@ function openPlot(s: CityState, job: Job, at: number, events: CityEvent[]) {
   const roads: Building[] = [];
   for (const t of cross) {
     if (occ.has(tileKey(t.x, t.y))) continue;
-    const road: Building = { id: newId(s), line: "road", tier: job.tier, level: 1, x: t.x, y: t.y, locked: false, manual: !job.auto, builtAt: at };
+    const road: Building = { id: newId(s), line: "road", tier: job.tier, level: 1, x: t.x, y: t.y, builtAt: at };
     s.buildings.push(road);
     roads.push(road);
   }
@@ -188,8 +188,6 @@ export function finishJob(s: CityState, job: Job, at: number, events: CityEvent[
       level: 1,
       x: job.x,
       y: job.y,
-      locked: false,
-      manual: !job.auto,
       builtAt: at,
     };
     s.buildings.push(b);
@@ -279,7 +277,7 @@ export function plannedMetrics(s: CityState): Metrics {
     return j.kind === "upgrade" ? { ...b, level: j.level } : j.kind === "evolve" ? { ...b, tier: j.tier } : b;
   });
   for (const j of s.jobs)
-    if (j.kind === "build") buildings.push({ id: j.buildingId, line: j.line, tier: j.tier, level: 1, x: j.x, y: j.y, locked: false, manual: !j.auto, builtAt: j.finishAt });
+    if (j.kind === "build") buildings.push({ id: j.buildingId, line: j.line, tier: j.tier, level: 1, x: j.x, y: j.y, builtAt: j.finishAt });
   return computeMetrics({ ...s, buildings });
 }
 
@@ -319,7 +317,7 @@ export function plotCost(s: CityState): Cost {
  * 区画の開拓の計画（自動開発。Q9）。同時に開拓するのは1区画まで。開く区画には、土地を求めた建物の用途を付ける
  */
 function expandPlan(s: CityState, dev: number, zone: Zone | null, cache?: SiteCache): Plan | null {
-  if (s.policy.autoExpand === false || s.jobs.some((j) => j.kind === "expand")) return null;
+  if (s.jobs.some((j) => j.kind === "expand")) return null;
   const plot = choosePlot(s, zone, cache);
   if (!plot) return null;
   const n = nextPlotIndex(s);
@@ -331,7 +329,7 @@ function expandPlan(s: CityState, dev: number, zone: Zone | null, cache?: SiteCa
 function evolvePlans(s: CityState, lines: LineId[], dev: number): Plan[] {
   const out: Plan[] = [];
   const candidates = s.buildings
-    .filter((b) => b.line && lines.includes(b.line) && !b.locked && !busy(s, b.id))
+    .filter((b) => b.line && lines.includes(b.line) && !busy(s, b.id))
     .filter((b) => isTierUnlocked(b.line!, b.tier + 1, s.techLevel, dev))
     .sort((a, b) => lines.indexOf(a.line!) - lines.indexOf(b.line!) || a.tier - b.tier || a.builtAt - b.builtAt || a.id.localeCompare(b.id));
   for (const b of candidates) {
@@ -344,7 +342,7 @@ function evolvePlans(s: CityState, lines: LineId[], dev: number): Plan[] {
 function upgradePlans(s: CityState, lines: LineId[], dev: number): Plan[] {
   const cap = levelCap(dev);
   return s.buildings
-    .filter((b) => b.line && lines.includes(b.line) && !b.locked && !busy(s, b.id) && b.level < cap)
+    .filter((b) => b.line && lines.includes(b.line) && !busy(s, b.id) && b.level < cap)
     .sort((a, b) => a.level - b.level || lines.indexOf(a.line!) - lines.indexOf(b.line!) || a.id.localeCompare(b.id))
     .map((b) => ({
       kind: "upgrade" as const,
@@ -378,7 +376,7 @@ function plansFor(need: NeedKey, s: CityState, m: Metrics, dev: number, cache = 
     }
     case "jobs": {
       if (m.labor <= m.jobSlots + 0.5) break;
-      const commerceFirst = s.policy.preset === "commerce" || m.commerceCap < pop;
+      const commerceFirst = m.commerceCap < pop;
       const order: LineId[] = commerceFirst
         ? ["commerce", "office", "factory", "quarry", "lumber", "farm"]
         : ["factory", "commerce", "office", "quarry", "lumber", "farm"];
@@ -422,13 +420,13 @@ function plansFor(need: NeedKey, s: CityState, m: Metrics, dev: number, cache = 
 
 // ---- 計画列と必要資源（docs/needs-based-exchange.md §4） ----
 
-/** 計画列の具体的な計画：方針の優先順に全項目の候補を並べ、同じ建物の重複を除く */
+/** 計画列の具体的な計画：決まった順（NEED_ORDER）に全項目の候補を並べ、同じ建物の重複を除く */
 function concretePlans(s: CityState): Plan[] {
   const m = plannedMetrics(s);
   const seen = new Set<string>();
   const out: Plan[] = [];
   const cache = siteCache();
-  for (const need of s.policy.priorities) {
+  for (const need of NEED_ORDER) {
     for (const plan of plansFor(need, s, m, m.devLevel, cache)) {
       const key = plan.kind === "build" ? `build:${plan.line}` : plan.kind === "expand" ? "expand" : `${plan.kind}:${plan.building!.id}`;
       if (seen.has(key)) continue;
@@ -491,14 +489,15 @@ export function cityNeeds(s: CityState, m: Metrics = computeMetrics(s)): CityNee
 }
 
 /**
- * 自動開発のジョブを開始する。1ティックに、方針の優先順で、払える限り何件でも始める。
+ * 自動開発のジョブを開始する。1ティックに、決まった順（NEED_ORDER）で、払える限り何件でも始める。
+ * 街の開発はこの1つの手順だけで進む（手動の建設・方針の設定はない）。
  * 足りないものは工事中の分も終わったものとして判断する（plannedMetrics）。m は待つ時間の見積もりに使う今の指標
  */
 export function autoDevelop(s: CityState, m: Metrics, now: number): void {
   const dev = m.devLevel;
   let cache = siteCache();
   let pm = plannedMetrics(s);
-  for (const need of s.policy.priorities) {
+  for (const need of NEED_ORDER) {
     // 始めたジョブの分だけ候補が変わるので、何も始められなくなるまで候補を出し直す
     for (let started = true; started; ) {
       started = false;
@@ -506,7 +505,7 @@ export function autoDevelop(s: CityState, m: Metrics, now: number): void {
         if (canAfford(s, plan.cost, true)) {
           // 景観改善は余剰資金があるときだけ
           if (need === "beautify" && s.treasury - plan.cost.treasury < 500) return;
-          startJob(s, plan, now, true);
+          startJob(s, plan, now);
           // 盤面と完成後の指標が変わったので、場所と指標は出し直す
           cache = siteCache();
           pm = plannedMetrics(s);
@@ -520,14 +519,14 @@ export function autoDevelop(s: CityState, m: Metrics, now: number): void {
   }
 }
 
-export function startJob(s: CityState, plan: Plan, now: number, auto: boolean): Job {
+function startJob(s: CityState, plan: Plan, now: number): Job {
   s.stock.wood -= plan.cost.wood;
   s.stock.stone -= plan.cost.stone;
-  if (auto) s.treasury -= plan.cost.treasury;
+  s.treasury -= plan.cost.treasury;
   const job: Job = {
     id: `j${s.nextId++}`,
     kind: plan.kind,
-    auto,
+    auto: true,
     line: plan.line,
     tier: plan.tier,
     level: plan.level,

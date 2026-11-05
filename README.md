@@ -52,7 +52,7 @@ src/game/        ゲームエンジン（純粋なTypeScript。DB・UIに依存�
   levels.ts        銀行Lv・配当Lv・記録Lv・技術Lv・発展Lv
   city/economy.ts  内部経済（人口・労働・電力・物流・幸福度・都市資金）
   city/sim.ts      10分ティックの放置シミュレーションと自律型開発システム
-  city/actions.ts  手動操作、公園（サブスク）・像（ほしい物）の同期
+  city/actions.ts  即時完了、公園（サブスク）・像（ほしい物）の同期
   replay.ts        タイムラプスの再構築
 src/server/      サーバー（正本）
   game.ts          ユーザー単位ロック付きトランザクションで「同期→操作→保存」

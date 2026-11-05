@@ -22,7 +22,6 @@ export default function HomePage() {
   const collector = useCollect();
   const v = useSeasonView();
   const [tile, setTile] = useState<{ x: number; y: number } | null>(null);
-  const [moving, setMoving] = useState<string | null>(null);
   const [showZones, setShowZones] = useState(false);
   // 昼夜を時刻に合わせるか（OBJ-14）。端末ごとに覚える。読めなければ合わせる
   const [dayNight, setDayNight] = useState(true);
@@ -85,7 +84,6 @@ export default function HomePage() {
             buildings={c.buildings}
             jobs={c.jobs}
             zones={c.zones}
-            noAuto={c.noAuto}
             bankLevel={c.bankLevel}
             selected={tile}
             highlights={highlights}
@@ -100,7 +98,7 @@ export default function HomePage() {
             gold={{ uncollected: v.mine.uncollected, ratePerMinute: v.mine.ratePerMinute }}
           />
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
-            <span>マスを選ぶと建物の操作ができます。街は操作しなくても自動で発展します。</span>
+            <span>マスを選ぶと建物の様子が見られます。街は自動開発で発展します。</span>
             <span className="flex shrink-0 flex-wrap items-center gap-3">
               <label className="flex items-center gap-1.5 whitespace-nowrap">
                 <input type="checkbox" className="w-auto" checked={showZones} onChange={(e) => setShowZones(e.target.checked)} />
@@ -115,8 +113,8 @@ export default function HomePage() {
         </div>
 
         {tile && (
-          <Card title={tileLabel(tile.x, tile.y)} action={<button className="text-sm text-muted" onClick={() => (setTile(null), setMoving(null))}>閉じる</button>}>
-            <TilePanel v={v} tile={tile} moving={moving} setMoving={setMoving} />
+          <Card title={tileLabel(tile.x, tile.y)} action={<button className="text-sm text-muted" onClick={() => setTile(null)}>閉じる</button>}>
+            <TilePanel v={v} tile={tile} />
           </Card>
         )}
 
