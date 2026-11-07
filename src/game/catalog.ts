@@ -1,5 +1,5 @@
 // 建物カタログ：系統（ライン）× 段階（ティア）。生産・消費・建設費はここから算出する。
-import { BUILD_TIME_SCALE, REVENUE_SCALE, TREASURY_COST_SCALE } from "./config";
+import { BUILD_TIME_SCALE, TREASURY_COST_SCALE } from "./config";
 
 export type LineId =
   | "housing"
@@ -49,7 +49,7 @@ export interface TierDef {
   food?: number;
   wood?: number;
   stone?: number;
-  revenue?: number; // 都市資金
+  revenue?: number; // 都市資金（以前の収益。貯金で育つ街では使わない：GRW-01）
   customers?: number; // 商業の受け入れ人数
   logistics?: number; // 物流容量（建物何棟分）
   serve?: number; // 公共施設がカバーする人口
@@ -237,7 +237,6 @@ for (const line of LINE_IDS) {
   for (const t of LINES[line].tiers) {
     t.cost.treasury *= TREASURY_COST_SCALE;
     t.buildMinutes *= BUILD_TIME_SCALE;
-    if (t.revenue) t.revenue *= REVENUE_SCALE;
   }
 }
 

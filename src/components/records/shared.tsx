@@ -28,7 +28,7 @@ export const GAIN_LABELS: [keyof Gains, string][] = [
   ["wood", "木材"],
   ["stone", "石材"],
   ["food", "食料"],
-  ["treasury", "都市資金"],
+  ["treasury", "建設資金"],
 ];
 
 export function GainsText({ g }: { g: Gains | null | undefined }) {

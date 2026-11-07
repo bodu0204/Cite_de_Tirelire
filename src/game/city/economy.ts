@@ -1,16 +1,16 @@
-// 内部経済：人口 → 労働力 → 生産 → 供給 → 消費 → 都市資金 → 建設 → 人口増加
+// 街の状態の指標：人口 → 労働力 → 生産（食料・割引施設）→ 幸福度。
+// 街は自分では稼がない（建設資金は貯金からだけ入る。docs/savings-driven-growth.md GRW-01）。
+// 人口と幸福度は賑わいの表示と悪い出来事の被害の大きさにだけ使う（GRW-08）
 import { levelMultiplier, LINES, tierDef, type TierDef } from "../catalog";
 import {
   FOOD_PER_RESIDENT_HOUR,
   LABOR_PARTICIPATION,
   LOGISTICS_FLOOR,
+  MOVE_IN_PER_HOUR,
   OPERATION_FLOOR,
   PARK_HAPPINESS_CAP,
   PARK_HAPPINESS_DECAY,
   PARK_HAPPINESS_FIRST,
-  POP_GROWTH_BASE_HOUR,
-  POP_GROWTH_PER_RESIDENT_HOUR,
-  TAX_PER_RESIDENT_HOUR,
   TECH_MULTIPLIER,
 } from "../config";
 import { devLevel } from "../levels";
@@ -19,9 +19,10 @@ import { pollutionPairs } from "./layout";
 
 export interface Production {
   food: number;
+  /** 木材・石材は在庫に入らない（割引施設が動いているかの目安。GRW-02・GRW-05） */
   wood: number;
   stone: number;
-  /** 都市資金（税収を含む） */
+  /** 街は自分では稼がないので常に0（GRW-01） */
   treasury: number;
 }
 
@@ -46,14 +47,13 @@ export interface Metrics {
   commerceCap: number;
   publicCap: number;
   production: Production;
-  tax: number;
   foodUse: number;
   /** 備蓄を考慮しない構造的な食料充足 */
   foodRatio: number;
   happinessTarget: number;
   /** 都市稼働係数（発展速度） */
   operation: number;
-  /** 1時間あたりの人口増加（食料充足を掛ける前） */
+  /** 1時間あたりに移り住む人数（食料充足を掛ける前。GRW-09） */
   growth: number;
 }
 
@@ -119,7 +119,6 @@ export function computeMetrics(s: CityState): Metrics {
     production.food += out.food;
     production.wood += out.wood;
     production.stone += out.stone;
-    production.treasury += out.treasury;
   }
 
   const foodUse = pop * FOOD_PER_RESIDENT_HOUR;
@@ -136,16 +135,11 @@ export function computeMetrics(s: CityState): Metrics {
   h -= Math.min(15, pollutionPairs(s) * 3);
   const happinessTarget = Math.max(0, Math.min(100, h));
 
-  const tax = pop * TAX_PER_RESIDENT_HOUR * (0.5 + s.happiness / 100);
-  production.treasury += tax;
-
   const logisticsNorm = (logistics - LOGISTICS_FLOOR) / (1 - LOGISTICS_FLOOR);
   const worst = Math.min(foodRatio, powerRatio, employment, logisticsNorm);
   const operation = worst >= 0.95 ? 1 : worst >= 0.6 ? 0.7 : OPERATION_FLOOR;
 
-  const room = housingCap > 0 ? Math.max(0, Math.min(1, (housingCap - pop) / (housingCap * 0.25))) : 0;
-  const growth =
-    (POP_GROWTH_BASE_HOUR + POP_GROWTH_PER_RESIDENT_HOUR * pop) * room * (0.3 + 0.7 * employment) * (0.5 + s.happiness / 100);
+  const growth = Math.max(0, housingCap - pop) * MOVE_IN_PER_HOUR;
 
   return {
     devLevel: dev,
@@ -165,7 +159,6 @@ export function computeMetrics(s: CityState): Metrics {
     commerceCap,
     publicCap,
     production,
-    tax,
     foodUse,
     foodRatio,
     happinessTarget,
@@ -189,11 +182,11 @@ export function buildingOutput(
     (t.workers ? f.laborRatio : 1) *
     (t.power ? f.powerRatio : 1) *
     f.logistics;
-  const commerceFactor = t.customers ? f.demandRatio : 1;
   return {
     food: (t.food ?? 0) * k,
     wood: (t.wood ?? 0) * k,
     stone: (t.stone ?? 0) * k,
-    treasury: (t.revenue ?? 0) * k * commerceFactor,
+    // 商業・工業の収益はなくした（GRW-01）
+    treasury: 0,
   };
 }

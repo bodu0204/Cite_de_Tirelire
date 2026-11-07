@@ -3,6 +3,8 @@
 作成日：2026-10-19（2026-10-20 改訂：§10 の回答を反映。開発計画を無限に続くものとし、必要資源が0になる状態をなくした。2026-10-22 改訂：§13 で銀貨→都市資金も交換できるようにした）
 関係：[requirements.md](requirements.md) 2.2・3.1・SCR-07、[bond-and-custom-currency.md](bond-and-custom-currency.md) §4（BND-05〜07・BND-10）・§5.3・§7、[exchange.ts](../src/game/exchange.ts)、[ops.ts](../src/server/ops.ts) `exchange` / `exchangeToBond`、[sim.ts](../src/game/city/sim.ts) `plansFor` / `develop`、[idle.ts](../src/game/idle.ts) `advance`、[mine.ts](../src/game/mine.ts) `accrue`、[settle.ts](../src/game/settle.ts) `depositToBond`、[exchange/page.tsx](../src/app/(game)/exchange/page.tsx)
 
+> 2026-11-07 追記：木材・石材・都市資金は建設資金1種類にまとめ、おまかせ交換はいつも全額が建設資金になった（[savings-driven-growth.md](savings-driven-growth.md) GRW-02）。本書の「必要割合で振り分ける」部分は過去の仕様。
+
 ## 1. 目的
 
 次の3つを追加する。

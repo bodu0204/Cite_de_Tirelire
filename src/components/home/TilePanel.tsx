@@ -4,7 +4,7 @@ import Link from "next/link";
 import { SPECIAL_LABELS, tierDef, ZONE_LABELS } from "@/game/catalog";
 import { buildingOutput } from "@/game/city/economy";
 import { buildingSize, contains, expansionError, isPlaced, isTileUnlocked, jobSize, plotKey, plotOf, zoneAt } from "@/game/city/layout";
-import { MINUTE } from "@/game/config";
+import { DISCOUNT_PER_BUILDING, MINUTE } from "@/game/config";
 import { PARK_DESCRIPTION, PARK_SIZE_LABELS, STATUE_DESCRIPTION, statueStageLabel } from "@/game/describe";
 import { STATUE_RANK_LABELS } from "@/game/levels";
 import type { Building } from "@/game/types";
@@ -37,9 +37,8 @@ function outputText(v: ActiveView, b: Building): string {
   const parts: string[] = [];
   if (t.housing) parts.push(`住民 ${fmt(t.housing * lm)}人まで`);
   if (o.food) parts.push(`食料 +${fmt(o.food, 1)}/時`);
-  if (o.wood) parts.push(`木材 +${fmt(o.wood, 1)}/時`);
-  if (o.stone) parts.push(`石材 +${fmt(o.stone, 1)}/時`);
-  if (o.treasury) parts.push(`都市資金 +${fmt(o.treasury, 1)}/時`);
+  // 木材加工所・石材加工所・工場は建設費の割引の施設（docs/savings-driven-growth.md GRW-05）
+  if (b.line === "lumber" || b.line === "quarry" || b.line === "factory") parts.push(`建設費 −${Math.round(DISCOUNT_PER_BUILDING * 100)}%`);
   if (t.powerSupply) parts.push(`電力 ${fmt(t.powerSupply * lm)}`);
   if (t.logistics) parts.push(`物流 ${fmt(t.logistics * lm)}棟分`);
   if (t.serve) parts.push(`${fmt(t.serve * lm)}人をカバー`);

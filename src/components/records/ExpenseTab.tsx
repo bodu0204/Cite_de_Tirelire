@@ -96,7 +96,7 @@ function QuoteView({ q }: { q: Quote }) {
       {q.after && p.bond > 0 && (
         <p className="mt-1 text-xs">
           記録後の債券は <span className={`num font-semibold ${q.after.bond < 0 ? "text-danger" : ""}`}>{fmt(q.after.bond)}</span>
-          {q.after.bond < 0 && "。0に戻るまで配当の20%以上が債券に回ります（発展速度は変わりません）"}
+          {q.after.bond < 0 && "。0に戻るまで配当の20%以上が債券に回ります（その間は債券の利息がつきません）"}
         </p>
       )}
     </div>

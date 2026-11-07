@@ -1,11 +1,12 @@
 // ゲーム操作。すべて withGame の中（同期済み・ロック済み）で呼ばれる。
 import { Prisma } from "@prisma/client";
 import { bondCap, bondResourceEligible } from "@/game/bond";
-import { createCity } from "@/game/city/init";
+import { createCity, seasonBase } from "@/game/city/init";
 import { cityNeeds } from "@/game/city/sim";
 import { INITIAL_GOLD, INITIAL_SILVER, REWARD_DAILY_CAP, REWARD_PURCHASE, REWARD_SAVINGS, SAVINGS_DAILY_LIMIT } from "@/game/config";
 import { fail } from "@/game/errors";
 import { quoteBondGains, quoteNeedsExchange, quoteResourceExchange, totalGains, ZERO_GAINS, type Currency } from "@/game/exchange";
+import { creditGains } from "@/game/fund";
 import { budgetOverruns, describeOverruns, startOfDay, type Overrun } from "@/game/currency";
 import { goldMineLevel, silverMineLevel } from "@/game/levels";
 import { collect, newMine } from "@/game/mine";
@@ -49,7 +50,8 @@ export async function startSeason(ctx: GameCtx, body: Body) {
   const tz = ctx.user.timezone;
   const number = (await ctx.tx.season.count({ where: { userId: ctx.user.id } })) + 1;
   const mine = newMine(ctx.now, ctx.cal);
-  const city = createCity(ctx.now);
+  // 基準額（値段と発展Lv・技術Lvの単位）はシーズン開始時の月間自由予算と目標額で決め、シーズン中は変えない（PRC-05・PRC-06）
+  const city = createCity(ctx.now, seasonBase(ctx.user.monthlyBudget, goal));
   const season = await ctx.tx.season.create({
     data: {
       userId: ctx.user.id,
@@ -384,10 +386,13 @@ export async function deleteSavings(ctx: GameCtx, id: string) {
 
 const RESOURCES: StockKey[] = ["wood", "stone", "food"];
 
-/** 交換で街に入れる資源と都市資金（ゲーム内のおまかせ交換と同じ量。docs/needs-based-exchange.md §5・§6・§13） */
-function addStock(ctx: GameCtx, gains: Gains) {
-  for (const k of RESOURCES) ctx.city!.stock[k] += gains[k];
-  ctx.city!.treasury += gains.treasury;
+/**
+ * 交換で街に入れる建設資金（docs/savings-driven-growth.md GRW-02）。開拓期ボーナスを足し、
+ * 足したボーナスも含めた獲得量を返す（ERL-01）
+ */
+function addStock(ctx: GameCtx, gains: Gains): Gains {
+  const bonus = creditGains(ctx.city!, gains, ctx.now);
+  return { ...gains, treasury: gains.treasury + bonus };
 }
 
 /**
@@ -403,8 +408,7 @@ function exchangeToBond(ctx: GameCtx, from: "gold" | "custom", amount: number, b
   const resource = body.resource === undefined ? "auto" : oneOf(body.resource, [...RESOURCES, "treasury", "auto"] as const, "資源");
   const grant = () => {
     const eligible = bondResourceEligible(before, amount, bondCap(ctx.user.monthlyBudget));
-    const gains = quoteBondGains(eligible, resource, cityNeeds(ctx.city!).needs, facilityLevels(ctx));
-    addStock(ctx, gains);
+    const gains = addStock(ctx, quoteBondGains(eligible, resource, cityNeeds(ctx.city!).needs, facilityLevels(ctx)));
     return { resourceEligible: eligible, gains };
   };
   if (from === "gold") {
@@ -451,24 +455,25 @@ export function exchange(ctx: GameCtx, body: Body) {
   const currency = oneOf(body.currency, ["gold", "silver"] as const, "通貨") as Currency;
   const resource = oneOf(body.resource, [...RESOURCES, "treasury", "auto"] as const, "資源");
   const lv = facilityLevels(ctx);
-  // おまかせ：都市の必要資源の割合で振り分ける（手数料は1回分）
+  // おまかせも種類を選んだ交換も、全額が建設資金になる（手数料は1回分。GRW-02）
   const q =
     resource === "auto"
       ? quoteNeedsExchange(currency, amount, cityNeeds(ctx.city!).needs, lv)
       : (() => {
           const one = quoteResourceExchange(currency, resource, amount, lv);
           const gains: Gains = { ...ZERO_GAINS };
-          gains[resource] = one.gain;
+          // 木材・石材・食料を選んでも建設資金になる（GRW-02）
+          gains.treasury = one.gain;
           return { ...one, gains };
         })();
   const gain = totalGains(q.gains);
   if (gain <= 0) fail("too_small", "交換量が少なすぎます");
   addCurrency(ctx, "SILVER", -q.silverCost, "exchange_resource");
   addCurrency(ctx, "GOLD", -q.goldCost, "exchange_resource");
-  addStock(ctx, q.gains);
+  const gains = addStock(ctx, q.gains);
   // 金貨（1G＝1円相当）をゲーム内で使った分は、現実で使わずに済んだお金＝見込み貯金
   if (q.goldCost > 0) ctx.citySpent += q.goldCost;
-  return { ...q, gain, citySpentAdded: q.goldCost };
+  return { ...q, gains, gain: totalGains(gains), citySpentAdded: q.goldCost };
 }
 
 // ---- サブスク ----

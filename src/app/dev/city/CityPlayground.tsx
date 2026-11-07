@@ -6,6 +6,7 @@ import { syncParks, syncStatues } from "@/game/city/actions";
 import { computeMetrics } from "@/game/city/economy";
 import { expandablePlots } from "@/game/city/layout";
 import { createCity } from "@/game/city/init";
+import { creditFund } from "@/game/fund";
 import { applyTechLevel, simulate } from "@/game/city/sim";
 import { DAY } from "@/game/config";
 import { devLevel } from "@/game/levels";
@@ -15,11 +16,15 @@ const T0 = Date.UTC(2026, 9, 1);
 /** 放置する日数と、その日までの技術Lv（scripts/balance.ts の貯金の進み方に近い） */
 const DAYS = [0, 1, 3, 7, 14, 21, 30];
 const techAt = (d: number) => (d >= 21 ? 5 : d >= 14 ? 4 : d >= 7 ? 3 : d >= 1 ? 2 : 1);
+/** 基準額（月間自由予算 10万円）と、毎日の貯金（初日 5,000円、以降 月2万円のペース） */
+const BASE = 100_000;
+const savedOn = (d: number) => (d === 0 ? 5_000 : 667);
 
 function cityAfter(days: number, specials: boolean): CityState {
-  const s = createCity(T0);
+  const s = createCity(T0, BASE);
   for (let d = 0; d < days; d++) {
     applyTechLevel(s, techAt(d + 1), s.simTime, []);
+    creditFund(s, savedOn(d), s.simTime);
     simulate(s, T0 + (d + 1) * DAY, []);
   }
   // 公園（高額・ふつう）と像。土地が足りなければ林を押しのけて置く

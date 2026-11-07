@@ -91,7 +91,7 @@ export default function DividendPage() {
           <span className={`num font-pixel text-2xl ${v.currencies.bond < 0 ? "text-danger" : ""}`}>{fmt(v.currencies.bond)}</span>
         </div>
         <p className="mt-1 text-xs text-muted">
-          配当の一部を債券に回します。債券は急な出費（金貨が足りない購入）を肩代わりし、持っているほど街の時間発展が速くなります（今 ×{fmt(v.dev.bondMultiplier, 2)}）。上限 {fmt(bond.cap)}（自由予算の3か月分）に達したら自動で止まります。
+          配当の一部を債券に回します。債券に入った分は同じ額の建設資金になり、債券は急な出費（金貨が足りない購入）を肩代わりします。持っている間は毎日利息が建設資金として街に入ります（今 +{yen(Math.floor(v.dev.interestPerDay))}/日・備えLv{v.dev.reserveLevel}）。上限 {fmt(bond.cap)}（自由予算の3か月分）に達したら自動で止まります。
         </p>
         <label className="mt-3 block text-sm">
           <span className="mb-1 block font-medium">債券化率</span>

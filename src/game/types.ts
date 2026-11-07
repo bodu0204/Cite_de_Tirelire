@@ -50,18 +50,23 @@ export interface Job {
   zone?: Zone;
   startedAt: number;
   finishAt: number;
+  /** 着工時に払った値段（円）。完成すると発展ptに数える（GRW-04） */
+  price?: number;
 }
 
 export type NeedKey = "shortage" | "jobs" | "housing" | "logistics" | "efficiency" | "industry" | "beautify";
 
-/** 街の発展が必要事項を検討する順（すべての街で同じ） */
+/**
+ * 街の発展が必要事項を検討する順（すべての街で同じ）。新産業は系統ごとに1棟目だけなので、雇用・住宅より先にしても
+ * ほかを長く待たせない（docs/savings-driven-growth.md GRW-07）
+ */
 export const NEED_ORDER: NeedKey[] = [
   "shortage",
+  "industry",
   "jobs",
   "housing",
   "logistics",
   "efficiency",
-  "industry",
   "beautify",
 ];
 
@@ -71,12 +76,23 @@ export interface CityState {
   simTime: number;
   buildings: Building[];
   jobs: Job[];
+  /** 食料だけを使う。木材・石材は建物の見た目にだけ残し、在庫には持たない（docs/savings-driven-growth.md GRW-02） */
   stock: Stock;
+  /** 建設資金（円）。貯金からだけ入り、計画の値段を払う（GRW-01） */
   treasury: number;
   population: number;
   peakPopulation: number;
   happiness: number;
+  /** 発展pt ＝ 完成した計画の累計額 ÷ 基準額 × 1000（GRW-04） */
   devPoints: number;
+  /** 基準額（円）：シーズン開始時の月間自由予算と目標額の小さいほう。値段と発展Lv・技術Lvの閾値の単位（PRC-05・PRC-06） */
+  base: number;
+  /** 完成した計画の累計額（円） */
+  completed: number;
+  /** シーズン開始時刻（開拓期ボーナスの判定。ERL-01） */
+  startedAt: number;
+  /** 開拓期ボーナスで増えた建設資金の累計（円。上限 ERL-02） */
+  earlyBonus: number;
   /** 建築実績の最高記録。重複計上を防ぐ（"line:tier" → 棟数, "lv:line" → Lv合計） */
   peaks: Record<string, number>;
   /** マスの土地用途（キーは "x,y"）。書いていないマスは未指定 */
@@ -88,10 +104,12 @@ export interface CityState {
   bankLevel: number;
   nextId: number;
   flags: { foodShort: boolean; powerShort: boolean };
-  /** 債券化（採掘・ユーザ通貨の余り）で資源をつける額のうち、まだ資源にしていない分（金貨換算）。次のティックの前に資源にする */
+  /** 債券化（採掘・ユーザ通貨の余り）で建設資金をつける額のうち、まだ街に入れていない分（金貨換算）。次のティックの前に入れる */
   bondResourcePending?: number;
-  /** 債券化で得た資源の累計（放置中の変化の表示用） */
+  /** 債券化で得た建設資金の累計（放置中の変化の表示用。treasury だけを使う） */
   bondResourceTotal?: Gains;
+  /** 債券の利息で得た建設資金の累計（円。RSV-02） */
+  interestTotal?: number;
 }
 
 export type CityEventType =

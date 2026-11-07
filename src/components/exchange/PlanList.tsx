@@ -9,7 +9,7 @@ import { Card, Gauge } from "../ui";
 /** 最初に表示する計画の数（交換後に足りなくなる計画がそれより後ろなら、そこまで表示する） */
 const INITIAL_ROWS = 6;
 
-export const LABEL: Record<keyof PlanStock, string> = { wood: "木材", stone: "石材", treasury: "都市資金" };
+export const LABEL: Record<keyof PlanStock, string> = { wood: "木材", stone: "石材", treasury: "建設資金" };
 
 export const planLabel = (p: QueuePlan) =>
   p.kind === "build" ? `${p.name}を新築` : p.kind === "evolve" ? `${p.name}へ進化` : p.kind === "expand" ? p.name : `${p.name} Lv${p.level}へ`;

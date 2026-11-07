@@ -8,6 +8,7 @@ import { FEE_EXCHANGE, MICRO_PER_GOLD, REWARD_PURCHASE } from "@/game/config";
 import { dayEvents, minuteRule, monthDayTotal, shiftDays, startOfDay, validWindow, type CurrencyDefLite } from "@/game/currency";
 import { fail } from "@/game/errors";
 import { quoteNeedsExchange } from "@/game/exchange";
+import { creditGains } from "@/game/fund";
 import { applyGrant, type Grant } from "@/game/idle";
 import { floorMinute, remainingMining, windowMinedBy } from "@/game/mine";
 import { dayKey, parseDateInTz, periodKey, periodRange } from "@/game/time";
@@ -218,10 +219,10 @@ function autoExchange(ctx: GameCtx, gold: number, refId: string): Gains | null {
   const q = quoteNeedsExchange("gold", gold, cityNeeds(ctx.city!).needs, facilityLevels(ctx), { fee });
   addCurrency(ctx, "GOLD", -gold, "exchange_resource", refId);
   addCurrency(ctx, "SILVER", -q.silverCost, "exchange_resource", refId);
-  for (const k of ["wood", "stone", "food"] as const) ctx.city!.stock[k] += q.gains[k];
-  ctx.city!.treasury += q.gains.treasury;
+  // 建設資金を街に入れる（開拓期ボーナスつき。docs/savings-driven-growth.md ERL-01）
+  const bonus = creditGains(ctx.city!, q.gains, ctx.now);
   ctx.citySpent += gold;
-  return q.gains;
+  return { ...q.gains, treasury: q.gains.treasury + bonus };
 }
 
 /** 当期の未配当分（残りの採掘・ユーザ通貨の未発生分）のうち、まだ減らしていない額 */

@@ -3,6 +3,8 @@
 作成日：2026-10-18（2026-10-19 改訂：§12 の回答と追加要望を反映。同日、残りの論点をすべて確定）
 関係：[requirements.md](requirements.md) 2.2・3.2・3.6・4.5・4.8・5・9、[mine.ts](../src/game/mine.ts)、[ops.ts](../src/server/ops.ts)、[game.ts](../src/server/game.ts)、[sim.ts](../src/game/city/sim.ts)、[view.ts](../src/server/view.ts)
 
+> 2026-11-07 追記：債券倍率（時間発展の速さ）は廃止し、債券の利息（建設資金）と備えLvに置き換えた（[savings-driven-growth.md](savings-driven-growth.md) RSV-02・RSV-03・RSV-06）。
+
 ## 1. 目的
 
 金貨・銀貨に加えて、次の2つを追加する。

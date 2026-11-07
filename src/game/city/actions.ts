@@ -4,11 +4,11 @@ import { LINES } from "../catalog";
 import { statueRank } from "../levels";
 import { snapBuilding, type Building, type CityEvent, type CityState } from "../types";
 import { buildingSize, canPlace, findSpecialSite, forestSite, isPlaced } from "./layout";
-import { buildingName, newId } from "./sim";
+import { buildingName, newId, priceOf } from "./sim";
 
 /**
  * 特殊施設（公園・像）を置く。開いた区画に置けなければ林を押しのけて置き、
- * 銀行の道路網に接していなければ足りない道路をすぐに敷く。道路の木材は備蓄から引き、足りなくてもマイナスにして記録する。
+ * 銀行の道路網に接していなければ足りない道路をすぐに敷く。道路の値段は建設資金から引き、足りなくてもマイナスにして記録する。
  * 敷いた道路の数を返す（銀貨は呼び出し側が 1マス FEE_INSTANT_ROAD（config.ts）で払い、足りなければマイナスにする）
  */
 function placeSpecial(s: CityState, b: Building, now: number, events: CityEvent[]): number {
@@ -27,11 +27,12 @@ function placeSpecial(s: CityState, b: Building, now: number, events: CityEvent[
   b.x = forest.x;
   b.y = forest.y;
   delete b.placed;
-  const wood = LINES.road.tiers[0].cost.wood;
+  // 林を押しのけて敷く道路は建設資金で払う。足りなければマイナスにし、次の貯金で埋める
+  const price = priceOf(s, LINES.road.tiers[0].cost);
   for (const t of forest.roads) {
     const road: Building = { id: newId(s), line: "road", tier: 0, level: 1, x: t.x, y: t.y, builtAt: now };
     s.buildings.push(road);
-    s.stock.wood -= wood;
+    s.treasury -= price;
     events.push({ at: now, type: "BUILD", auto: false, important: false, payload: { building: snapBuilding(road), name: buildingName(road) } });
   }
   return forest.roads.length;

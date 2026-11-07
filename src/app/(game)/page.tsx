@@ -123,9 +123,8 @@ export default function HomePage() {
             <Stat label="人口" value={`${fmt(Math.floor(m.population))}人`} sub={`住宅 ${fmt(m.housingCap)}人分`} />
             <Stat label="幸福度" value={fmt(c.happiness)} sub={`目標 ${fmt(m.happinessTarget)}`} />
             <Stat label="雇用" value={`${Math.round(m.employment * 100)}%`} sub={`仕事 ${fmt(m.jobSlots)}`} />
-            <Stat label="都市資金" value={fmt(Math.floor(c.treasury))} sub={`+${fmt(m.production.treasury, 1)}/時`} />
-            <Stat label="木材" value={fmt(Math.floor(c.stock.wood))} sub={`+${fmt(m.production.wood, 1)}/時`} />
-            <Stat label="石材" value={fmt(Math.floor(c.stock.stone))} sub={`+${fmt(m.production.stone, 1)}/時`} />
+            <Stat label="建設資金" value={`${fmt(Math.floor(c.treasury))}円`} sub={v.dev.interestPerDay > 0 ? `利息 +${fmt(Math.floor(v.dev.interestPerDay))}円/日` : "貯金で増える"} />
+            <Stat label="建設費の割引" value={`−${Math.round(v.dev.discount * 100)}%`} sub="加工所・工場の数" />
             <Stat label="食料" value={fmt(Math.floor(c.stock.food))} sub={`${m.production.food - m.foodUse >= 0 ? "+" : ""}${fmt(m.production.food - m.foodUse, 1)}/時`} />
             <Stat label="電力" value={m.powerDemand > 0 ? `${Math.round(m.powerRatio * 100)}%` : "—"} sub={`供給 ${fmt(m.powerSupply)} / 需要 ${fmt(m.powerDemand)}`} />
           </div>
@@ -165,7 +164,7 @@ export default function HomePage() {
               <BondIcon />
               <span className="flex-1">
                 債券
-                {v.dev.bondMultiplier > 1 && <span className="ml-1 text-xs text-muted">発展 ×{fmt(v.dev.bondMultiplier, 2)}</span>}
+                {v.dev.interestPerDay > 0 && <span className="ml-1 text-xs text-muted">利息 +{fmt(Math.floor(v.dev.interestPerDay))}円/日</span>}
               </span>
               <span className={v.currencies.bond < 0 ? "font-semibold text-danger" : ""}>{fmt(v.currencies.bond)}</span>
             </li>
@@ -221,13 +220,8 @@ export default function HomePage() {
               {away.evolved > 0 && <li>建物 {away.evolved}棟が進化</li>}
               {away.expanded > 0 && <li>区画を {away.expanded}つ開拓</li>}
               <li>発展ポイント +{fmt(away.devPoints)}</li>
-              <li>都市資金 {away.treasury >= 0 ? "+" : ""}{fmt(away.treasury)}</li>
-              {away.bondResources.wood + away.bondResources.stone + away.bondResources.food + away.bondResources.treasury > 0 && (
-                <li>
-                  債券化で得た資源 木材 +{fmt(away.bondResources.wood)}・石材 +{fmt(away.bondResources.stone)}・食料 +{fmt(away.bondResources.food)}・都市資金 +
-                  {fmt(away.bondResources.treasury)}
-                </li>
-              )}
+              <li>建設資金 {away.treasury >= 0 ? "+" : ""}{fmt(away.treasury)}円（工事に使った分を差し引き）</li>
+              {away.bondResources.treasury > 0 && <li>債券化で入った建設資金 +{fmt(away.bondResources.treasury)}円</li>}
             </ul>
             <p className="text-xs text-muted">変化した場所を地図上で光らせています。金貨・銀貨は使っていません。</p>
             <Button className="w-full" onClick={() => setAway(null)}>

@@ -1,22 +1,23 @@
 // クライアントへ返す状態（ホーム画面・各施設画面で共通）。
-import { bondCap, bondMiningStatus, bondMultiplier, bondShare } from "@/game/bond";
+import { bondCap, bondMiningStatus, bondShare } from "@/game/bond";
 import { highestUnlockedTier, LINE_IDS, LINES, unlocksAtTech } from "@/game/catalog";
 import { computeMetrics } from "@/game/city/economy";
 import { plotLimit, plotsUsed, unlockedTileCount } from "@/game/city/layout";
-import { cityNeeds, levelCap } from "@/game/city/sim";
+import { cityNeeds, discountRate, levelCap } from "@/game/city/sim";
 import {
   AWAY_SUMMARY_MIN_MS,
   BANK_EXCHANGE_BONUS,
+  CONCURRENT_JOBS,
   DEV_NAMES,
-  DEV_PER_HOUR,
+  DEV_POINTS_PER_BASE,
   DEV_THRESHOLDS,
   GOLD_MINE_LEVEL_THRESHOLDS,
   REWARD_DAILY_CAP,
   SILVER_MINE_LEVEL_THRESHOLDS,
-  TECH_THRESHOLDS,
 } from "@/game/config";
 import { exchangeRate, GAIN_KEYS, needShares, ZERO_GAINS } from "@/game/exchange";
-import { devLevel, goldMineLevel, nextThreshold, savingsProgress, silverMineLevel } from "@/game/levels";
+import { bondInterestPerDay, earlyBonusRate, nextReserveAt, reserveLevel } from "@/game/fund";
+import { devLevel, goldMineLevel, nextThreshold, savingsProgress, silverMineLevel, techThresholdYen } from "@/game/levels";
 import { microToGold, ratePerMinute } from "@/game/mine";
 import { dayKey, periodRange } from "@/game/time";
 import type { CityState, Gains } from "@/game/types";
@@ -114,12 +115,13 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
   });
   const fresh = ctx.events.filter((e) => e.important).reverse();
 
-  const nextTech = nextThreshold(TECH_THRESHOLDS, city.techLevel);
+  // 技術Lvの閾値は基準額の倍数（docs/savings-driven-growth.md PRC-03）なので、円に直して返す
+  const nextTech = techThresholdYen(city.techLevel + 1, city.base);
   const nextDev = nextThreshold(DEV_THRESHOLDS, dev);
   const overspends = await tx.monthlyOverspend.findMany({ where: { seasonId: season.id }, orderBy: { monthKey: "desc" } });
   const bond = ctx.balances.bond;
-  const k = bondMultiplier(bond, user.monthlyBudget);
   const cap = bondCap(user.monthlyBudget);
+  const reserve = reserveLevel(bond, user.monthlyBudget);
   const plan = budgetPlan(ctx);
   const custom = currencySummaries(ctx);
   const needs = cityNeeds(city, metrics);
@@ -221,6 +223,8 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
     tech: {
       level: city.techLevel,
       max: saved.max,
+      /** 今の技術Lvになった額と、次の技術Lvになる額（円） */
+      prev: techThresholdYen(city.techLevel, city.base) ?? 0,
       next: nextTech,
       remaining: nextTech !== null ? Math.max(0, nextTech - saved.max) : 0,
       nextUnlocks: nextTech !== null ? unlocksAtTech(city.techLevel + 1) : [],
@@ -231,9 +235,18 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
       name: DEV_NAMES[dev - 1],
       points: city.devPoints,
       next: nextDev,
-      ratePerHour: DEV_PER_HOUR * metrics.operation * k,
-      operation: metrics.operation,
-      bondMultiplier: k,
+      /** 基準額（円）と、完成した計画の累計額・次の発展Lvになる累計額（円。GRW-04） */
+      base: city.base,
+      completed: city.completed,
+      nextAt: nextDev === null ? null : Math.round((nextDev / DEV_POINTS_PER_BASE) * city.base),
+      /** 建設資金（円）と、債券の利息（円/日）・備えLv・開拓期ボーナス（RSV-02・RSV-03・ERL-01） */
+      fund: city.treasury,
+      interestPerDay: bondInterestPerDay(bond, cap),
+      reserveLevel: reserve,
+      nextReserveAt: nextReserveAt(reserve, user.monthlyBudget),
+      earlyBonusRate: earlyBonusRate(city, ctx.now),
+      discount: discountRate(city),
+      concurrentJobs: CONCURRENT_JOBS[dev - 1],
       tiles: unlockedTileCount(city),
       /** 開いた・開拓中の区画の数と、その上限（docs/map-layout-redesign.md §7.3） */
       plots: { used: plotsUsed(city), limit: plotLimit(city.devPoints) },

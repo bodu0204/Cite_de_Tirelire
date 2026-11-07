@@ -6,6 +6,7 @@ import { bondCap } from "@/game/bond";
 import { placeOffMapSpecials, syncParks, syncStatues, type ParkSource, type StatueSource } from "@/game/city/actions";
 import { applyTechLevel } from "@/game/city/sim";
 import { dropLegacyMines } from "@/game/city/layout";
+import { migrateCity, seasonBase } from "@/game/city/init";
 import { BudgetPlan, type CurrencyDefLite, type Rule } from "@/game/currency";
 import { FEE_INSTANT_ROAD } from "@/game/config";
 import { fail } from "@/game/errors";
@@ -276,6 +277,8 @@ async function load(tx: Tx, userId: string, now: number): Promise<GameCtx> {
   ctx.city = row.state as unknown as CityState;
   // 以前の街にあった金鉱・銀鉱の建物は取り除く（役割は銀行に移した）
   dropLegacyMines(ctx.city);
+  // 貯金で育つ街より前の街は、基準額を決めて発展Lvを保ったまま直す（docs/savings-driven-growth.md）
+  migrateCity(ctx.city, { base: seasonBase(user.monthlyBudget, season.goalAmount), startedAt: season.startedAt.getTime() });
   ctx.cityVersion = row.version;
   ctx.mine = mineFromSeason(season);
 
@@ -484,7 +487,7 @@ export function refreshSavings(ctx: GameCtx) {
   if (s.max !== season.maxSavingsAmount) ctx.seasonPatch.maxSavingsAmount = s.max;
 
   // 技術Lvは最高到達額で決まり、下がらない
-  applyTechLevel(city, Math.max(city.techLevel, techLevel(s.max)), ctx.now, ctx.events);
+  applyTechLevel(city, Math.max(city.techLevel, techLevel(s.max, city.base)), ctx.now, ctx.events);
 
   const lv = bankLevel(s.rate);
   if (lv !== city.bankLevel) {
