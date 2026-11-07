@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { bondCap, bondFee, bondMultiplier } from "../bond";
+import { bondCap, bondFee } from "../bond";
 import { createCity } from "../city/init";
-import { tick } from "../city/sim";
 import { DAY, HOUR, MINUTE, TICK_MS } from "../config";
+import { bondInterestPerDay, nextReserveAt, reserveLevel } from "../fund";
+import { grantInterest } from "../idle";
 import { BudgetPlan } from "../currency";
 import { accrue, collect, newMine } from "../mine";
 import { zonedTimeToUtc } from "../time";
@@ -11,41 +12,27 @@ const TZ = "Asia/Tokyo";
 const OCT1 = zonedTimeToUtc(2026, 10, 1, TZ);
 const M = 60000;
 
-describe("AT-015 債券倍率", () => {
-  it("M＝60,000：債券 −3,000 / 0 / 90,000 / 180,000 / 300,000 で 1.0 / 1.0 / 1.25 / 1.5 / 1.5", () => {
-    expect([-3000, 0, 90000, 180000, 300000].map((b) => bondMultiplier(b, M))).toEqual([1, 1, 1.25, 1.5, 1.5]);
+describe("RSV-02 債券の利息（docs/savings-driven-growth.md）", () => {
+  it("債券残高の 0.3%/日。マイナスの間はつかず、上限（3M）を超えた分にはつかない", () => {
+    const cap = bondCap(M);
+    expect(cap).toBe(180000);
+    expect([-3000, 0, 60000, 180000, 300000].map((b) => bondInterestPerDay(b, cap))).toEqual([0, 0, 180, 540, 540]);
   });
 
-  it("予算が0なら倍率は1.0", () => {
-    expect(bondMultiplier(10000, 0)).toBe(1);
-  });
-
-  it("倍率が上限になる額と債券化の上限は一致する（3M）", () => {
-    expect(bondCap(M)).toBe(180000);
-    expect(bondMultiplier(bondCap(M), M)).toBe(1.5);
+  it("利息は建設資金に入り、貯金額（債券）は増えない。1日分は 144 ティックの合計", () => {
+    const c = createCity(OCT1, M);
+    for (let i = 0; i < DAY / TICK_MS; i++) grantInterest(c, 60000, bondCap(M), OCT1 + i * TICK_MS);
+    expect(c.treasury).toBeCloseTo(180, 6);
+    expect(c.interestTotal).toBeCloseTo(180, 6);
   });
 });
 
-describe("AT-015a 債券倍率は時間発展にだけ掛かる", () => {
-  it("k＝1.25 で時間発展が1.25倍。建設・人口は k＝1.0 と同じ", () => {
-    const a = createCity(OCT1);
-    const b = createCity(OCT1);
-    // 時間発展だけを比べるため、6時間の生産では払えないほど資材と都市資金を減らし、街が工事を始められないようにする
-    for (const c of [a, b]) {
-      c.stock.wood = -1e6;
-      c.stock.stone = -1e6;
-      c.treasury = -1e6;
-    }
-    const before = a.devPoints;
-    for (let t = OCT1 + TICK_MS; t <= OCT1 + 6 * HOUR; t += TICK_MS) {
-      tick(a, t, [], 1);
-      tick(b, t, [], 1.25);
-    }
-    expect(b.population).toBeCloseTo(a.population, 10);
-    expect(b.buildings.length).toBe(a.buildings.length);
-    // 人口の節目による発展ptは同じなので、差は時間発展ぶんだけ
-    const popPts = Math.floor(a.peakPopulation / 25) - Math.floor(4 / 25);
-    expect(b.devPoints - before - popPts).toBeCloseTo((a.devPoints - before - popPts) * 1.25, 6);
+describe("RSV-03 備えLv", () => {
+  it("M＝60,000：債券 0 / 30,000 / 60,000 / 120,000 / 180,000 で Lv0〜4", () => {
+    expect([0, 30000, 60000, 120000, 180000].map((b) => reserveLevel(b, M))).toEqual([0, 1, 2, 3, 4]);
+    expect(reserveLevel(-1000, M)).toBe(0);
+    expect(nextReserveAt(1, M)).toBe(60000);
+    expect(nextReserveAt(4, M)).toBeNull();
   });
 });
 

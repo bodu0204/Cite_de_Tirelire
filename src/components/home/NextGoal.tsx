@@ -4,6 +4,7 @@ import Link from "next/link";
 import { coverPlans, firstShort, PLAN_KEYS, type PlanStock } from "@/game/planQueue";
 import { fmt } from "@/lib/api";
 import type { ActiveView } from "@/server/view";
+import { GoldNeed, goldForOf } from "../exchange/GoldNeed";
 import { planLabel, shortText } from "../exchange/PlanList";
 import { Gauge } from "../ui";
 import { waitingFor } from "./waiting";
@@ -24,6 +25,10 @@ export function NextGoal({ v }: { v: ActiveView }) {
   const p = coverage.plan;
   const gold = (s: PlanStock) => PLAN_KEYS.reduce((a, k) => a + (rate[k] > 0 ? s[k] / rate[k] : 0), 0);
   const shortGold = Math.ceil(gold(coverage.short));
+  // 交換に要る金貨（開拓期ボーナスの間は ~~92G~~ → 46G）
+  const need = goldForOf(v)(coverage.short.treasury);
+  // 同時に進める工事の空きがなければ、払える計画も今の工事の完成を待つ
+  const full = c.jobs.length >= v.dev.concurrentJobs;
   // 交換しなくても、街の生産だけで貯まるまでの時間（作れない資源があれば出さない）
   const hours = PLAN_KEYS.reduce((h, k) => {
     if (coverage.short[k] <= 0) return h;
@@ -61,10 +66,16 @@ export function NextGoal({ v }: { v: ActiveView }) {
         <span className="num">あと {shortText(coverage.short) || "なし"}</span>
         {wait && <span>街の生産だけなら{wait}</span>}
       </div>
-      {ready > 0 && <p className="mt-1 text-xs text-muted">今の在庫で実施できる計画 {ready}件は、まもなく着工します。</p>}
+      {ready > 0 && (
+        <p className="mt-1 text-xs text-muted">
+          {full
+            ? `今の在庫で実施できる計画 ${fmt(ready)}件は、工事の空き（同時に${v.dev.concurrentJobs}件まで）ができしだい着工します。`
+            : `今の在庫で実施できる計画 ${fmt(ready)}件は、まもなく着工します。`}
+        </p>
+      )}
       {shortGold > 0 && (
         <p className="mt-1 text-xs">
-          金貨 <span className="num font-semibold">約{fmt(shortGold)}G</span> 分の交換で届きます。
+          金貨 <GoldNeed need={need} /> 分の交換で届きます。
           <Link href="/exchange" className="ml-1 text-muted underline">
             交換する
           </Link>

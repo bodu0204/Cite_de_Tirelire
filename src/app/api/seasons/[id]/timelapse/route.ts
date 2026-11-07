@@ -29,6 +29,7 @@ export async function GET(req: NextRequest, { params }: IdParams) {
         startedAt: season!.startedAt.getTime(),
         reachedAt: season!.reachedAt?.getTime() ?? null,
         completedAt: season!.completedAt?.getTime() ?? null,
+        fx: season!.timelapseFx,
       },
       start: start?.state ?? null,
       final: final?.state ?? null,

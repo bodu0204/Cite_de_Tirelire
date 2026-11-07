@@ -22,7 +22,8 @@ export interface Lot {
 
 export interface Payment {
   currency: PayCurrency;
-  kind: "pay" | "fee";
+  /** draw：同じ期間に確定した債券の取り崩し（手数料なし・使い過ぎに数えない。docs/savings-driven-growth.md REC-01） */
+  kind: "pay" | "fee" | "draw";
   currencyId?: string | null;
   lotId?: string | null;
   amount: number;
@@ -104,11 +105,20 @@ export function pay(p: Purse, amount: number, lots: Lot[], payments: Payment[]) 
   p.gold -= g.fromHeld;
   move(p, { currency: "GOLD", delta: -g.fromHeld, reason: "purchase_settle" });
   addPayment(payments, { currency: "GOLD", kind: "pay", amount: g.fromUncollected + g.fromHeld });
-  if (g.rest > 0) {
-    p.bond -= g.rest;
-    p.overspend += g.rest;
-    move(p, { currency: "BOND", delta: -g.rest, reason: "purchase_bond" });
-    addPayment(payments, { currency: "BOND", kind: "pay", amount: g.rest });
+  // 同じ期間に確定して債券に入れた分は、手数料なしで取り崩す（使い過ぎではない）
+  const draw = Math.min(g.rest, Math.max(0, Math.min(p.mine.freeBond ?? 0, p.bond)));
+  if (draw > 0) {
+    p.bond -= draw;
+    p.mine = { ...p.mine, freeBond: (p.mine.freeBond ?? 0) - draw };
+    move(p, { currency: "BOND", delta: -draw, reason: "purchase_draw" });
+    addPayment(payments, { currency: "BOND", kind: "draw", amount: draw });
+  }
+  const over = g.rest - draw;
+  if (over > 0) {
+    p.bond -= over;
+    p.overspend += over;
+    move(p, { currency: "BOND", delta: -over, reason: "purchase_bond" });
+    addPayment(payments, { currency: "BOND", kind: "pay", amount: over });
   }
   settleFee(p, payments);
 }
@@ -130,6 +140,15 @@ export function refund(p: Purse, amount: number, payments: Payment[], resolve: (
     move(p, { currency: "BOND", delta: fromBond, reason: "purchase_refund" });
     addPayment(payments, { currency: "BOND", kind: "pay", amount: -fromBond });
     rest -= fromBond;
+  }
+  // 取り崩した分は、また手数料なしで取り崩せるように戻す
+  const fromDraw = Math.min(rest, total(payments, "BOND", "draw"));
+  if (fromDraw > 0) {
+    p.bond += fromDraw;
+    p.mine = { ...p.mine, freeBond: (p.mine.freeBond ?? 0) + fromDraw };
+    move(p, { currency: "BOND", delta: fromDraw, reason: "purchase_refund" });
+    addPayment(payments, { currency: "BOND", kind: "draw", amount: -fromDraw });
+    rest -= fromDraw;
   }
   const fromGold = Math.min(rest, total(payments, "GOLD", "pay"));
   if (fromGold > 0) {
@@ -194,6 +213,8 @@ export function summarize(payments: Payment[]) {
     custom: payments.filter((x) => x.currency === "CUSTOM" && x.kind === "pay").map((x) => ({ currencyId: x.currencyId!, lotId: x.lotId!, amount: x.amount })),
     gold: total(payments, "GOLD", "pay"),
     bond: total(payments, "BOND", "pay"),
+    /** 同じ期間に確定した債券の取り崩し（手数料なし） */
+    draw: total(payments, "BOND", "draw"),
     feeSilver: total(payments, "SILVER", "fee"),
     feeBond: total(payments, "BOND", "fee"),
   };

@@ -1,4 +1,4 @@
-// ゲームバランスの正本。意図は docs/requirements.md を参照。
+// ゲームバランスの正本。意図は docs/requirements.md と docs/savings-driven-growth.md（貯金で育つ街）を参照。
 
 export const MINUTE = 60_000;
 export const HOUR = 60 * MINUTE;
@@ -23,8 +23,11 @@ export const PLOT_LIMIT = [4, 8, 14, 22, 30, 40];
 export const PLOT_STEP_POINTS = 150;
 export const PLOT_STEP = 4;
 export const MAX_PLOTS = 400;
-/** n 区画目（初期の4区画のあとに開く順、0 から）の開拓の費用と工事時間（分）。開くたびに増える */
-export const PLOT_COST_GROWTH = 1.2;
+/**
+ * n 区画目（初期の4区画のあとに開く順、0 から）の開拓の相対コストと工事時間（分）。開くたびに増える。
+ * 値段（円）は建物と同じく相対コストから決める（sim.ts priceOf。docs/savings-driven-growth.md PRC-04）
+ */
+export const PLOT_COST_GROWTH = 1.1;
 export const expandCost = (n: number, stone = n >= 2) => {
   const k = PLOT_COST_GROWTH ** n;
   // stone が false なら木材と都市資金だけ（最初の2区画と、石材加工所が解放されるまで。sim.ts plotCost）
@@ -39,19 +42,32 @@ export const REWARD_DAILY_CAP = 300;
 /** 貯金管理の登録は1日3回まで（docs/record-input-redesign.md SV-13） */
 export const SAVINGS_DAILY_LIMIT = 3;
 
+// ---- 記録による貯金の確定（docs/savings-driven-growth.md REC-01） ----
+/** 記録のない日の配当は、この日数がたつか、その日の収入期間が終わったら自動で確定する */
+export const AUTO_CONFIRM_DAYS = 7;
+/** 自動で確定するときに差し引く1日の支出は、直近この日数の支出の記録から推定する */
+export const SPEND_ESTIMATE_DAYS = 28;
+/** 推定に使う支出の記録がこの件数より少なければ、1日の配当のこの割合を支出とみなす */
+export const SPEND_ESTIMATE_MIN_RECORDS = 3;
+export const SPEND_ESTIMATE_DEFAULT_RATIO = 0.5;
+/** 見通し（REC-04）：直近この日数に入った建設資金のペースから求める */
+export const FORECAST_DAYS = 14;
+
 // ---- シーズン初期値 ----
 export const INITIAL_GOLD = 0;
 export const INITIAL_SILVER = 100;
-export const INITIAL_STOCK = { wood: 60, stone: 0, food: 40 };
-export const INITIAL_TREASURY = 150;
+/** 木材・石材は建物の見た目にだけ残し、在庫には持たない（GRW-02）。建設資金（treasury、円）は貯金からだけ入る（GRW-01） */
+export const INITIAL_STOCK = { wood: 0, stone: 0, food: 40 };
+export const INITIAL_TREASURY = 0;
 export const INITIAL_POPULATION = 4;
 
 // ---- 債券（docs/bond-and-custom-currency.md §4） ----
 /** 債券化が止まる額 ＝ 月間自由予算 × この値 */
 export const BOND_CAP_MONTHS = 3;
-/** 債券倍率 ＝ min(BOND_MULTIPLIER_MAX, 1 + 債券 / (月間自由予算 × BOND_MULTIPLIER_MONTHS)) */
-export const BOND_MULTIPLIER_MONTHS = 6;
-export const BOND_MULTIPLIER_MAX = 1.5;
+/** 債券の利息：毎日、債券残高（0〜上限）のこの割合が建設資金として街に入る（RSV-02） */
+export const BOND_INTEREST_PER_DAY = 0.003;
+/** 備えLv1〜4 になる債券残高（月間自由予算の何か月分。RSV-03） */
+export const RESERVE_LEVEL_MONTHS = [0.5, 1, 2, 3];
 /** 債券がマイナスの間に採掘から強制的に債券へ回す割合（%） */
 export const BOND_FORCED_RATE = 20;
 /** 債券を使ったときの銀貨の手数料：使った債券の10%、上限 50S */
@@ -75,51 +91,60 @@ export const GOLD_MINE_EXCHANGE_BONUS = [0, 0.04, 0.08, 0.12, 0.16, 0.2];
 export const SILVER_MINE_LEVEL_THRESHOLDS = [0, 5, 15, 30, 50, 80];
 export const SILVER_MINE_EXCHANGE_BONUS = [0, 0.04, 0.08, 0.12, 0.16, 0.2];
 
-// ---- 資源交換 ----
-/** 1G あたりの基準獲得量。銀貨はその 1/10（都市資金も同じ） */
-export const GOLD_RESOURCE_VALUE = { wood: 10, stone: 5, food: 10, treasury: 10 } as const;
+// ---- 建設資金（docs/savings-driven-growth.md §5・§6） ----
+/** 1G（1円）あたりの建設資金（円）。銀貨はその 1/10 */
+export const FUND_PER_GOLD = 1;
 export const SILVER_VALUE_RATIO = 0.1;
+/**
+ * カタログの相対コストの重み：木材 ÷10 ＋ 石材 ÷5 ＋ 都市資金 ÷10（以前の金貨1枚あたりの交換量）。
+ * 計画の値段（円）＝ 相対コスト × 基準額 × FUND_PRICE_KAPPA ×（1 − 割引）（PRC-01）
+ */
+export const GOLD_RESOURCE_VALUE = { wood: 10, stone: 5, food: 10, treasury: 10 } as const;
+export const FUND_PRICE_KAPPA = 0.0002;
+/** 木材加工所・石材加工所・工場1棟あたりの建設費の割引と、その上限（GRW-05） */
+export const DISCOUNT_PER_BUILDING = 0.02;
+export const DISCOUNT_MAX = 0.4;
+/** 同時に進める工事の数（発展Lv別。GRW-03） */
+export const CONCURRENT_JOBS = [3, 4, 6, 8, 12, 16];
+/** 開拓期ボーナス：シーズン開始から days 日目までの貯金は rate 倍の建設資金になる。増える分は基準額 × EARLY_BONUS_CAP まで（ERL-01・02） */
+export const EARLY_BONUS = [
+  { days: 7, rate: 2 },
+  { days: 14, rate: 1.5 },
+] as const;
+export const EARLY_BONUS_CAP = 0.3;
 
 // ---- 銀貨の手数料 ----
 export const FEE_EXCHANGE = 5;
 /** 公園・像のために林を押しのけて敷く道路1マス */
 export const FEE_INSTANT_ROAD = 15;
 
-// ---- 技術Lv（貯金最高到達額、円） ----
-export const TECH_THRESHOLDS = [0, 5_000, 15_000, 30_000, 60_000, 100_000, 200_000];
+// ---- 技術Lv（貯金最高到達額 ÷ 基準額。基準額＝月間自由予算と目標額の小さいほう。PRC-03・PRC-06） ----
+export const TECH_THRESHOLDS = [0, 0.05, 0.15, 0.3, 0.6, 1.0, 1.5];
 export const TECH_MULTIPLIER = [1.0, 1.1, 1.25, 1.4, 1.6, 1.8, 2.0];
 export const MAX_TECH = TECH_THRESHOLDS.length;
 
-// ---- 発展Lv ----
-export const DEV_THRESHOLDS = [0, 50, 150, 350, 700, 1200];
+// ---- 発展Lv（完成した計画の累計額で決まる。GRW-04・PRC-02） ----
+/** 発展pt ＝ 完成した計画の累計額 ÷ 基準額 × DEV_POINTS_PER_BASE */
+export const DEV_POINTS_PER_BASE = 1000;
+/** 発展Lvの閾値（発展pt）：基準額の 0.03 / 0.12 / 0.3 / 0.7 / 1.5 倍 */
+export const DEV_THRESHOLDS = [0, 30, 120, 300, 700, 1500];
 export const DEV_NAMES = ["集落", "村", "町", "地方都市", "大都市", "巨大都市"];
 export const MAX_DEV = DEV_THRESHOLDS.length;
-export const DEV_PER_HOUR = 2;
-export const DEV_BUILD = 3;
-export const DEV_LEVEL_UP = 1;
-export const DEV_EVOLVE = 4;
-/** 人口の最高記録がこの人数増えるごとに +1pt */
-export const DEV_POP_STEP = 25;
 /** 建物Lv上限（発展Lv別）＝高密度化 */
 export const BUILDING_LEVEL_CAP = [3, 3, 3, 4, 5, 6];
 
 // ---- 内部経済 ----
 export const FOOD_PER_RESIDENT_HOUR = 0.25;
 export const LABOR_PARTICIPATION = 0.7;
-export const TAX_PER_RESIDENT_HOUR = 0.8;
-/** 人口増加の基礎速度：一定値＋人口比例分（指数的な急成長を避ける） */
-export const POP_GROWTH_BASE_HOUR = 0.4;
-export const POP_GROWTH_PER_RESIDENT_HOUR = 0.004;
-/** カタログの都市資金コスト・建設時間・商工業収益に掛ける係数 */
+/** 住宅の空きのうち1時間に移り住む割合（人口は時間ではなく住宅で決まる。GRW-09） */
+export const MOVE_IN_PER_HOUR = 0.25;
+/** カタログの都市資金コスト・建設時間に掛ける係数 */
 export const TREASURY_COST_SCALE = 2;
 export const BUILD_TIME_SCALE = 3;
-export const REVENUE_SCALE = 0.6;
 /** 幸福度が目標値へ近づく速さ（1時間あたりの割合） */
 export const HAPPINESS_EASE_HOUR = 0.2;
 export const LOGISTICS_FLOOR = 0.6;
 export const OPERATION_FLOOR = 0.3;
-/** 街の発展：これ以上待たないと払えない目標は後回しにする */
-export const DEV_MAX_WAIT_HOURS = 12;
 /** 住宅の空きがこの割合を下回ったら住宅を増やす */
 export const HOUSING_VACANCY_TARGET = 0.15;
 
@@ -131,6 +156,28 @@ export const PARK_HAPPINESS_CAP = 15;
 // ---- 像の分類（円） ----
 export const STATUE_SILVER_FROM = 5_000;
 export const STATUE_GOLD_FROM = 30_000;
+
+// ---- 悪い出来事（docs/savings-driven-growth.md §10） ----
+/** 1日に起きる確率（平均 約8日に1回）と、起きない最初の日数。発展Lv2 から */
+export const DISASTER_PER_DAY = 0.12;
+export const DISASTER_FROM_DAY = 4;
+/** 被害（備えLv0・幸福度ふつう）：台風で止まる工事の時間、不作の食料生産の減り方、値上がり・停電の割合と時間 */
+export const TYPHOON_HOURS = 12;
+export const CROP_FAILURE = { hours: 48, rate: 0.5 };
+export const PRICE_SURGE = { hours: 24, rate: 0.3 };
+export const BLACKOUT = { hours: 24, rate: 0.5 };
+/** 火事で休業した建物：何時間で自動で再開するか、修繕に使う銀貨、備えLv3 で建設資金から払う修繕費（建物の値段に対する割合） */
+export const FIRE_REOPEN_HOURS = 72;
+export const REPAIR_SILVER = 100;
+export const REPAIR_FUND_RATIO = 0.3;
+
+// ---- 銀貨の使い道（docs/savings-driven-growth.md REC-06） ----
+/** 建物の命名（記録1回分）・装飾（記録3回分）・タイムラプスの花火（記録6回分）に使う銀貨 */
+export const NAME_SILVER = 50;
+export const DECOR_SILVER = 150;
+export const TIMELAPSE_FX_SILVER = 300;
+/** 建物の名前の長さの上限（文字） */
+export const NAME_MAX = 12;
 
 // ---- 放置中の変化表示 ----
 export const AWAY_SUMMARY_MIN_MS = HOUR;

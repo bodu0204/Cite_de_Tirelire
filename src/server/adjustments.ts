@@ -5,7 +5,7 @@ import { fail } from "@/game/errors";
 import { savingsProgress } from "@/game/levels";
 import { remainingMining } from "@/game/mine";
 import { dayKey, parseDateInTz, periodKey, periodRange } from "@/game/time";
-import { budgetPlan, requireSeason, type GameCtx } from "./game";
+import { budgetPlan, confirmRecords, requireSeason, type GameCtx } from "./game";
 import { seasonPeriods } from "./incomes";
 import { previewDiff, resolveDiff } from "./resolve";
 import { int } from "./validate";
@@ -113,7 +113,8 @@ export async function recordAdjustment(ctx: GameCtx, body: Body) {
     data: { userId: ctx.user.id, seasonId: ctx.season.id, date: dayKey(ctx.now, ctx.user.timezone), checks, items, estimated, actual, diff },
   });
   const resolution = await resolveDiff(ctx, diff, { type: "adjustment", id: row.id });
-  return { id: row.id, estimated, actual, diff, resolution };
+  const confirmed = confirmRecords(ctx);
+  return { id: row.id, estimated, actual, diff, resolution, confirmed };
 }
 
 // ---- 支出のベース：未記録のサブスクの支払いと、全額貯まった未購入のほしい物 ----

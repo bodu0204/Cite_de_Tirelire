@@ -1,6 +1,7 @@
-// 通貨と資源の交換（種類を選ぶ交換と、都市の必要資源の割合で振り分ける「おまかせ」交換）。金貨→銀貨→資源 の経路が 金貨→資源 より有利にならないことをテストで保証する。
-// 都市資金も資源と同じく金貨・銀貨で交換できる。
-import { FEE_EXCHANGE, GOLD_RESOURCE_VALUE, SILVER_VALUE_RATIO } from "./config";
+// 通貨から建設資金への交換。金貨→銀貨→建設資金 の経路が 金貨→建設資金 より有利にならないことをテストで保証する。
+// 木材・石材・都市資金は建設資金（treasury）1種類にまとめた（docs/savings-driven-growth.md GRW-02）。
+// 交換の型（資源の種類・おまかせ）は以前のまま受け付けるが、得られるのはいつも建設資金になる。
+import { FEE_EXCHANGE, FUND_PER_GOLD, SILVER_VALUE_RATIO } from "./config";
 import { bankBonus, goldMineBonus, silverMineBonus } from "./levels";
 import type { GainKey, Gains } from "./types";
 
@@ -12,11 +13,13 @@ export interface FacilityLevels {
   silverMine: number;
 }
 
-/** 通貨1枚あたりの資源獲得量 */
-export function exchangeRate(currency: Currency, resource: GainKey, lv: FacilityLevels): number {
-  const base = GOLD_RESOURCE_VALUE[resource];
-  if (currency === "gold") return base * (1 + bankBonus(lv.bank) + goldMineBonus(lv.goldMine));
-  return base * SILVER_VALUE_RATIO * (1 + bankBonus(lv.bank) + silverMineBonus(lv.silverMine));
+/**
+ * 通貨1枚あたりの建設資金（円）。resource は以前の資源の種類で、値には影響しない。
+ * 金貨（貯金）は記録Lvのボーナスも足す（記録するほど貯金がよく効く。docs/savings-driven-growth.md REC-03）
+ */
+export function exchangeRate(currency: Currency, _resource: GainKey, lv: FacilityLevels): number {
+  if (currency === "gold") return FUND_PER_GOLD * (1 + bankBonus(lv.bank) + goldMineBonus(lv.goldMine) + silverMineBonus(lv.silverMine));
+  return FUND_PER_GOLD * SILVER_VALUE_RATIO * (1 + bankBonus(lv.bank) + silverMineBonus(lv.silverMine));
 }
 
 export interface ExchangeQuote {
@@ -50,26 +53,18 @@ export function quoteResourceExchange(
 
 // ---- おまかせ交換（docs/needs-based-exchange.md §5・§6・§13） ----
 
-/**
- * 債券に入った分（0〜上限の範囲）につく資源：同じ量の金貨を手数料なしで交換したのと同じ量。
- * resource が "auto" ならおまかせ（必要割合で振り分け）、それ以外はその種類だけ。
- */
-export function quoteBondGains(eligible: number, resource: GainKey | "auto", needs: Gains, lv: FacilityLevels): Gains {
-  if (resource === "auto") return quoteNeedsExchange("gold", eligible, needs, lv, { fee: false }).gains;
-  return { ...ZERO_GAINS, [resource]: quoteResourceExchange("gold", resource, eligible, lv).gain };
+/** 債券に入った分（0〜上限の範囲）につく建設資金：同じ量の金貨を手数料なしで交換したのと同じ量（RSV-01） */
+export function quoteBondGains(eligible: number, _resource: GainKey | "auto", needs: Gains, lv: FacilityLevels): Gains {
+  return quoteNeedsExchange("gold", eligible, needs, lv, { fee: false }).gains;
 }
 
 export const GAIN_KEYS: GainKey[] = ["wood", "stone", "food", "treasury"];
 
 export const ZERO_GAINS: Gains = { wood: 0, stone: 0, food: 0, treasury: 0 };
 
-/** 必要割合：必要資源を金貨に換算した額の比。合計は1（すべて0なら均等。計画列が無限に続くので通常は起きない） */
-export function needShares(needs: Gains): Gains {
-  const value = GAIN_KEYS.map((k) => Math.max(0, needs[k]) / GOLD_RESOURCE_VALUE[k]);
-  const total = value.reduce((a, b) => a + b, 0);
-  const shares = { ...ZERO_GAINS };
-  GAIN_KEYS.forEach((k, i) => (shares[k] = total > 0 ? value[i] / total : 1 / GAIN_KEYS.length));
-  return shares;
+/** 必要割合：建設資金1種類にまとめたので、いつも建設資金が1（GRW-02） */
+export function needShares(_needs: Gains): Gains {
+  return { ...ZERO_GAINS, treasury: 1 };
 }
 
 /** amount を割合で整数に振り分ける（最大剰余法。同じ剰余なら木材・石材・食料・都市資金の順） */
@@ -98,9 +93,9 @@ export interface NeedsQuote {
 }
 
 /**
- * 必要割合で振り分けて交換する。
- * fee：手数料を取るか（債券化につく資源は取らない）、floor：通貨を整数に振り分けて獲得量を切り捨てるか
- * （放置中の債券化は少額が毎ティック入るので、小数のまま在庫に加える）。
+ * おまかせ交換：全額を建設資金にする。
+ * fee：手数料を取るか（債券化につく建設資金は取らない）、floor：獲得量を切り捨てるか
+ * （放置中の債券化は少額が毎ティック入るので、小数のまま加える）。
  */
 export function quoteNeedsExchange(
   currency: Currency,

@@ -34,7 +34,7 @@ function world(defs: CurrencyDefLite[], o: { bond?: number } = {}): World {
   const accruals = new Map<string, Accrual>(defs.map((d) => [d.id, { currencyId: d.id, lastAccrualAt: START, fraction: 0n }]));
   return {
     purse: { mine: newMine(START, TZ), gold: 0, silver: 0, bond: o.bond ?? 0, bondCap: 0, moves: [], overspend: 0 },
-    city: createCity(START),
+    city: createCity(START, 60000),
     lots: [],
     accruals,
   };
@@ -110,7 +110,7 @@ describe("AT-026 ユーザ通貨を20種類", () => {
 });
 
 describe("AT-027 放置を1回で計算しても、1時間ごとに計算しても同じ", () => {
-  it("債券倍率・期限の債券化・通貨の発生を含めて一致する", () => {
+  it("債券化の建設資金・債券の利息・期限の債券化・通貨の発生を含めて一致する", () => {
     const defs = [
       def("food", [{ kind: "weekly", every: 1, weekdays: [1], amount: 7000 }], { remainder: "TO_BOND", remainderDays: 2 }),
       def("snack", [{ kind: "minute", monthlyAmount: 5000 }], { remainder: "TO_BOND", remainderDays: 1, sortOrder: 1 }),

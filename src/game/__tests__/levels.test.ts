@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { STATUE_GOLD_FROM } from "../config";
 import { exchangeRate, quoteResourceExchange } from "../exchange";
-import { achievementRate, bankLevel, bankLevelBand, savingsProgress, savingsRate, savingsTotal, statueRank, techLevel } from "../levels";
+import { achievementRate, bankLevel, bankLevelBand, savingsProgress, savingsRate, savingsTotal, statueRank, techLevel, techThresholdYen } from "../levels";
 
 describe("AT-003 貯金額と銀行", () => {
   it("目標100,000円に貯金額20,000円で達成率20%・銀行Lv2", () => {
@@ -33,13 +33,26 @@ describe("AT-053 貯金額 ＝ 債券 ＋ ゲーム内で使った金貨", () =>
 
   it("技術Lvは最高到達額で決まり、債券を使って貯金額が下がっても下がらない", () => {
     const max = Math.max(savingsTotal({ bond: 30000, citySpent: 0 }), savingsTotal({ bond: 10000, citySpent: 0 }));
-    expect(techLevel(max)).toBe(4);
+    expect(techLevel(max, 100000)).toBe(4);
   });
 });
 
-describe("技術Lv", () => {
-  it("AT-010 15,000円で技術Lv3", () => {
-    expect(techLevel(15000)).toBe(3);
+describe("技術Lv（閾値は基準額の倍数。docs/savings-driven-growth.md PRC-03）", () => {
+  it("AT-010 基準額10万円なら 15,000円で技術Lv3（以前の円の閾値と同じ）", () => {
+    expect(techLevel(15000, 100000)).toBe(3);
+    expect([0, 5000, 15000, 30000, 60000, 100000].map((v) => techLevel(v, 100000))).toEqual([1, 2, 3, 4, 5, 6]);
+  });
+
+  it("Q8：技術Lv7 は基準額の1.5倍（基準額10万円なら15万円）", () => {
+    expect(techLevel(149999, 100000)).toBe(6);
+    expect(techLevel(150000, 100000)).toBe(7);
+    expect(techThresholdYen(7, 100000)).toBe(150000);
+    expect(techThresholdYen(8, 100000)).toBeNull();
+  });
+
+  it("基準額が小さい（目標3万円）なら、閾値も小さくなる", () => {
+    expect(techLevel(4500, 30000)).toBe(3);
+    expect(techLevel(45000, 30000)).toBe(7);
   });
 
   it("貯金管理の純増額と最高到達額（推測 E5 用）", () => {
@@ -56,18 +69,20 @@ describe("技術Lv", () => {
   });
 });
 
-describe("資源交換", () => {
+describe("建設資金への交換（docs/savings-driven-growth.md GRW-02）", () => {
   const levels = [
     { bank: 1, goldMine: 1, silverMine: 1 },
     { bank: 6, goldMine: 1, silverMine: 6 },
     { bank: 6, goldMine: 6, silverMine: 6 },
   ];
-  it("基準状態で 1G→木材10、1S→木材1", () => {
-    expect(exchangeRate("gold", "wood", levels[0])).toBe(10);
-    expect(exchangeRate("silver", "wood", levels[0])).toBe(1);
+  it("基準状態で 1G→建設資金1円、1S→0.1円。資源の種類によらない", () => {
+    for (const r of ["wood", "stone", "food", "treasury"] as const) {
+      expect(exchangeRate("gold", r, levels[0])).toBe(1);
+      expect(exchangeRate("silver", r, levels[0])).toBeCloseTo(0.1, 10);
+    }
   });
 
-  it("どのレベルでも 金貨→銀貨→資源 は 金貨→資源 より有利にならない", () => {
+  it("どのレベルでも 金貨→銀貨→建設資金 は 金貨→建設資金 より有利にならない", () => {
     for (const lv of levels) {
       for (const r of ["wood", "stone", "food"] as const) {
         expect(exchangeRate("silver", r, lv)).toBeLessThanOrEqual(exchangeRate("gold", r, lv));

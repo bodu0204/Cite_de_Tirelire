@@ -4,17 +4,21 @@ import { fmt, yen } from "@/lib/api";
 import type { ActiveView } from "@/server/view";
 
 /**
- * 具体的な計画がないとき、街が資源ではなく何を待っているか（sim.ts plansFor の条件の裏返し）。
- * 上ほど近い目標。計画があるときは空
+ * 街が建設資金ではなく何を待っているか（sim.ts plansFor・develop の条件の裏返し）。上ほど近い目標。
+ * 具体的な計画がない時に出す。always なら、計画があっても出す（交換画面で、交換後に今ある計画をすべて払える時）
  */
-export function waitingFor(v: ActiveView): string[] {
-  if (v.exchange.planQueue.plans.length > 0) return [];
+export function waitingFor(v: ActiveView, always = false): string[] {
+  if (!always && v.exchange.planQueue.plans.length > 0) return [];
   const c = v.city;
   const m = v.metrics;
   const t = v.tech;
   const d = v.dev;
   const out: string[] = [];
-  if (c.jobs.length > 0) out.push(`工事中 ${c.jobs.length}件の完成`);
+  const busy = c.jobs.length;
+  // 同時に進める工事は発展Lvごとに上限がある（GRW-03）。空きがなければ、払える計画も完成を待つ
+  if (busy >= d.concurrentJobs) out.push(`工事の空き：同時に${d.concurrentJobs}件まで（今 ${busy}件が工事中。完成しだい次を着工）`);
+  else if (always && v.exchange.planQueue.plans.length > 0) out.push(`払える計画は10分以内に着工（工事の空き ${d.concurrentJobs - busy}件）`);
+  else if (busy > 0) out.push(`工事中 ${busy}件の完成`);
   if (t.next !== null && t.nextBuildable.length > 0)
     out.push(`技術Lv${t.level + 1}：あと${yen(t.remaining)}の貯金で ${t.nextBuildable.slice(0, 3).join("・")} が建てられる`);
   const atCap = c.buildings.some((b) => b.line && b.level >= d.levelCap);

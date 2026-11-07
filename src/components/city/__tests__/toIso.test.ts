@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { INITIAL_PLOTS } from "@/game/config";
 import { tileIndex } from "@/components/iso/map";
-import { LOCKED_BAND, MAX_CARS, MAX_PEOPLE, agentCounts, buildingKey, cityToIso, goldStage, hourIn, lightRatio, nightLevel, troubleIcons, type CityBuilding } from "../toIso";
+import { DECOR_OFFSET, LOCKED_BAND, MAX_CARS, MAX_PEOPLE, agentCounts, buildingKey, cityToIso, goldStage, hourIn, lightRatio, nightLevel, troubleIcons, type CityBuilding } from "../toIso";
+import { depth } from "@/components/iso/projection";
 
 const b = (over: Partial<Parameters<typeof buildingKey>[0]>) => ({ id: "b", tier: 0, level: 1, x: 4, y: 4, ...over });
 
@@ -18,6 +19,12 @@ describe("建物の絵のキー", () => {
     expect(buildingKey(b({ special: "park", tier: 2, closed: true }), 1)).toBe("special/park/2@closed");
     expect(buildingKey(b({ special: "statue", tier: 2, level: 3 }), 1)).toBe("special/statue/gold@stage3");
     expect(buildingKey(b({ special: "statue", tier: 1, level: 5 }), 1)).toBe("special/statue/silver");
+  });
+
+  it("RSV-03 備えの施設は備えLv ごとの絵で、閉まった施設は暗く描く", () => {
+    expect(buildingKey(b({ special: "reserve", tier: 0 }), 1)).toBe("special/reserve/1");
+    expect(buildingKey(b({ special: "reserve", tier: 3 }), 1)).toBe("special/reserve/4");
+    expect(buildingKey(b({ special: "reserve", tier: 2, closed: true }), 1)).toBe("special/reserve/3@closed");
   });
 });
 
@@ -193,6 +200,20 @@ describe("M3 にぎわい", () => {
     expect(map.objects.find((o) => o.id === "gold")).toMatchObject({ x: 1, y: 1, key: "props/gold/2" });
     const none = cityToIso({ plots: INITIAL_PLOTS, buildings: [bank], zones, bankLevel: 1, gold: { uncollected: 0, ratePerMinute: 1 } });
     expect(none.map.objects.find((o) => o.id === "gold")).toBeUndefined();
+  });
+
+  it("REC-06 銀貨で添えた装飾は、建物の横の空き（敷地の右の角のマス）に小物を置き、建物より手前に描く", () => {
+    const house = { id: "h1", line: "housing" as const, tier: 1, level: 1, x: 3, y: 3, decor: "fountain" as const };
+    const plain = { id: "h2", line: "housing" as const, tier: 1, level: 1, x: -5, y: 3 };
+    const statue = { id: "s1", special: "statue" as const, tier: 0, level: 5, x: 1, y: -2, decor: "flowers" as const };
+    const { map } = cityToIso({ plots: INITIAL_PLOTS, buildings: [house, plain, statue], zones: {}, bankLevel: 1 });
+    // 住宅は 2×2 なので、右の角のマスは (4, 3)。重なり順は建物（占有範囲の中心）より手前
+    const decor = map.objects.find((o) => o.id === "decor:h1")!;
+    expect(decor).toMatchObject({ x: 4, y: 3, key: "props/decor/fountain", ...DECOR_OFFSET });
+    expect(depth(decor.x, decor.y) + (decor.dz ?? 0)).toBeGreaterThan(depth(3.5, 3.5));
+    expect(map.objects.find((o) => o.id === "decor:h2")).toBeUndefined();
+    // 1×1 の建物には空きがないので置かない
+    expect(map.objects.find((o) => o.id === "decor:s1")).toBeUndefined();
   });
 
   it("以前の街の金鉱・銀鉱は描かない", () => {
