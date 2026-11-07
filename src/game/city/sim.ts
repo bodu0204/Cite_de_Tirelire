@@ -231,7 +231,7 @@ function completeJobs(s: CityState, end: number, events: CityEvent[]) {
 
 // ---- 街の発展 ----
 
-interface Plan {
+export interface Plan {
   kind: Job["kind"];
   line: LineId;
   tier: number;
@@ -359,8 +359,8 @@ const PRODUCERS: LineId[] = ["farm", "factory", "commerce", "office", "lumber", 
 const EVOLVE_ORDER: LineId[] = ["farm", "housing", "factory", "commerce", "power", "road", "school", "culture", "office"];
 const NEW_INDUSTRY: LineId[] = ["quarry", "factory", "commerce", "school", "clinic", "culture", "rail", "logistics", "office", "future"];
 
-/** 必要事項ごとの候補（上から順に検討する） */
-function plansFor(need: NeedKey, s: CityState, m: Metrics, dev: number, cache = siteCache()): Plan[] {
+/** 必要事項ごとの候補（上から順に検討する）。scripts/balance.ts も使う */
+export function plansFor(need: NeedKey, s: CityState, m: Metrics, dev: number, cache = siteCache()): Plan[] {
   const plans: (Plan | null)[] = [];
   const buildPlan = (s: CityState, line: LineId, dev: number) => buildPlanAt(s, line, dev, cache);
   const pop = s.population;
