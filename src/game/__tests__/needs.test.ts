@@ -8,7 +8,7 @@ import { cityNeeds, expansionPlan, priceOf } from "../city/sim";
 import { DAY, HOUR } from "../config";
 import { BudgetPlan, type CurrencyDefLite } from "../currency";
 import { exchangeRate, needShares, quoteBondGains, quoteNeedsExchange, quoteResourceExchange, splitAmount, ZERO_GAINS } from "../exchange";
-import { creditFund, earlyBonusRate } from "../fund";
+import { creditFund, earlyBonusRate, earlyBonusRoom, fundWithBonus, savingsForFund } from "../fund";
 import { advance, type Accrual, type World } from "../idle";
 import { newMine } from "../mine";
 import { coverPlans, type PlanQueue } from "../planQueue";
@@ -268,6 +268,26 @@ describe("ERL-01・02 開拓期ボーナス", () => {
     expect(creditFund(c, 50000, c.startedAt + HOUR)).toBe(30000);
     expect(creditFund(c, 1000, c.startedAt + 2 * HOUR)).toBe(0);
     expect(c.earlyBonus).toBe(30000);
+  });
+
+  it("交換画面の見せ方：ボーナスの間は、建設資金の不足に要る金貨が減る（~~92G~~ → 46G）。creditFund と同じ計算", () => {
+    const c = createCity(START, 100000);
+    const room = earlyBonusRoom(c);
+    expect(room).toBe(30000);
+    expect(fundWithBonus(46, 2, room)).toBe(92);
+    expect(savingsForFund(92, 2, room)).toBe(46);
+    expect(savingsForFund(92, 1.5, room)).toBeCloseTo(92 / 1.5, 9);
+    expect(savingsForFund(92, 1, room)).toBe(92);
+    // 残りのボーナスを超える分は1倍
+    expect(savingsForFund(1000, 2, 100)).toBe(900);
+    expect(fundWithBonus(900, 2, 100)).toBe(1000);
+    // 求めた額を実際に入れると、ちょうどその建設資金になる
+    const at = c.startedAt + HOUR;
+    for (const fund of [92, 5000, 70000]) {
+      const before = c.treasury;
+      creditFund(c, savingsForFund(fund, 2, earlyBonusRoom(c)), at);
+      expect(c.treasury - before).toBeCloseTo(fund, 6);
+    }
   });
 
   it("採掘の債券化でも開拓期ボーナスがつく", () => {

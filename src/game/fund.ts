@@ -20,12 +20,30 @@ export function earlyBonusRate(city: Pick<CityState, "startedAt">, at: number): 
  */
 export function creditFund(city: CityState, amount: number, at: number): number {
   if (amount <= 0) return 0;
-  const room = Math.max(0, EARLY_BONUS_CAP * city.base - city.earlyBonus);
-  const bonus = Math.min(amount * (earlyBonusRate(city, at) - 1), room);
+  const bonus = Math.min(amount * (earlyBonusRate(city, at) - 1), earlyBonusRoom(city));
   city.earlyBonus += bonus;
   city.treasury += amount + bonus;
   logFund(city, at, amount + bonus);
   return bonus;
+}
+
+/** 開拓期ボーナスで、このシーズンにまだ増やせる額（円。基準額 × EARLY_BONUS_CAP まで。ERL-02） */
+export function earlyBonusRoom(city: Pick<CityState, "base" | "earlyBonus">): number {
+  return Math.max(0, EARLY_BONUS_CAP * city.base - city.earlyBonus);
+}
+
+/** 貯金 amount 円を入れた時に建設資金に入る額（開拓期ボーナス込み。creditFund と同じ計算）。rate はボーナスの倍率、room は残り */
+export function fundWithBonus(amount: number, rate: number, room: number): number {
+  return amount <= 0 ? 0 : amount + Math.min(amount * (rate - 1), room);
+}
+
+/**
+ * 建設資金を fund 円増やすのに要る貯金（円。fundWithBonus の逆）。開拓期ボーナスの間は少なくて済む
+ * （交換画面で「~~92G~~ → 46G」と見せる）。残りのボーナスを超える分は1倍
+ */
+export function savingsForFund(fund: number, rate: number, room: number): number {
+  if (fund <= 0) return 0;
+  return fund * (1 - 1 / rate) <= room ? fund / rate : fund - room;
 }
 
 /** 建設資金が入った額をシーズンの日ごとに覚える（見通し REC-04 のペース。直近 FORECAST_DAYS 日だけ残す） */

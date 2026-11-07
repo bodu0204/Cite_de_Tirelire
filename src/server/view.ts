@@ -18,7 +18,7 @@ import {
 import { exchangeRate, GAIN_KEYS, needShares, ZERO_GAINS } from "@/game/exchange";
 import { unconfirmedGold } from "@/game/confirm";
 import { describeEvent } from "@/game/describe";
-import { bondInterestPerDay, earlyBonusRate, fundPace, nextReserveAt, reserveLevel } from "@/game/fund";
+import { bondInterestPerDay, earlyBonusRate, earlyBonusRoom, fundPace, nextReserveAt, reserveLevel } from "@/game/fund";
 import { devLevel, goldMineLevel, nextThreshold, savingsProgress, silverMineLevel, techThresholdYen } from "@/game/levels";
 import { microToGold, ratePerMinute } from "@/game/mine";
 import { dayKey, periodRange } from "@/game/time";
@@ -267,6 +267,8 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
       reserveLevel: reserve,
       nextReserveAt: nextReserveAt(reserve, user.monthlyBudget),
       earlyBonusRate: earlyBonusRate(city, ctx.now),
+      /** 開拓期ボーナスでまだ増やせる額（円） */
+      earlyBonusRoom: earlyBonusRoom(city),
       discount: discountRate(city),
       /** 見通し（REC-04）：直近14日に入った建設資金のペース（円/日）と、このペースで次の発展Lvに届くまでの日数 */
       pace: fundPace(city, ctx.now),

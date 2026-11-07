@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import { goldForOf } from "@/components/exchange/GoldNeed";
 import { PlanList } from "@/components/exchange/PlanList";
 import { waitingFor } from "@/components/home/waiting";
 import { useGame, useSeasonView } from "@/components/GameProvider";
 import { BondIcon, Button, Card, Coin, Field, NumberInput, Tabs } from "@/components/ui";
 import { FEE_EXCHANGE } from "@/game/config";
 import { bondResourceEligible } from "@/game/bond";
-import { bondInterestPerDay } from "@/game/fund";
+import { bondInterestPerDay, fundWithBonus } from "@/game/fund";
 import { quoteBondGains, quoteNeedsExchange, quoteResourceExchange, totalGains, ZERO_GAINS, type Currency } from "@/game/exchange";
 import type { GainKey, Gains } from "@/game/types";
 import { fmt } from "@/lib/api";
@@ -100,6 +101,8 @@ export default function ExchangePage() {
   const speedAfter = mode === "g2b" ? bondInterestPerDay(cur.bond + n, v.exchange.bondCap) : speedNow;
   const speedMaxed = cur.bond >= v.exchange.bondCap;
   const cityGains = mode === "g2b" ? bondGains : res ? q.gains : ZERO_GAINS;
+  // 計画の見込みは、開拓期ボーナスで実際に入る建設資金で求める（不足は、要る金貨が減る形で見せる：GoldNeed）
+  const planGains = { ...cityGains, treasury: fundWithBonus(cityGains.treasury, v.dev.earlyBonusRate, v.dev.earlyBonusRoom) };
   const routes: Route[] = [
     {
       value: "g2b",
@@ -376,8 +379,9 @@ export default function ExchangePage() {
           queue={v.exchange.planQueue}
           stock={{ wood: v.city.stock.wood, stone: v.city.stock.stone, treasury: v.city.treasury }}
           foodNeed={needs.food}
-          gains={cityGains}
-          waiting={waitingFor(v)}
+          gains={planGains}
+          waiting={waitingFor(v, true)}
+          goldFor={goldForOf(v)}
         />
       )}
       <Card title="現在の交換効率">
