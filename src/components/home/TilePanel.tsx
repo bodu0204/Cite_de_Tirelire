@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import { useGame } from "@/components/GameProvider";
+import { Button } from "@/components/ui";
 import { SPECIAL_LABELS, tierDef, ZONE_LABELS } from "@/game/catalog";
 import { buildingOutput } from "@/game/city/economy";
 import { buildingSize, contains, expansionError, isPlaced, isTileUnlocked, jobSize, plotKey, plotOf, zoneAt } from "@/game/city/layout";
-import { DISCOUNT_PER_BUILDING, MINUTE } from "@/game/config";
+import { DISCOUNT_PER_BUILDING, HOUR, MINUTE, REPAIR_SILVER } from "@/game/config";
 import { PARK_DESCRIPTION, PARK_SIZE_LABELS, STATUE_DESCRIPTION, statueStageLabel } from "@/game/describe";
 import { STATUE_RANK_LABELS } from "@/game/levels";
 import type { Building } from "@/game/types";
@@ -122,6 +124,30 @@ function ExpandPanel({ v, tile }: { v: ActiveView; tile: { x: number; y: number 
   );
 }
 
+/** 火事で休業した建物：自動で再開するまでの時間と、銀貨での修繕（docs/savings-driven-growth.md EVT-05） */
+function Repair({ v, id, until }: { v: ActiveView; id: string; until: number }) {
+  const { act, toast, busy } = useGame();
+  const hours = Math.max(1, Math.ceil((until - v.serverNow) / HOUR));
+  return (
+    <div className="rounded-lg border border-line bg-surface-2 p-2 text-xs">
+      <p>
+        <span className="font-semibold text-danger">火事で休業中</span>：あと約{hours}時間で再開します。銀貨で修繕すると、すぐ再開します。
+      </p>
+      <Button
+        className="mt-2 w-full"
+        variant="secondary"
+        disabled={busy || v.currencies.silver < REPAIR_SILVER}
+        onClick={async () => {
+          const r = await act("/api/city/repair", { buildingId: id });
+          if (r) toast(`修繕しました（銀貨 −${REPAIR_SILVER}S）`, "reward");
+        }}
+      >
+        銀貨 {REPAIR_SILVER}S で修繕する（所持 {fmt(v.currencies.silver)}S）
+      </Button>
+    </div>
+  );
+}
+
 export function TilePanel({ v, tile }: { v: ActiveView; tile: { x: number; y: number } }) {
   const city = v.city;
   // 大きな建物は、占有範囲のどのマスを選んでもその建物
@@ -169,6 +195,7 @@ export function TilePanel({ v, tile }: { v: ActiveView; tile: { x: number; y: nu
           {b.special === "statue" && <SpecialDetail rows={statueRows(b, statue)} description={STATUE_DESCRIPTION} href="/wishes" linkLabel="ほしい物リストで積立・編集" />}
         </div>
         {bJob && <JobLine v={v} label={bJob.kind === "evolve" ? `${tierDef(bJob.line, bJob.tier).name}へ進化中` : `Lv${bJob.level}へアップグレード中`} job={bJob} />}
+        {b.line && city.closedUntil?.[b.id] !== undefined && <Repair v={v} id={b.id} until={city.closedUntil[b.id]} />}
         {b.line && <p className="text-xs text-muted">土地用途：{ZONE_LABELS[zone]}</p>}
       </div>
     );

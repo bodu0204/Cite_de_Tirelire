@@ -44,16 +44,18 @@ req POST /api/savings "{\"kind\":\"DEPOSIT\",\"amount\":1000,\"date\":\"$TODAY\"
 req GET /api/savings | j '[o.today, o.limit]'
 echo "== daily cap: 4th record gives 0"; req POST /api/purchases "{\"amount\":300,\"date\":\"$TODAY\",\"name\":\"コーヒー\"}"
 echo "== g2s with 0 gold fails"; req POST /api/exchange '{"kind":"gold_to_silver","amount":10}'
-echo "== silver->wood (no savings)";  req POST /api/exchange '{"kind":"to_resource","currency":"silver","resource":"wood","amount":20}'
-echo "== seed 5000 gold, gold->stone adds to savings amount (city spent)"
+echo "== silver->fund is rejected (silver is for repairs and fees)";  req POST /api/exchange '{"kind":"to_resource","currency":"silver","resource":"wood","amount":20}' | j 'o.error && o.error.code'
+echo "== no-spend today: confirms unspent dividend into bond / fund"; req POST /api/records/no-spend | j '[o.reward, o.confirmed]'
+req GET /api/state | j '[o.currencies.bond, o.mine.uncollected, o.mine.confirmedAt !== null, o.city.treasury]'
+echo "== seed 5000 gold, gold->fund adds to savings amount (city spent)"
 $PSQL -qtAc "UPDATE \"Season\" SET gold = gold + 5000 WHERE id = (SELECT s.id FROM \"Season\" s JOIN \"User\" u ON u.id = s.\"userId\" WHERE u.email = '$EMAIL' AND s.status <> 'COMPLETED')" >/dev/null
 req POST /api/exchange '{"kind":"to_resource","currency":"gold","resource":"stone","amount":2000}'
 req GET /api/state | j '[o.currencies.gold, o.season.citySpent, o.season.savings, o.season.rate, o.tech.level, o.wishSavings]'
 echo "== gold->bond is 1:1, counted once in savings"; req POST /api/exchange '{"kind":"gold_to_bond","amount":500}'
-req GET /api/state | j '[o.currencies.gold, o.currencies.bond, o.season.citySpent, o.season.savings, o.dev.bondMultiplier]'
+req GET /api/state | j '[o.currencies.gold, o.currencies.bond, o.season.citySpent, o.season.savings, o.dev.interestPerDay, o.dev.reserveLevel]'
 echo "== silver->bond is not allowed"; req POST /api/exchange '{"kind":"to_bond","currency":"silver","amount":10}'
 echo "== custom->bond needs balance"; req POST /api/exchange "{\"kind\":\"to_bond\",\"currency\":\"custom\",\"currencyId\":\"$CUR\",\"amount\":100000}"
-echo "== silver shortage: resource exchange fails, bond untouched"; req POST /api/exchange '{"kind":"to_resource","currency":"silver","resource":"wood","amount":100000}'
+echo "== silver exchange to fund is rejected, bond untouched"; req POST /api/exchange '{"kind":"to_resource","currency":"silver","resource":"wood","amount":100000}'
 echo "== wish contribution counts as wish savings"; req POST /api/wishes/$W/contribute '{"amount":500}'
 req GET /api/state | j '[o.wishSavings, o.season.savings]'
 echo "== wish purchase before fully saved is rejected"; req POST /api/purchases "{\"wishItemId\":\"$W\",\"date\":\"$TODAY\",\"amount\":8000}" | j 'o.error && o.error.code'

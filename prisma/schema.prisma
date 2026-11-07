@@ -72,7 +72,7 @@ model Season {
   silver       Int @default(0)
   /// 像に積み立てた金貨（通常の交換に使えない）
   reservedGold Int @default(0)
-  /// 債券（マイナス可）。急な出費の肩代わりと発展速度の倍率に使う
+  /// 債券（マイナス可）。急な出費の肩代わりに使い、持っている間は利息（建設資金）がつく
   bond         Int @default(0)
 
   // 金鉱（金額は 10^-6 G 単位）
@@ -90,6 +90,12 @@ model Season {
   mineCut            BigInt   @default(0)
   /// 当期の配当で所持通貨に入った額（µG。手元のお金の推測）
   mineDividend       BigInt   @default(0)
+  /// 最後に記録で貯金を確定した時刻（docs/savings-driven-growth.md REC-01）
+  mineConfirmedAt    DateTime?
+  /// まだ確定していない日ごとの配当（日の始まりの時刻 → µG。src/game/confirm.ts）
+  mineUnconfirmed    Json     @default("{}")
+  /// 当期に確定で債券に入れた額のうち、手数料なしで取り崩せる残り
+  mineFreeBond       Int      @default(0)
   /// 当期のユーザ通貨の未発生分から減らす額（src/game/idle.ts の CustomCut の配列）
   customCuts         Json     @default("[]")
 

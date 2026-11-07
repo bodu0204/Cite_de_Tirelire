@@ -95,3 +95,21 @@ export function CurrencyChip({ currency, currencyId }: { currency: string; curre
   if (currency === "CUSTOM") return <CustomIcon icon={cur?.icon ?? "🪙"} size={12} />;
   return <span>貯蓄</span>;
 }
+
+/** 記録で確定した貯金の結果（docs/savings-driven-growth.md REC-01） */
+export interface Confirmed {
+  amount: number;
+  toBond: number;
+  fund: number;
+}
+
+/** 記録のトーストに足す「貯金が確定して街に入った」の文言。確定がなければ空 */
+export function confirmedText(c: Confirmed | null | undefined): string {
+  if (!c || c.amount <= 0) return "";
+  return `・使わなかった ${fmt(c.amount)}G が貯金として確定し、建設資金 +${fmt(c.fund)}円`;
+}
+
+/** 一括保存の応答から確定の合計を求める */
+export function sumConfirmed(list: (Confirmed | null | undefined)[]): Confirmed {
+  return list.reduce<Confirmed>((a, c) => (c ? { amount: a.amount + c.amount, toBond: a.toBond + c.toBond, fund: a.fund + c.fund } : a), { amount: 0, toBond: 0, fund: 0 });
+}

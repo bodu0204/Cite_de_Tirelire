@@ -8,13 +8,16 @@ import { applyTechLevel } from "@/game/city/sim";
 import { dropLegacyMines } from "@/game/city/layout";
 import { migrateCity, seasonBase } from "@/game/city/init";
 import { BudgetPlan, type CurrencyDefLite, type Rule } from "@/game/currency";
-import { FEE_INSTANT_ROAD } from "@/game/config";
+import { DAY, FEE_INSTANT_ROAD, SPEND_ESTIMATE_DAYS, SPEND_ESTIMATE_DEFAULT_RATIO, SPEND_ESTIMATE_MIN_RECORDS } from "@/game/config";
+import { confirmByRecord } from "@/game/confirm";
+import { exchangeRate } from "@/game/exchange";
+import { creditFund } from "@/game/fund";
 import { fail } from "@/game/errors";
-import { advance, type Accrual, type CustomCut, type Grant } from "@/game/idle";
+import { advance, grantBondResources, type Accrual, type CustomCut, type Grant, type World } from "@/game/idle";
 import { achievementRate, bankLevel, goldMineLevel, savingsTotal, silverMineLevel, techLevel } from "@/game/levels";
 import { floorMinute, type GoldWindow, type MineState, type SubWindow } from "@/game/mine";
 import type { Lot, Purse } from "@/game/settle";
-import { monthCal, parseDateInTz, type PeriodCal } from "@/game/time";
+import { dayKey, monthCal, parseDateInTz, type PeriodCal } from "@/game/time";
 import type { CityEvent, CityState } from "@/game/types";
 import { prisma } from "./db";
 
@@ -111,6 +114,9 @@ export function mineFromSeason(s: Season): MineState {
     minedThisMonth: s.mineMinedMonth,
     settledThisMonth: s.mineSettledMonth,
     totalCollected: s.mineTotalCollected,
+    confirmedAt: s.mineConfirmedAt?.getTime(),
+    unconfirmed: (s.mineUnconfirmed as Record<string, number> | null) ?? {},
+    freeBond: s.mineFreeBond,
   };
 }
 
@@ -126,6 +132,9 @@ function mineToSeason(m: MineState): Prisma.SeasonUpdateInput {
     mineWindows: (m.windows ?? []).map((w) => ({ ...w, total: w.total.toString() })) as unknown as Prisma.InputJsonValue,
     mineCut: m.cut ?? 0n,
     mineDividend: m.dividend ?? 0n,
+    mineConfirmedAt: m.confirmedAt === undefined ? null : new Date(m.confirmedAt),
+    mineUnconfirmed: (m.unconfirmed ?? {}) as Prisma.InputJsonValue,
+    mineFreeBond: m.freeBond ?? 0,
   };
 }
 
@@ -300,14 +309,15 @@ async function load(tx: Tx, userId: string, now: number): Promise<GameCtx> {
   ctx.grants = due.map((g) => ({ id: g.id, at: g.at.getTime(), currency: g.currency as Grant["currency"], currencyId: g.currencyId, amount: g.amount, dividend: g.dividend, grantedAt: null }));
   ctx.cuts = ((season.customCuts as CustomCut[] | null) ?? []).filter((c) => c.remaining > 0);
 
-  // 放置計算：10分ティックごとに 金鉱 → ユーザ通貨 → 街
+  // 放置計算：10分ティックごとに 金鉱 → ユーザ通貨 → 記録のない日の自動の確定 → 街
   const goldLevel = goldMineLevel(ctx.mine.totalCollected);
+  const plan = budgetPlan(ctx);
+  const estimatePerDay = await spendEstimate(ctx, plan);
   withPurse(ctx, (purse) => {
-    advance(
-      { purse, city: ctx.city!, lots: ctx.lots, accruals: ctx.accruals, grants: ctx.grants, cuts: ctx.cuts },
-      { plan: budgetPlan(ctx), bondRate: user.bondMiningRate, until: now, newId: newLotId },
-      ctx.events,
-    );
+    const w: World = { purse, city: ctx.city!, lots: ctx.lots, accruals: ctx.accruals, grants: ctx.grants, cuts: ctx.cuts };
+    advance(w, { plan, bondRate: user.bondMiningRate, until: now, newId: newLotId, estimatePerDay, silverMine: silverMineLevel(season.rewardedRecords) }, ctx.events);
+    // 自動で確定した配当のうち、債券に入りきらずに建設資金にした分はゲーム内で使った金貨（貯金額）に数える
+    ctx.citySpent += w.citySpent ?? 0;
   });
   // 債券化した採掘も金鉱Lvの経験値に含める
   emitFacilityLevels(ctx, { gold: goldLevel });
@@ -318,6 +328,41 @@ async function load(tx: Tx, userId: string, now: number): Promise<GameCtx> {
 }
 
 export const newLotId = () => `l${randomUUID().replace(/-/g, "")}`;
+
+/**
+ * 記録のない日を自動で確定するときに差し引く、推定の1日の支出（G。docs/savings-driven-growth.md REC-01）。
+ * 直近 SPEND_ESTIMATE_DAYS 日の支出（サブスクを除く）の記録から求め、記録が少なければ1日の配当の半分とみなす
+ */
+async function spendEstimate(ctx: GameCtx, plan: BudgetPlan): Promise<number> {
+  const since = dayKey(ctx.now - SPEND_ESTIMATE_DAYS * DAY, ctx.user.timezone);
+  const agg = await ctx.tx.purchase.aggregate({
+    where: { userId: ctx.user.id, isSubscription: false, date: { gte: since } },
+    _sum: { amount: true },
+    _count: { _all: true },
+  });
+  if (agg._count._all < SPEND_ESTIMATE_MIN_RECORDS) return (Math.max(0, plan.netAt(ctx.now)) / 30) * SPEND_ESTIMATE_DEFAULT_RATIO;
+  return (agg._sum.amount ?? 0) / SPEND_ESTIMATE_DAYS;
+}
+
+/**
+ * 記録を保存したとき：それまでの使わなかった配当（未回収の金貨）を確定し、債券（上限まで）と建設資金に入れる。
+ * 債券に入りきらない分は建設資金にし、ゲーム内で使った金貨（貯金額）に数える（docs/savings-driven-growth.md REC-01・RSV-01）
+ */
+export function confirmRecords(ctx: GameCtx): { amount: number; toBond: number; fund: number } {
+  requireSeason(ctx);
+  const status = (ctx.seasonPatch.status as string | undefined) ?? ctx.season.status;
+  if (status === "COMPLETED") return { amount: 0, toBond: 0, fund: 0 };
+  const before = ctx.city.treasury;
+  const c = withPurse(ctx, (p) => confirmByRecord(p, ctx.now));
+  const lv = facilityLevels(ctx);
+  if (c.overflow > 0) {
+    creditFund(ctx.city, c.overflow * exchangeRate("gold", "treasury", lv), ctx.now);
+    ctx.citySpent += c.overflow;
+  }
+  // 債券に入った分の建設資金は、次のティックを待たずにすぐ入れる
+  grantBondResources(ctx.city, lv, ctx.now);
+  return { amount: c.amount, toBond: c.toBond, fund: Math.floor(ctx.city.treasury - before) };
+}
 
 export function lotFromRow(l: { id: string; currencyId: string; issuedAt: Date; expiresAt: Date | null; amount: number; remaining: number; pending?: number }): Lot {
   return { id: l.id, currencyId: l.currencyId, issuedAt: l.issuedAt.getTime(), expiresAt: l.expiresAt?.getTime() ?? null, amount: l.amount, remaining: l.remaining, pending: l.pending ?? 0 };

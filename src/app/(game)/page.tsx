@@ -45,7 +45,7 @@ export default function HomePage() {
   const [allCurrencies, setAllCurrencies] = useState(false);
 
   useEffect(() => {
-    if (v?.away && (v.away.built || v.away.upgraded || v.away.evolved || v.away.expanded || v.away.population || v.away.devPoints)) {
+    if (v?.away && (v.away.built || v.away.upgraded || v.away.evolved || v.away.expanded || v.away.population || v.away.devPoints || v.away.saved || v.away.disasters.length)) {
       setAway(v.away);
       setHighlights(new Set(v.away.tiles.map(([x, y]) => `${x},${y}`)));
       const t = setTimeout(() => setHighlights(new Set()), 20_000);
@@ -117,6 +117,8 @@ export default function HomePage() {
             <TilePanel v={v} tile={tile} />
           </Card>
         )}
+
+        <Effects v={v} />
 
         <Card title="街の様子">
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -222,6 +224,11 @@ export default function HomePage() {
               <li>発展ポイント +{fmt(away.devPoints)}</li>
               <li>建設資金 {away.treasury >= 0 ? "+" : ""}{fmt(away.treasury)}円（工事に使った分を差し引き）</li>
               {away.bondResources.treasury > 0 && <li>債券化で入った建設資金 +{fmt(away.bondResources.treasury)}円</li>}
+              {away.saved > 0 && <li>記録のない日の配当が確定し、貯金 +{fmt(away.saved)}円</li>}
+              {away.interest > 0 && <li>債券の利息 +{fmt(away.interest)}円（建設資金）</li>}
+              {away.disasters.map((d, i) => (
+                <li key={i}>{d}</li>
+              ))}
             </ul>
             <p className="text-xs text-muted">変化した場所を地図上で光らせています。金貨・銀貨は使っていません。</p>
             <Button className="w-full" onClick={() => setAway(null)}>
@@ -230,6 +237,31 @@ export default function HomePage() {
           </div>
         )}
       </Modal>
+    </div>
+  );
+}
+
+/** 今続いている悪い出来事の効果（docs/savings-driven-growth.md EVT-03） */
+function Effects({ v }: { v: NonNullable<ReturnType<typeof useSeasonView>> }) {
+  const fx = v.city.effects;
+  const now = v.serverNow;
+  const hours = (until: number) => `あと約${Math.max(1, Math.ceil((until - now) / 3_600_000))}時間`;
+  const items: string[] = [];
+  if (fx?.pauseUntil && fx.pauseUntil > now) items.push(`台風で工事が止まっています（${hours(fx.pauseUntil)}）`);
+  if (fx?.crop && fx.crop.until > now) items.push(`不作で食料の生産が${Math.round(fx.crop.rate * 100)}%減っています（${hours(fx.crop.until)}）`);
+  if (fx?.surge && fx.surge.until > now) items.push(`資材の値上がりで工事の値段が${Math.round(fx.surge.rate * 100)}%上がっています（${hours(fx.surge.until)}）`);
+  if (fx?.blackout && fx.blackout.until > now) items.push(`停電で電力の供給が${Math.round(fx.blackout.rate * 100)}%減っています（${hours(fx.blackout.until)}）`);
+  const closed = Object.keys(v.city.closedUntil ?? {}).length;
+  if (closed > 0) items.push(`火事で${closed}棟が休業しています（地図で建物を選ぶと銀貨で修繕できます）`);
+  if (!items.length) return null;
+  return (
+    <div className="rounded-lg border border-line bg-surface-2 p-3 text-sm">
+      <ul className="space-y-1">
+        {items.map((s) => (
+          <li key={s}>{s}</li>
+        ))}
+      </ul>
+      <p className="mt-1 text-xs text-muted">債券（もしもの備え）を増やすと、被害が軽くなります（備えLv{v.dev.reserveLevel}）。</p>
     </div>
   );
 }

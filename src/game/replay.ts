@@ -40,6 +40,13 @@ export function applyEvent(frame: ReplayFrame, e: ReplayEvent) {
     case "DEMOLISH":
       frame.buildings.delete(e.payload.buildingId as string);
       break;
+    case "DISASTER":
+      // 火事で休業した建物（docs/savings-driven-growth.md EVT-03）
+      if (!e.payload.repaired) for (const s of (e.payload.buildings as BuildingSnap[] | undefined) ?? []) frame.buildings.set(s.id, { ...s });
+      break;
+    case "REPAIRED":
+      if (b) frame.buildings.set(b.id, { ...b });
+      break;
     case "PLOT_EXPANDED": {
       // 区画を開き、十字の道路を敷く（土地用途は描画に使わないので持たない）
       const plot = e.payload.plot as string;

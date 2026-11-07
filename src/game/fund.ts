@@ -1,5 +1,5 @@
 // 建設資金（docs/savings-driven-growth.md §5・§7・§8）。街は自分では稼がず、貯金（金貨の交換・債券化）と債券の利息からだけ建設資金が入る。
-import { BOND_INTEREST_PER_DAY, DAY, EARLY_BONUS, EARLY_BONUS_CAP, RESERVE_LEVEL_MONTHS } from "./config";
+import { BOND_INTEREST_PER_DAY, DAY, EARLY_BONUS, EARLY_BONUS_CAP, FORECAST_DAYS, RESERVE_LEVEL_MONTHS } from "./config";
 import type { CityState, Gains } from "./types";
 
 /** シーズン開始から何日目か（1 から） */
@@ -24,7 +24,25 @@ export function creditFund(city: CityState, amount: number, at: number): number 
   const bonus = Math.min(amount * (earlyBonusRate(city, at) - 1), room);
   city.earlyBonus += bonus;
   city.treasury += amount + bonus;
+  logFund(city, at, amount + bonus);
   return bonus;
+}
+
+/** 建設資金が入った額をシーズンの日ごとに覚える（見通し REC-04 のペース。直近 FORECAST_DAYS 日だけ残す） */
+export function logFund(city: CityState, at: number, amount: number) {
+  if (amount <= 0) return;
+  const day = seasonDay(city, at);
+  const log = (city.fundLog ??= {});
+  log[day] = (log[day] ?? 0) + amount;
+  for (const k of Object.keys(log)) if (Number(k) <= day - FORECAST_DAYS) delete log[k];
+}
+
+/** 直近 FORECAST_DAYS 日に入った建設資金の1日あたりのペース（円/日） */
+export function fundPace(city: CityState, now: number): number {
+  const day = seasonDay(city, now);
+  const days = Math.max(1, Math.min(FORECAST_DAYS, day));
+  const sum = Object.entries(city.fundLog ?? {}).reduce((a, [k, v]) => (Number(k) > day - FORECAST_DAYS ? a + v : a), 0);
+  return sum / days;
 }
 
 /** 交換の結果（Gains）を街に入れる。建設資金は creditFund を通す。足した開拓期ボーナスを返す */

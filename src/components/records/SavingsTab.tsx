@@ -5,6 +5,7 @@ import { useGame, useSeasonView } from "@/components/GameProvider";
 import { Button, Card, Empty, Field, Modal, NumberInput, Tabs } from "@/components/ui";
 import { REWARD_SAVINGS } from "@/game/config";
 import { api, fmt, todayIn, yen } from "@/lib/api";
+import { confirmedText, type Confirmed } from "./shared";
 
 interface Savings {
   id: string;
@@ -32,8 +33,9 @@ function SavingsForm({ initial, onDone, tz, disabled }: { initial?: Savings; onD
         const r = initial ? await act(`/api/savings/${initial.id}`, body, "PATCH") : await act<{ reward: number }>("/api/savings", body);
         if (!r) return;
         if (!initial) {
-          const rr = r as { reward: number };
-          toast(rr.reward > 0 ? `記録しました！ 銀貨 +${rr.reward}S` : "記録しました（今日の記録報酬は上限に達しています）", rr.reward > 0 ? "reward" : "info");
+          const rr = r as { reward: number; confirmed?: Confirmed | null };
+          const c = confirmedText(rr.confirmed);
+          toast(rr.reward > 0 ? `記録しました！ 銀貨 +${rr.reward}S${c}` : `記録しました（今日の記録報酬は上限に達しています）${c}`, rr.reward > 0 ? "reward" : "info");
           setF((p) => ({ ...p, amount: "", memo: "" }));
         }
         onDone();

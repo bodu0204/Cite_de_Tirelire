@@ -42,6 +42,17 @@ export const REWARD_DAILY_CAP = 300;
 /** 貯金管理の登録は1日3回まで（docs/record-input-redesign.md SV-13） */
 export const SAVINGS_DAILY_LIMIT = 3;
 
+// ---- 記録による貯金の確定（docs/savings-driven-growth.md REC-01） ----
+/** 記録のない日の配当は、この日数がたつか、その日の収入期間が終わったら自動で確定する */
+export const AUTO_CONFIRM_DAYS = 7;
+/** 自動で確定するときに差し引く1日の支出は、直近この日数の支出の記録から推定する */
+export const SPEND_ESTIMATE_DAYS = 28;
+/** 推定に使う支出の記録がこの件数より少なければ、1日の配当のこの割合を支出とみなす */
+export const SPEND_ESTIMATE_MIN_RECORDS = 3;
+export const SPEND_ESTIMATE_DEFAULT_RATIO = 0.5;
+/** 見通し（REC-04）：直近この日数に入った建設資金のペースから求める */
+export const FORECAST_DAYS = 14;
+
 // ---- シーズン初期値 ----
 export const INITIAL_GOLD = 0;
 export const INITIAL_SILVER = 100;
@@ -145,6 +156,20 @@ export const PARK_HAPPINESS_CAP = 15;
 // ---- 像の分類（円） ----
 export const STATUE_SILVER_FROM = 5_000;
 export const STATUE_GOLD_FROM = 30_000;
+
+// ---- 悪い出来事（docs/savings-driven-growth.md §10） ----
+/** 1日に起きる確率（平均 約8日に1回）と、起きない最初の日数。発展Lv2 から */
+export const DISASTER_PER_DAY = 0.12;
+export const DISASTER_FROM_DAY = 4;
+/** 被害（備えLv0・幸福度ふつう）：台風で止まる工事の時間、不作の食料生産の減り方、値上がり・停電の割合と時間 */
+export const TYPHOON_HOURS = 12;
+export const CROP_FAILURE = { hours: 48, rate: 0.5 };
+export const PRICE_SURGE = { hours: 24, rate: 0.3 };
+export const BLACKOUT = { hours: 24, rate: 0.5 };
+/** 火事で休業した建物：何時間で自動で再開するか、修繕に使う銀貨、備えLv3 で建設資金から払う修繕費（建物の値段に対する割合） */
+export const FIRE_REOPEN_HOURS = 72;
+export const REPAIR_SILVER = 100;
+export const REPAIR_FUND_RATIO = 0.3;
 
 // ---- 放置中の変化表示 ----
 export const AWAY_SUMMARY_MIN_MS = HOUR;

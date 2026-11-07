@@ -70,6 +70,18 @@ export const NEED_ORDER: NeedKey[] = [
   "beautify",
 ];
 
+/** 悪い出来事の続いている効果（docs/savings-driven-growth.md EVT-03） */
+export interface CityEffects {
+  /** 台風：この時刻まで工事が止まる */
+  pauseUntil?: number;
+  /** 不作：食料生産が rate 減る */
+  crop?: { until: number; rate: number };
+  /** 資材の値上がり：計画の値段が rate 上がる */
+  surge?: { until: number; rate: number };
+  /** 停電：電力の供給が rate 減る */
+  blackout?: { until: number; rate: number };
+}
+
 export interface CityState {
   v: 1;
   /** シミュレーション済みの時刻（TICK_MS に揃う） */
@@ -110,6 +122,14 @@ export interface CityState {
   bondResourceTotal?: Gains;
   /** 債券の利息で得た建設資金の累計（円。RSV-02） */
   interestTotal?: number;
+  /** シーズンの日（1〜）ごとに入った建設資金（直近14日。見通し REC-04） */
+  fundLog?: Record<string, number>;
+  /** 備えLv（債券残高から。放置計算がティックごとに入れる。悪い出来事の被害を軽くする。RSV-03・EVT-04） */
+  reserveLevel?: number;
+  /** 悪い出来事の効果（いつまで続くか。EVT-03） */
+  effects?: CityEffects;
+  /** 火事で休業した建物（建物ID → 自動で再開する時刻。EVT-05） */
+  closedUntil?: Record<string, number>;
 }
 
 export type CityEventType =
@@ -124,6 +144,8 @@ export type CityEventType =
   | "POPULATION"
   | "SHORTAGE_STARTED"
   | "SHORTAGE_RESOLVED"
+  | "DISASTER"
+  | "REPAIRED"
   | "BANK_LEVEL"
   | "GOLD_MINE_LEVEL"
   | "SILVER_MINE_LEVEL"

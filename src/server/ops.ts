@@ -3,7 +3,8 @@ import { Prisma } from "@prisma/client";
 import { bondCap, bondResourceEligible } from "@/game/bond";
 import { createCity, seasonBase } from "@/game/city/init";
 import { cityNeeds } from "@/game/city/sim";
-import { INITIAL_GOLD, INITIAL_SILVER, REWARD_DAILY_CAP, REWARD_PURCHASE, REWARD_SAVINGS, SAVINGS_DAILY_LIMIT } from "@/game/config";
+import { INITIAL_GOLD, INITIAL_SILVER, REPAIR_SILVER, REWARD_DAILY_CAP, REWARD_PURCHASE, REWARD_SAVINGS, SAVINGS_DAILY_LIMIT } from "@/game/config";
+import { reopen } from "@/game/city/disasters";
 import { fail } from "@/game/errors";
 import { quoteBondGains, quoteNeedsExchange, quoteResourceExchange, totalGains, ZERO_GAINS, type Currency } from "@/game/exchange";
 import { creditGains } from "@/game/fund";
@@ -17,6 +18,7 @@ import {
   addCurrency,
   budgetPlan,
   calOf,
+  confirmRecords,
   erasJson,
   emitFacilityLevels,
   facilityLevels,
@@ -120,6 +122,21 @@ export function collectGold(ctx: GameCtx) {
     }
   }
   return { collected: r.gold, custom: [...custom].map(([currencyId, amount]) => ({ currencyId, amount })) };
+}
+
+// ---- 悪い出来事：火事で休業した建物の修繕（docs/savings-driven-growth.md EVT-05） ----
+
+/** 火事で休業した建物を銀貨で修繕して、すぐ再開する */
+export function repairBuilding(ctx: GameCtx, body: Body) {
+  requireOpen(ctx);
+  const id = str(body.buildingId, "建物");
+  const city = ctx.city!;
+  const b = city.buildings.find((o) => o.id === id);
+  if (!b || !b.closed || !city.closedUntil?.[id]) fail("invalid", "修繕が必要な建物ではありません");
+  if (ctx.balances.silver < REPAIR_SILVER) fail("insufficient", `銀貨が足りません（修繕には ${REPAIR_SILVER}S かかります）`);
+  addCurrency(ctx, "SILVER", -REPAIR_SILVER, "repair", id);
+  reopen(city, b!, ctx.now, ctx.events, "silver");
+  return { id, silver: -REPAIR_SILVER };
 }
 
 // ---- 銀鉱：記録と報酬 ----
@@ -281,7 +298,9 @@ export async function recordPurchase(ctx: GameCtx, body: Body) {
     await syncSpecials(ctx);
   }
   const reward = await grantReward(ctx, `purchase:${purchase.id}`, REWARD_PURCHASE);
-  return { id: purchase.id, reward, settled: settledAmount, reservedApplied, payment: summarize(payments), resolution };
+  // 記録したので、それまでの使わなかった配当を確定する（docs/savings-driven-growth.md REC-01）
+  const confirmed = ctx.season ? confirmRecords(ctx) : null;
+  return { id: purchase.id, reward, settled: settledAmount, reservedApplied, payment: summarize(payments), resolution, confirmed };
 }
 
 /** 支出の記録（items で一括保存） */
@@ -361,7 +380,20 @@ export async function recordSavings(ctx: GameCtx, body: Body) {
   if ((await savingsCountToday(ctx)) >= SAVINGS_DAILY_LIMIT) fail("daily_limit", `貯金管理の登録は1日${SAVINGS_DAILY_LIMIT}回までです`, 429);
   const tx = await ctx.tx.savingsTransaction.create({ data: { ...input, userId: ctx.user.id, seasonId: ctx.season?.id ?? null } });
   const reward = await grantReward(ctx, `savings:${tx.id}`, REWARD_SAVINGS);
-  return { id: tx.id, reward };
+  const confirmed = ctx.season ? confirmRecords(ctx) : null;
+  return { id: tx.id, reward, confirmed };
+}
+
+/**
+ * 「今日は支出なし」（docs/savings-driven-growth.md REC-02）：支出のない日を1タップで記録し、それまでの配当を確定する。
+ * 報酬は支出の記録と同じ（1日1回、1日の上限内）
+ */
+export async function recordNoSpend(ctx: GameCtx) {
+  requireOpen(ctx);
+  const day = dayKey(ctx.now, ctx.user.timezone);
+  const reward = await grantReward(ctx, `nospend:${ctx.user.id}:${day}`, REWARD_PURCHASE);
+  const confirmed = confirmRecords(ctx);
+  return { day, reward, confirmed };
 }
 
 async function ownSavings(ctx: GameCtx, id: string) {
@@ -453,6 +485,8 @@ export function exchange(ctx: GameCtx, body: Body) {
     return exchangeToBond(ctx, kind === "gold_to_bond" ? "gold" : oneOf(body.currency, ["gold", "custom"] as const, "通貨"), amount, body);
   }
   const currency = oneOf(body.currency, ["gold", "silver"] as const, "通貨") as Currency;
+  // 銀貨は建設資金に替えない。修繕や手数料に使う（docs/savings-driven-growth.md REC-06）
+  if (currency === "silver") fail("invalid", "銀貨は建設資金に替えられません。銀貨は修繕や手数料に使います");
   const resource = oneOf(body.resource, [...RESOURCES, "treasury", "auto"] as const, "資源");
   const lv = facilityLevels(ctx);
   // おまかせも種類を選んだ交換も、全額が建設資金になる（手数料は1回分。GRW-02）

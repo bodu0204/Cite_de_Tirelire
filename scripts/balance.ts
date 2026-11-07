@@ -1,7 +1,7 @@
 // バランス確認（docs/savings-driven-growth.md）：街は貯金だけで計画列を消化して発展する。
-// 街の処理（計画の消化・値段・発展Lv・人口）と、建設資金・開拓期ボーナス・債券の利息はエンジン（src/game）を使う。
-// エンジンにまだ入っていない次のものだけを、ここで組み立てる：
-//   記録による確定（REC-01）・記録Lvボーナス（REC-03）・悪い出来事（EVT。停電は除く）
+// 街の処理（計画の消化・値段・発展Lv・人口・悪い出来事）と、建設資金・開拓期ボーナス・債券の利息はエンジン（src/game）を使う。
+// 貯金の流れは「毎月 M の RATE を毎日均等に使わずに残す」と簡単にし、確定（REC-01）・記録Lvボーナス（REC-03）・
+// 火事の銀貨での修繕（EVT-05）だけをここで組み立てる（実際のゲームでは配当・購入の精算・記録から決まる）
 //
 // 実行: npx tsx scripts/balance.ts                  標準の貯め方で1回分の推移
 //       MODE=compare npx tsx scripts/balance.ts     貯め方・記録の有無ごとに節目の日を比べる（§12 の表）
@@ -12,32 +12,25 @@
 //   RATE=0.2      毎月の貯金（M に対する割合）
 //   INITIAL=0.05  初日の入金（M に対する割合）
 //   LAG=0         確定の遅れ（日）。0＝毎日記録する、7＝記録しない（7日後か収入期間の締めで自動確定。REC-01）
-//   EVENTS=1      悪い出来事を起こすか（EVT）
-//   DAYS=180  SEED=1  PICK=1,2,3,7,14,21,30,45,60,90,120,150,180（表示する日）
+//   EVENTS=1      悪い出来事の被害を受けるか（0 なら備えLv4 として扱い、すべて防ぐ）
+//   DAYS=180  SEED=1（シーズンの開始日を1週間ずつずらし、悪い出来事の起き方を変える）  PICK=1,2,3,7,14,21,30,45,60,90,120,150,180（表示する日）
 //   KAPPAS=0.0001,0.0002,0.0003,0.0005（MODE=kappa で比べる κ。ふだんは config.ts の FUND_PRICE_KAPPA）
 import { bondCap } from "../src/game/bond";
-import { tierDef } from "../src/game/catalog";
 import { computeMetrics } from "../src/game/city/economy";
 import { createCity, seasonBase } from "../src/game/city/init";
-import { alignTick, applyTechLevel, cityNeeds, priceOf, pricing, tick } from "../src/game/city/sim";
-import { DAY, FUND_PRICE_KAPPA, HOUR, SILVER_MINE_EXCHANGE_BONUS, SILVER_MINE_LEVEL_THRESHOLDS, TICK_MS } from "../src/game/config";
+import { alignTick, applyTechLevel, cityNeeds, pricing, tick } from "../src/game/city/sim";
+import { DAY, FUND_PRICE_KAPPA, REPAIR_SILVER, SILVER_MINE_EXCHANGE_BONUS, SILVER_MINE_LEVEL_THRESHOLDS, TICK_MS } from "../src/game/config";
+import { reopen } from "../src/game/city/disasters";
+import { describeEvent } from "../src/game/describe";
 import { creditFund, reserveLevel } from "../src/game/fund";
 import { grantInterest } from "../src/game/idle";
 import { devLevel, levelFrom, techLevel } from "../src/game/levels";
 import type { CityEvent, CityState } from "../src/game/types";
 
-/** REC-02・EVT-05：記録1回の銀貨、修繕の銀貨、自動で再開するまで */
+/** REC-02：記録1回の銀貨 */
 const RECORD_SILVER = 50;
-const REPAIR_SILVER = 100;
-const AUTO_REOPEN_MS = 72 * HOUR;
-/** EVT-01：1日あたりの発生確率（平均 約8日に1回）と、起きない最初の日数 */
-const EVENT_P = 0.12;
-const EVENT_FROM_DAY = 4;
 /** 収入期間（簡略化して30日ごと） */
 const PERIOD_MS = 30 * DAY;
-
-type EventKind = "typhoon" | "crop" | "fire" | "surge";
-const EVENT_LABELS: Record<EventKind, string> = { typhoon: "台風", crop: "不作", fire: "火事", surge: "資材の値上がり" };
 
 interface Params {
   M: number;
@@ -68,12 +61,8 @@ interface World {
   silver: number;
   records: number;
   pending: Pending[];
-  reopenAt: Map<string, number>;
-  pauseUntil: number;
-  crop: { until: number; mag: number };
-  surge: { until: number; mag: number };
-  eventLog: string[];
-  eventStats: Record<EventKind, { count: number; prevented: number }>;
+  /** 街のイベント（悪い出来事を含む） */
+  events: CityEvent[];
   devDay: Record<number, number>;
   techDay: Record<number, number>;
   goalDay: number | null;
@@ -95,21 +84,12 @@ function params(over: Partial<Params> = {}): Params {
   };
 }
 
-/** 決定的な乱数 [0, 1)（EVT-02：シーズンと日付から決める） */
-function rand(seed: number, ...keys: number[]): number {
-  let h = 2166136261 ^ seed;
-  for (const k of keys) h = Math.imul(h ^ Math.floor(k * 1000), 16777619);
-  h ^= h >>> 13;
-  h = Math.imul(h, 0x5bd1e995);
-  h ^= h >>> 15;
-  return (h >>> 0) / 4294967296;
-}
-
 const dayOf = (w: World, t: number) => Math.floor((t - 1 - w.t0) / DAY) + 1;
 const recordBonus = (w: World) => SILVER_MINE_EXCHANGE_BONUS[levelFrom(SILVER_MINE_LEVEL_THRESHOLDS, w.records) - 1] ?? 0;
 
 function newWorld(p: Params): World {
-  const t0 = Date.UTC(2026, 9, 1);
+  // 悪い出来事はシーズンの開始時刻から決まるので、SEED ごとに開始日を1週間ずつずらす
+  const t0 = Date.UTC(2026, 9, 1) + (p.seed - 1) * 7 * DAY;
   const w: World = {
     p,
     t0,
@@ -121,12 +101,7 @@ function newWorld(p: Params): World {
     silver: 0,
     records: 0,
     pending: [],
-    reopenAt: new Map(),
-    pauseUntil: 0,
-    crop: { until: 0, mag: 0 },
-    surge: { until: 0, mag: 0 },
-    eventLog: [],
-    eventStats: { typhoon: { count: 0, prevented: 0 }, crop: { count: 0, prevented: 0 }, fire: { count: 0, prevented: 0 }, surge: { count: 0, prevented: 0 } },
+    events: [],
     devDay: { 1: 0 },
     techDay: { 1: 0 },
     goalDay: null,
@@ -163,82 +138,20 @@ function confirm(w: World, now: number, events: CityEvent[]) {
   applyTechLevel(w.city, Math.max(w.city.techLevel, techLevel(w.savings, w.city.base)), now, events);
 }
 
-/** EVT：悪い出来事。備えLv（RSV-03）と幸福度（EVT-07）で被害が変わる */
-function maybeEvent(w: World, now: number) {
-  const s = w.city;
-  const day = dayOf(w, now);
-  const slot = Math.round(((now - w.t0 - (day - 1) * DAY) / TICK_MS) % (DAY / TICK_MS));
-  if (day < EVENT_FROM_DAY || slot !== Math.floor(rand(w.p.seed, day, 1) * (DAY / TICK_MS))) return;
-  if (rand(w.p.seed, day, 2) >= EVENT_P) return;
-  const dev = devLevel(s.devPoints);
-  if (dev < 2) return;
-  const kinds: EventKind[] = dev >= 3 ? ["typhoon", "crop", "fire", "surge"] : ["typhoon", "crop"];
-  const kind = kinds[Math.floor(rand(w.p.seed, day, 3) * kinds.length)];
-  const lv = reserveLevel(w.bond, w.p.M);
-  const mood = s.happiness >= 70 ? 0.75 : s.happiness < 40 ? 1.25 : 1;
-  const f = mood * (lv >= 1 ? 0.5 : 1);
-  const stat = w.eventStats[kind];
-  stat.count++;
-  const prevented = lv >= 4 || (lv >= 2 && (kind === "typhoon" || kind === "surge"));
-  const head = `d${day} ${EVENT_LABELS[kind]}（備えLv${lv}）`;
-  if (prevented) {
-    stat.prevented++;
-    w.eventLog.push(`${head}：備えのおかげで被害なし`);
-    return;
-  }
-  if (kind === "typhoon") {
-    const ms = Math.round((12 * HOUR * f) / TICK_MS) * TICK_MS;
-    for (const j of s.jobs) j.finishAt += ms;
-    w.pauseUntil = Math.max(w.pauseUntil, now + ms);
-    w.eventLog.push(`${head}：工事が ${(ms / HOUR).toFixed(0)} 時間止まった`);
-  } else if (kind === "crop") {
-    w.crop = { until: now + 48 * HOUR * f, mag: 0.5 * f };
-    w.eventLog.push(`${head}：食料生産 −${Math.round(50 * f)}%（${(48 * f).toFixed(0)}時間）`);
-  } else if (kind === "surge") {
-    w.surge = { until: now + 24 * HOUR * f, mag: 0.3 * f };
-    w.eventLog.push(`${head}：値段 +${Math.round(30 * f)}%（${(24 * f).toFixed(0)}時間）`);
-  } else {
-    const candidates = s.buildings.filter((b) => b.line && b.line !== "road" && !b.closed);
-    const n = Math.min(3, 1 + Math.floor(s.population / 1000), candidates.length);
-    const notes: string[] = [];
-    for (let i = 0; i < n; i++) {
-      const b = candidates.splice(Math.floor(rand(w.p.seed, day, 10 + i) * candidates.length), 1)[0];
-      if (lv >= 3) {
-        // 修繕費（その建物の値段の30%）を建設資金（利息）から払う
-        s.treasury -= Math.min(s.treasury, priceOf(s, tierDef(b.line!, b.tier).cost) * 0.3);
-        notes.push("自動で修繕");
-      } else if (w.silver >= REPAIR_SILVER) {
-        w.silver -= REPAIR_SILVER;
-        notes.push("銀貨で修繕");
-      } else {
-        b.closed = true;
-        w.reopenAt.set(b.id, now + AUTO_REOPEN_MS);
-        notes.push("休業");
-      }
+/** EVT-05：火事で休業した建物は、銀貨があればすぐ修繕する（記録する人の想定） */
+function repairWithSilver(w: World, from: number, end: number) {
+  for (const e of w.events.slice(from)) {
+    if (e.type !== "DISASTER" || e.payload.kind !== "fire" || e.payload.repaired) continue;
+    for (const snap of (e.payload.buildings as { id: string }[] | undefined) ?? []) {
+      const b = w.city.buildings.find((o) => o.id === snap.id);
+      if (!b?.closed || w.silver < REPAIR_SILVER) continue;
+      w.silver -= REPAIR_SILVER;
+      reopen(w.city, b, end, w.events, "silver");
     }
-    w.eventLog.push(`${head}：${n}棟（${notes.join("・")}）`);
   }
 }
 
-/** 出来事の効果のうち、エンジンのティックのあとに当てるもの（工事の停止・値上がり・不作・休業の再開） */
-function applyEffects(w: World, end: number, existing: Set<string>) {
-  const s = w.city;
-  for (const j of s.jobs) {
-    // このティックに始まった工事だけ（前からある工事は出来事のときにずらした）
-    if (existing.has(j.id)) continue;
-    if (w.pauseUntil > end) j.finishAt += w.pauseUntil - end;
-    if (w.surge.until > end) s.treasury -= (j.price ?? 0) * w.surge.mag;
-  }
-  if (w.crop.until > end) s.stock.food = Math.max(0, s.stock.food - computeMetrics(s).production.food * w.crop.mag * (TICK_MS / HOUR));
-  for (const [id, at] of w.reopenAt) {
-    if (at > end) continue;
-    const b = s.buildings.find((o) => o.id === id);
-    if (b) b.closed = false;
-    w.reopenAt.delete(id);
-  }
-}
-
-/** 1ティック：貯金の発生と確定 → 利息 → 出来事 → 街（エンジン）→ 出来事の効果 */
+/** 1ティック：貯金の発生と確定 → 利息 → 街（エンジン。悪い出来事を含む）→ 銀貨での修繕 */
 function step(w: World, end: number, events: CityEvent[]) {
   const s = w.city;
   if ((end - w.t0) % DAY === TICK_MS && w.p.lag <= 0) {
@@ -247,11 +160,11 @@ function step(w: World, end: number, events: CityEvent[]) {
   }
   addSavings(w, end, (w.p.rate * w.p.M * TICK_MS) / (30 * DAY));
   confirm(w, end, events);
-  grantInterest(s, w.bond, w.cap);
-  if (w.p.events) maybeEvent(w, end);
-  const before = new Set(s.jobs.map((j) => j.id));
+  grantInterest(s, w.bond, w.cap, end);
+  s.reserveLevel = w.p.events ? reserveLevel(w.bond, w.p.M) : 4;
+  const from = events.length;
   tick(s, end, events);
-  applyEffects(w, end, before);
+  repairWithSilver(w, from, end);
 
   const day = dayOf(w, end);
   const dev = devLevel(s.devPoints);
@@ -265,7 +178,7 @@ function step(w: World, end: number, events: CityEvent[]) {
 
 function simulate(p: Params, onDay?: (w: World, day: number) => void): World {
   const w = newWorld(p);
-  const events: CityEvent[] = [];
+  const events = w.events;
   for (let day = 1; day <= p.days; day++) {
     const until = alignTick(w.t0 + day * DAY);
     while (w.city.simTime < until) step(w, w.city.simTime + TICK_MS, events);
@@ -345,11 +258,9 @@ function runOne() {
   console.log(`技術Lv2〜7：${days(w.techDay, 2, 7).join(" / ")}`);
   console.log(w.goalDay === null ? "目標：未達" : `目標：${w.goalDay}日目（そのときの発展Lv${w.goalDev}）`);
   console.log(`建設資金の内訳：貯金 ${yen(w.savings)}・開拓期ボーナス ${yen(s.earlyBonus)}・記録Lv ${yen(w.recordTotal)}・利息 ${yen(s.interestTotal ?? 0)}`);
-  if (p.events) {
-    const st = Object.entries(w.eventStats).map(([k, v]) => `${EVENT_LABELS[k as EventKind]} ${v.count}回（防いだ ${v.prevented}）`);
-    console.log(`出来事：${st.join("・")}`);
-    for (const line of w.eventLog) console.log(`  ${line}`);
-  }
+  const disasters = w.events.filter((e) => e.type === "DISASTER");
+  console.log(`出来事：${disasters.length}回（防いだ ${disasters.filter((e) => e.payload.prevented).length}回）`);
+  for (const e of disasters) console.log(`  d${Math.floor((e.at - 1 - w.t0) / DAY) + 1} ${describeEvent(e)}`);
   const lines: Record<string, number> = {};
   for (const b of s.buildings) if (b.line && b.line !== "road") lines[b.line] = (lines[b.line] ?? 0) + 1;
   console.log("建物：", JSON.stringify(lines));

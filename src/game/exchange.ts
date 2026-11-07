@@ -13,9 +13,12 @@ export interface FacilityLevels {
   silverMine: number;
 }
 
-/** 通貨1枚あたりの建設資金（円）。resource は以前の資源の種類で、値には影響しない */
+/**
+ * 通貨1枚あたりの建設資金（円）。resource は以前の資源の種類で、値には影響しない。
+ * 金貨（貯金）は記録Lvのボーナスも足す（記録するほど貯金がよく効く。docs/savings-driven-growth.md REC-03）
+ */
 export function exchangeRate(currency: Currency, _resource: GainKey, lv: FacilityLevels): number {
-  if (currency === "gold") return FUND_PER_GOLD * (1 + bankBonus(lv.bank) + goldMineBonus(lv.goldMine));
+  if (currency === "gold") return FUND_PER_GOLD * (1 + bankBonus(lv.bank) + goldMineBonus(lv.goldMine) + silverMineBonus(lv.silverMine));
   return FUND_PER_GOLD * SILVER_VALUE_RATIO * (1 + bankBonus(lv.bank) + silverMineBonus(lv.silverMine));
 }
 

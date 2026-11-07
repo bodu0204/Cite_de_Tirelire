@@ -21,7 +21,7 @@ describe("RSV-02 債券の利息（docs/savings-driven-growth.md）", () => {
 
   it("利息は建設資金に入り、貯金額（債券）は増えない。1日分は 144 ティックの合計", () => {
     const c = createCity(OCT1, M);
-    for (let i = 0; i < DAY / TICK_MS; i++) grantInterest(c, 60000, bondCap(M));
+    for (let i = 0; i < DAY / TICK_MS; i++) grantInterest(c, 60000, bondCap(M), OCT1 + i * TICK_MS);
     expect(c.treasury).toBeCloseTo(180, 6);
     expect(c.interestTotal).toBeCloseTo(180, 6);
   });

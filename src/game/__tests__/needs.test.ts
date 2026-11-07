@@ -193,8 +193,8 @@ describe("AT-036 採掘の債券化につく建設資金", () => {
 
   it("債券 −3,050・債券化率 0%：0で止まるので建設資金は一度もつかない", () => {
     const w = world([], { bond: -3050 });
-    // 8日目で 0 に戻る。その先も 0 のままなのを見るため 10 日
-    advance(w, { plan, bondRate: 0, until: START + 10 * DAY, newId }, []);
+    // 8日目で 0 に戻る。その先も 0 のままなのを見るため 10 日（記録のない日の自動の確定は、推定の支出を大きくして止める）
+    advance(w, { plan, bondRate: 0, until: START + 10 * DAY, newId, estimatePerDay: 1e9 }, []);
     expect(w.purse.bond).toBe(0);
     expect((w.city.bondResourceTotal ?? ZERO_GAINS).treasury).toBe(0);
   });

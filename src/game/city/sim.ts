@@ -36,6 +36,7 @@ import { devLevel } from "../levels";
 import { coverPlans, firstShort, type PlanQueue, type QueuePlan } from "../planQueue";
 import type { Zone } from "../catalog";
 import { NEED_ORDER, snapBuilding, type Building, type CityEvent, type CityState, type Gains, type Job, type NeedKey } from "../types";
+import { active, clearEffects, maybeDisaster, reopenDue } from "./disasters";
 import { computeMetrics, type Metrics } from "./economy";
 import { choosePlot, findSite, occupancy, placeWaitingSpecials, plotCross, plotsUsed, siteCache, tileKey, type SiteCache } from "./layout";
 
@@ -64,6 +65,9 @@ export function simulate(s: CityState, until: number, events: CityEvent[]): void
  * ここでは工事の完了・食料・幸福度・人口と、建設資金での計画の消化だけを行う（GRW-01）。
  */
 export function tick(s: CityState, end: number, events: CityEvent[]) {
+  // 悪い出来事（docs/savings-driven-growth.md §10）：休業の再開 → 今のティックに起きる出来事
+  reopenDue(s, end, events);
+  maybeDisaster(s, end, events, (c, b) => priceOf(c, tierDef(b.line!, b.tier).cost));
   completeJobs(s, end, events);
 
   const m = computeMetrics(s);
@@ -101,6 +105,7 @@ export function tick(s: CityState, end: number, events: CityEvent[]) {
   shortageEvent(s, "power", powerShort, end, events);
 
   develop(s, end);
+  clearEffects(s, end);
   s.simTime = end;
 }
 
@@ -261,9 +266,10 @@ export function discountRate(s: CityState): number {
 /** 値段の係数 κ。ふだんは FUND_PRICE_KAPPA のまま（scripts/balance.ts が試算のときだけ変える） */
 export const pricing = { kappa: FUND_PRICE_KAPPA };
 
-/** 計画の値段（円）＝ 相対コスト × 基準額 × κ ×（1 − 割引）（PRC-01）。1円以上 */
+/** 計画の値段（円）＝ 相対コスト × 基準額 × κ ×（1 − 割引）（PRC-01）。資材の値上がり（EVT-03）の間は上がる。1円以上 */
 export function priceOf(s: CityState, cost: Cost): number {
-  return Math.max(1, Math.ceil(relCost(cost) * s.base * pricing.kappa * (1 - discountRate(s))));
+  const surge = active(s.effects?.surge, s.simTime) ? 1 + s.effects!.surge!.rate : 1;
+  return Math.max(1, Math.ceil(relCost(cost) * s.base * pricing.kappa * (1 - discountRate(s)) * surge));
 }
 
 /**
@@ -506,6 +512,8 @@ export function cityNeeds(s: CityState, m: Metrics = computeMetrics(s)): CityNee
  * 足りないものは工事中の分も終わったものとして判断する（plannedMetrics）
  */
 export function develop(s: CityState, now: number): void {
+  // 台風の間は工事を始めない（EVT-03）
+  if ((s.effects?.pauseUntil ?? 0) > now) return;
   const dev = devLevel(s.devPoints);
   const limit = CONCURRENT_JOBS[dev - 1] ?? CONCURRENT_JOBS[CONCURRENT_JOBS.length - 1];
   let cache = siteCache();

@@ -15,7 +15,7 @@ import { fmt } from "@/lib/api";
 /** 交換で得られるもの：木材・石材・都市資金は建設資金1種類にまとめた（docs/savings-driven-growth.md GRW-02） */
 const RES: { key: GainKey; label: string }[] = [{ key: "treasury", label: "建設資金" }];
 
-/** 交換のしかた：債券に／金貨で建設資金に／銀貨で建設資金に／金貨→銀貨 */
+/** 交換のしかた：債券に／金貨で建設資金に／金貨→銀貨（銀貨は建設資金に替えない。docs/savings-driven-growth.md REC-06） */
 type Mode = "g2b" | "gres" | "sres" | "g2s";
 
 /** 交換のしかたごとの「何を何に」「貯金になるか」「建設資金になるか」 */
@@ -140,22 +140,6 @@ export default function ExchangePage() {
       resource: { ok: true, note: `1G＝1円・手数料 ${FEE_EXCHANGE}S` },
     },
     {
-      value: "sres",
-      from: (
-        <>
-          <Coin kind="silver" />
-          銀貨
-        </>
-      ),
-      to: (
-        <>
-          🏗️建設資金
-        </>
-      ),
-      savings: { ok: false, note: "銀貨は記録の報酬なので貯金にならない" },
-      resource: { ok: true, note: `1S＝0.1円と低め・手数料 ${FEE_EXCHANGE}S` },
-    },
-    {
       value: "g2s",
       from: (
         <>
@@ -170,7 +154,7 @@ export default function ExchangePage() {
         </>
       ),
       savings: { ok: true, note: "使った金貨の分が貯金に（1G＝1円）" },
-      resource: { ok: false, note: "1:1・無料。建設資金はつかない（銀貨は手数料や建設資金への交換に使う）" },
+      resource: { ok: false, note: "1:1・無料。建設資金はつかない（銀貨は修繕や手数料に使う）" },
     },
   ];
   const route = routes.find((r) => r.value === mode)!;
@@ -186,7 +170,7 @@ export default function ExchangePage() {
       </div>
       <fieldset>
         <legend className="mb-2 text-sm font-medium">何に交換する？</legend>
-        <div role="radiogroup" aria-label="交換のしかた" className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+        <div role="radiogroup" aria-label="交換のしかた" className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
           {routes.map((r) => {
             const on = mode === r.value;
             return (
@@ -293,7 +277,7 @@ export default function ExchangePage() {
             <div className={`rounded-lg border px-2 py-2 ${totalGains(cityGains) > 0 ? "border-accent bg-surface" : "border-line bg-surface-2"}`}>
               <div className="text-xs text-muted">街に入る建設資金</div>
               <div className="num text-sm font-semibold">{mode === "g2s" ? "入りません" : n > 0 ? gainsText(cityGains) : "—"}</div>
-              {mode === "g2s" && <div className="text-[11px] text-muted">銀貨でも建設資金に替えられます（効率は低め）</div>}
+              {mode === "g2s" && <div className="text-[11px] text-muted">銀貨は修繕や手数料に使います</div>}
               {mode !== "g2s" && v.dev.earlyBonusRate > 1 && <div className="text-[11px] text-dev">開拓期ボーナスで ×{fmt(v.dev.earlyBonusRate, 1)}</div>}
             </div>
             {mode === "g2b" && (
@@ -334,7 +318,7 @@ export default function ExchangePage() {
                     )}
                   </>
                 )}
-                {mode === "g2s" && <dd className="col-span-2 text-xs text-muted">銀貨から金貨には戻せません。銀貨は手数料や建設資金への交換に使えます。</dd>}
+                {mode === "g2s" && <dd className="col-span-2 text-xs text-muted">銀貨から金貨には戻せません。銀貨は悪い出来事の修繕や手数料に使えます。</dd>}
                 {mode === "g2b" && (
                   <dd className="col-span-2 text-xs text-muted">
                     債券は元の通貨に戻せません。急な出費（金貨が足りない購入）の支払いに使われ、持っている間は毎日利息が建設資金として街に入ります。
@@ -409,7 +393,7 @@ export default function ExchangePage() {
             </tr>
           </thead>
           <tbody>
-            {(["gold", "silver"] as const).map((c) => (
+            {(["gold"] as const).map((c) => (
               <tr key={c}>
                 <td className="py-1">{c === "gold" ? "金貨" : "銀貨"}</td>
                 {RES.map((r) => (

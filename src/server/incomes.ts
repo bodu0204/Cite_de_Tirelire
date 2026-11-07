@@ -13,7 +13,7 @@ import { applyGrant, type Grant } from "@/game/idle";
 import { floorMinute, remainingMining, windowMinedBy } from "@/game/mine";
 import { dayKey, parseDateInTz, periodKey, periodRange } from "@/game/time";
 import type { Gains } from "@/game/types";
-import { addCurrency, budgetPlan, facilityLevels, newLotId, requireSeason, withPurse, type GameCtx } from "./game";
+import { addCurrency, budgetPlan, confirmRecords, facilityLevels, newLotId, requireSeason, withPurse, type GameCtx } from "./game";
 import { grantReward } from "./ops";
 import { previewShortfall, previewSurplus, resolveShortfall, resolveSurplus, type ResolutionView } from "./resolve";
 import { bool, date, int, oneOf, optStr, str } from "./validate";
@@ -403,10 +403,12 @@ export async function recordIncome(ctx: GameCtx, body: Body) {
     if (body.items.length > 24) fail("invalid", "一括保存は24件までです");
     const results = [];
     for (const item of body.items as Body[]) results.push(await recordMonthly(ctx, item));
-    return { items: results };
+    return { items: results, confirmed: ctx.season ? confirmRecords(ctx) : null };
   }
   const kind = oneOf(body.kind, ["MONTHLY", "EXTRA"] as const, "収入の種類");
-  return kind === "MONTHLY" ? recordMonthly(ctx, body) : recordExtra(ctx, body);
+  const r = kind === "MONTHLY" ? await recordMonthly(ctx, body) : await recordExtra(ctx, body);
+  // 記録したので、それまでの使わなかった配当を確定する（docs/savings-driven-growth.md REC-01）
+  return { ...r, confirmed: ctx.season ? confirmRecords(ctx) : null };
 }
 
 /** 記録前のプレビュー：差分・振り分けの行（プリセットを選んだらその雛形）・解消の内訳 */

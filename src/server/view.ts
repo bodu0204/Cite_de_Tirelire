@@ -16,7 +16,9 @@ import {
   SILVER_MINE_LEVEL_THRESHOLDS,
 } from "@/game/config";
 import { exchangeRate, GAIN_KEYS, needShares, ZERO_GAINS } from "@/game/exchange";
-import { bondInterestPerDay, earlyBonusRate, nextReserveAt, reserveLevel } from "@/game/fund";
+import { unconfirmedGold } from "@/game/confirm";
+import { describeEvent } from "@/game/describe";
+import { bondInterestPerDay, earlyBonusRate, fundPace, nextReserveAt, reserveLevel } from "@/game/fund";
 import { devLevel, goldMineLevel, nextThreshold, savingsProgress, silverMineLevel, techThresholdYen } from "@/game/levels";
 import { microToGold, ratePerMinute } from "@/game/mine";
 import { dayKey, periodRange } from "@/game/time";
@@ -29,13 +31,23 @@ export interface AwayStats {
   population: number;
   devPoints: number;
   treasury: number;
+  /** 貯金額（債券 ＋ ゲーム内で使った金貨）と、債券の利息の累計（追加前の記録には無い） */
+  savings?: number;
+  interest?: number;
   /** 債券化で得た資源の累計（追加前の記録には無い） */
   bondResources?: Gains;
 }
 
 
-function statsOf(city: CityState): AwayStats {
-  return { population: city.population, devPoints: city.devPoints, treasury: city.treasury, bondResources: { ...ZERO_GAINS, ...city.bondResourceTotal } };
+function statsOf(city: CityState, savings: number): AwayStats {
+  return {
+    population: city.population,
+    devPoints: city.devPoints,
+    treasury: city.treasury,
+    savings,
+    interest: city.interestTotal ?? 0,
+    bondResources: { ...ZERO_GAINS, ...city.bondResourceTotal },
+  };
 }
 
 /** 前回から1時間以上空いていれば、その間の変化をまとめる */
@@ -44,13 +56,14 @@ async function awaySummary(ctx: GameCtx) {
   if (!season || !city) return null;
   const last = season.lastSeenAt?.getTime();
   const lastStats = season.lastSeenStats as AwayStats | null;
+  const savings = savingsOf(ctx).amount;
   ctx.seasonPatch.lastSeenAt = new Date(ctx.now);
-  ctx.seasonPatch.lastSeenStats = statsOf(city) as never;
+  ctx.seasonPatch.lastSeenStats = statsOf(city, savings) as never;
   if (!last || !lastStats || ctx.now - last < AWAY_SUMMARY_MIN_MS) return null;
 
   const stored = await ctx.tx.cityEvent.findMany({
     where: { seasonId: season.id, at: { gt: new Date(last) }, auto: true },
-    select: { type: true, payload: true },
+    select: { type: true, payload: true, at: true },
   });
   const events = [...stored, ...ctx.events.filter((e) => e.auto)];
   const count = (t: string) => events.filter((e) => e.type === t).length;
@@ -70,6 +83,11 @@ async function awaySummary(ctx: GameCtx) {
     treasury: Math.floor(city.treasury - lastStats.treasury),
     /** 債券化で得た資源 */
     bondResources: lastStats.bondResources ? diffGains({ ...ZERO_GAINS, ...city.bondResourceTotal }, { ...ZERO_GAINS, ...lastStats.bondResources }) : { ...ZERO_GAINS },
+    /** 留守中に増えた貯金額（記録のない日の自動の確定など）と債券の利息（FX-04） */
+    saved: lastStats.savings === undefined ? 0 : Math.floor(savings - lastStats.savings),
+    interest: lastStats.interest === undefined ? 0 : Math.floor((city.interestTotal ?? 0) - lastStats.interest),
+    /** 留守中に起きた悪い出来事（EVT-06） */
+    disasters: events.filter((e) => e.type === "DISASTER").map((e) => describeEvent({ type: e.type, payload: e.payload as Record<string, unknown> })),
     tiles: [...tiles].map((t) => t.split(",").map(Number) as [number, number]),
   };
 }
@@ -190,6 +208,10 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
         /** 今の採掘のうち債券へ回る割合（%） */
         share: bondShare(bond, user.bondMiningRate, cap),
       },
+      /** 記録による確定（docs/savings-driven-growth.md REC-01）：最後に確定した時刻、まだ確定していない配当、手数料なしで取り崩せる債券 */
+      confirmedAt: mine.confirmedAt ?? null,
+      unconfirmed: unconfirmedGold(mine),
+      freeBond: mine.freeBond ?? 0,
       minedThisMonth: microToGold(mine.minedThisMonth),
       settledThisMonth: mine.settledThisMonth,
       monthKey: mine.monthKey,
@@ -246,6 +268,9 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
       nextReserveAt: nextReserveAt(reserve, user.monthlyBudget),
       earlyBonusRate: earlyBonusRate(city, ctx.now),
       discount: discountRate(city),
+      /** 見通し（REC-04）：直近14日に入った建設資金のペース（円/日）と、このペースで次の発展Lvに届くまでの日数 */
+      pace: fundPace(city, ctx.now),
+      forecastDays: forecastDays(city, nextDev, fundPace(city, ctx.now)),
       concurrentJobs: CONCURRENT_JOBS[dev - 1],
       tiles: unlockedTileCount(city),
       /** 開いた・開拓中の区画の数と、その上限（docs/map-layout-redesign.md §7.3） */
@@ -260,6 +285,15 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
     ].slice(0, 40),
     away: opts.markSeen ? await awaySummary(ctx) : null,
   };
+}
+
+/** このペースで次の発展Lvに届くまでの日数（工事中の分と建設資金を差し引いた残り ÷ ペース）。届かなければ null */
+function forecastDays(city: CityState, nextDev: number | null, pace: number): number | null {
+  if (nextDev === null || pace <= 0) return null;
+  const nextAt = (nextDev / DEV_POINTS_PER_BASE) * city.base;
+  const inProgress = city.jobs.reduce((a, j) => a + (j.price ?? 0), 0);
+  const rest = nextAt - city.completed - inProgress - Math.max(0, city.treasury);
+  return Math.max(0, Math.ceil(rest / pace));
 }
 
 export type GameView = Awaited<ReturnType<typeof buildView>>;

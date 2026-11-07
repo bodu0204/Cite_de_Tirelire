@@ -64,6 +64,11 @@ export default function DividendPage() {
           {v.currencies.custom.length > 0 && (
             <p className="text-center text-xs text-muted">金貨と一緒に、発生したユーザ通貨も受け取ります。未受取のユーザ通貨も購入の精算には使われます（交換は受け取ってから）。</p>
           )}
+          <p className="text-center text-xs text-muted">
+            収支を記録すると、未受取の金貨（使わなかった配当）が貯金として確定し、債券と建設資金になって街に入ります。記録しない日の分は7日後に、推定の支出を引いて確定します
+            {mine.unconfirmed > 0 && `（まだ確定していない配当 ${fmt(mine.unconfirmed)}G）`}。
+            {mine.freeBond > 0 && ` 今月確定した債券のうち ${fmt(mine.freeBond)} は、あとの支払いに手数料なしで取り崩せます。`}
+          </p>
         </div>
       </Card>
 

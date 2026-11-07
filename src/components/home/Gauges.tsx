@@ -1,6 +1,6 @@
 "use client";
 
-import { DEV_THRESHOLDS, MAX_DEV, MAX_TECH } from "@/game/config";
+import { DEV_NAMES, DEV_THRESHOLDS, MAX_DEV, MAX_TECH } from "@/game/config";
 import { bankLevelBand } from "@/game/levels";
 import { fmt, yen } from "@/lib/api";
 import type { ActiveView } from "@/server/view";
@@ -99,6 +99,12 @@ export function DevGauge({ v }: { v: ActiveView }) {
       <Gauge value={d.next === null ? 1 : d.points - prev} max={d.next === null ? 1 : d.next - prev} color="var(--dev)" label="次の発展Lvまで" />
       <p className="mt-1 text-xs text-muted">
         {d.nextAt === null ? "最大の都市規模です。建物の高層化で成長を続けます" : <>あと {yen(Math.max(0, d.nextAt - d.completed))}分の工事</>}
+        {d.forecastDays !== null && (
+          <span className="font-semibold text-ink">
+            {" "}
+            ・ このペースなら{d.forecastDays === 0 ? "まもなく" : `約${d.forecastDays}日後に`}「{DEV_NAMES[d.level]}」
+          </span>
+        )}
         <span>
           {" "}
           ・ 建設資金 {yen(Math.floor(d.fund))}

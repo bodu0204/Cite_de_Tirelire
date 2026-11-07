@@ -15,6 +15,7 @@ import {
 } from "../config";
 import { devLevel } from "../levels";
 import type { Building, CityState } from "../types";
+import { active as effectActive } from "./disasters";
 import { pollutionPairs } from "./layout";
 
 export interface Production {
@@ -103,7 +104,9 @@ export function computeMetrics(s: CityState): Metrics {
   const labor = pop * LABOR_PARTICIPATION;
   const laborRatio = jobSlots > 0 ? Math.min(1, labor / jobSlots) : 1;
   const employment = labor > 0 ? Math.min(1, jobSlots / labor) : 1;
-  const powerSupply = powerSupplyRaw * laborRatio;
+  // 停電（docs/savings-driven-growth.md EVT-03）の間は電力の供給が減る
+  const blackout = effectActive(s.effects?.blackout, s.simTime) ? s.effects!.blackout!.rate : 0;
+  const powerSupply = powerSupplyRaw * laborRatio * (1 - blackout);
   const powerRatio = powerDemand > 0 ? Math.min(1, powerSupply / powerDemand) : 1;
   const logistics = nonInfra > 0 ? LOGISTICS_FLOOR + (1 - LOGISTICS_FLOOR) * Math.min(1, logisticsCap / nonInfra) : 1;
 
@@ -121,6 +124,8 @@ export function computeMetrics(s: CityState): Metrics {
     production.stone += out.stone;
   }
 
+  // 不作（EVT-03）の間は食料生産が減る
+  if (effectActive(s.effects?.crop, s.simTime)) production.food *= 1 - s.effects!.crop!.rate;
   const foodUse = pop * FOOD_PER_RESIDENT_HOUR;
   const foodRatio = s.stock.food > 0 || foodUse === 0 ? 1 : Math.min(1, production.food / foodUse);
 
