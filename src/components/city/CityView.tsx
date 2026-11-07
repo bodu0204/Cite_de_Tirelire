@@ -17,10 +17,12 @@ type Props = CityInput & {
   timezone?: string;
   /** 時刻を固定する（0〜24 時。開発用の確認ページ）。timezone より優先する */
   fixedHour?: number;
+  /** 花火の通し番号（タイムラプスの演出。増えた分だけ打ち上げる） */
+  fireworks?: number;
   className?: string;
 };
 
-export function CityView({ label, selected, onSelect, serverOffset = 0, fixed = false, timezone, fixedHour, className, ...input }: Props) {
+export function CityView({ label, selected, onSelect, serverOffset = 0, fixed = false, timezone, fixedHour, fireworks, className, ...input }: Props) {
   const { plots, expandable, buildings, jobs, zones, bankLevel, highlights, showZones, occupancy, population, logistics } = input;
   // 毎回作り直される入れ物は、中の値で見比べる
   const [power, workers, food] = [input.supply?.power, input.supply?.workers, input.supply?.food];
@@ -40,7 +42,7 @@ export function CityView({ label, selected, onSelect, serverOffset = 0, fixed = 
     const t = setInterval(tick, 60_000);
     return () => clearInterval(t);
   }, [timezone]);
-  const { map, overlay } = useMemo(
+  const { map, overlay: base } = useMemo(
     () =>
       cityToIso({
         plots,
@@ -60,6 +62,7 @@ export function CityView({ label, selected, onSelect, serverOffset = 0, fixed = 
       }),
     [plots, expandableKey, buildings, jobs, zones, bankLevel, highlights, showZones, hour, occupancy, population, logistics, power, workers, food, uncollected, ratePerMinute],
   );
+  const overlay = useMemo(() => (fireworks === undefined ? base : { ...base, fireworks }), [base, fireworks]);
   return (
     <div className="rounded-xl border-4 border-[var(--map-frame)] bg-[var(--map-frame)] shadow-inner">
       <IsoCity

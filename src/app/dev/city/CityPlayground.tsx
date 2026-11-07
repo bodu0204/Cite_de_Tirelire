@@ -2,13 +2,15 @@
 
 import { useMemo, useState } from "react";
 import { CityView } from "@/components/city/CityView";
+import { DECOR_KINDS } from "@/game/catalog";
 import { syncParks, syncStatues } from "@/game/city/actions";
+import { syncReserve } from "@/game/city/reserve";
 import { computeMetrics } from "@/game/city/economy";
 import { expandablePlots } from "@/game/city/layout";
 import { createCity } from "@/game/city/init";
 import { creditFund } from "@/game/fund";
 import { applyTechLevel, simulate } from "@/game/city/sim";
-import { DAY } from "@/game/config";
+import { DAY, TICK_MS } from "@/game/config";
 import { devLevel } from "@/game/levels";
 import type { CityState } from "@/game/types";
 
@@ -20,7 +22,13 @@ const techAt = (d: number) => (d >= 21 ? 5 : d >= 14 ? 4 : d >= 7 ? 3 : d >= 1 ?
 const BASE = 100_000;
 const savedOn = (d: number) => (d === 0 ? 5_000 : 667);
 
-function cityAfter(days: number, specials: boolean): CityState {
+/** 確認用の追加：備えの施設（Lv4 まで建てて Lv3 に下げ、金庫を閉める）・装飾、入金の回数（工事が始まり金貨が飛ぶ。FX-02） */
+interface Extras {
+  reserve: boolean;
+  deposits: number;
+}
+
+function cityAfter(days: number, specials: boolean, extras: Extras = { reserve: false, deposits: 0 }): CityState {
   const s = createCity(T0, BASE);
   for (let d = 0; d < days; d++) {
     applyTechLevel(s, techAt(d + 1), s.simTime, []);
@@ -33,6 +41,16 @@ function cityAfter(days: number, specials: boolean): CityState {
     syncParks(s, [{ id: "p1", name: "高額", monthly: 5000, active: true }, { id: "p2", name: "ふつう", monthly: 1000, active: true }], at, []);
     syncStatues(s, Array.from({ length: 6 }, (_, i) => ({ id: `w${i}`, name: `像${i}`, price: 10_000 * (i + 1), progress: 0.6, purchased: false })), at, []);
   }
+  if (extras.reserve) {
+    syncReserve(s, 4, s.simTime, []);
+    syncReserve(s, 3, s.simTime, []);
+    // 住宅に順に装飾を添える
+    s.buildings.filter((b) => b.line === "housing").forEach((b, i) => (b.decor = DECOR_KINDS[i % DECOR_KINDS.length]));
+  }
+  for (let i = 0; i < extras.deposits; i++) {
+    creditFund(s, 3_000, s.simTime);
+    simulate(s, s.simTime + TICK_MS, []);
+  }
   return s;
 }
 
@@ -42,7 +60,10 @@ export function CityPlayground() {
   const [night, setNight] = useState(false);
   const [specials, setSpecials] = useState(false);
   const [selected, setSelected] = useState<{ x: number; y: number } | null>(null);
-  const city = useMemo(() => cityAfter(days, specials), [days, specials]);
+  const [reserve, setReserve] = useState(false);
+  const [deposits, setDeposits] = useState(0);
+  const [fireworks, setFireworks] = useState(0);
+  const city = useMemo(() => cityAfter(days, specials, { reserve, deposits }), [days, specials, reserve, deposits]);
   const m = computeMetrics(city);
   return (
     <div className="space-y-3 p-4">
@@ -69,6 +90,16 @@ export function CityPlayground() {
           <input type="checkbox" className="w-auto" checked={night} onChange={(e) => setNight(e.target.checked)} />
           夜
         </label>
+        <label className="flex items-center gap-1">
+          <input type="checkbox" className="w-auto" checked={reserve} onChange={(e) => setReserve(e.target.checked)} />
+          備え・装飾
+        </label>
+        <button type="button" className="w-auto rounded border px-2" onClick={() => setDeposits((n) => n + 1)}>
+          入金（{deposits}）
+        </button>
+        <button type="button" className="w-auto rounded border px-2" onClick={() => setFireworks((n) => n + 3)}>
+          花火
+        </button>
         <span data-testid="stats">
           発展Lv{devLevel(city.devPoints)} ・ 人口{Math.floor(city.population)} ・ 建物{city.buildings.length}棟 ・ 区画{city.plots.length} ・ 工事{city.jobs.length}
         </span>
@@ -89,6 +120,7 @@ export function CityPlayground() {
         onSelect={setSelected}
         population={m.population}
         logistics={m.logistics}
+        fireworks={fireworks}
         className="h-[80vh] w-full rounded-md"
       />
     </div>

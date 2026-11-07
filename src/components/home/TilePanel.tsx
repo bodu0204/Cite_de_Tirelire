@@ -3,15 +3,16 @@
 import Link from "next/link";
 import { useGame } from "@/components/GameProvider";
 import { Button } from "@/components/ui";
-import { SPECIAL_LABELS, tierDef, ZONE_LABELS } from "@/game/catalog";
+import { DECOR_LABELS, RESERVE_FACILITIES, SPECIAL_LABELS, tierDef, ZONE_LABELS } from "@/game/catalog";
 import { buildingOutput } from "@/game/city/economy";
 import { buildingSize, contains, expansionError, isPlaced, isTileUnlocked, jobSize, plotKey, plotOf, zoneAt } from "@/game/city/layout";
-import { DISCOUNT_PER_BUILDING, HOUR, MINUTE, REPAIR_SILVER } from "@/game/config";
+import { DISCOUNT_PER_BUILDING, HOUR, MINUTE, REPAIR_SILVER, RESERVE_LEVEL_MONTHS } from "@/game/config";
 import { PARK_DESCRIPTION, PARK_SIZE_LABELS, STATUE_DESCRIPTION, statueStageLabel } from "@/game/describe";
 import { STATUE_RANK_LABELS } from "@/game/levels";
 import type { Building } from "@/game/types";
 import { fmt, yen } from "@/lib/api";
 import type { ActiveView } from "@/server/view";
+import { Customize } from "./Customize";
 
 const minutesLeft = (finishAt: number, now: number) => Math.max(1, Math.ceil((finishAt - now) / MINUTE));
 
@@ -76,6 +77,18 @@ function statueRows(b: Building, w?: StatueInfo): [string, string][] {
   }
   return rows;
 }
+
+/** 備えの施設（docs/savings-driven-growth.md RSV-03） */
+function reserveRows(b: Building, v: ActiveView): [string, string][] {
+  const lv = b.tier + 1;
+  return [
+    ["備えLv", `${lv}（債券が自由予算の${RESERVE_LEVEL_MONTHS[b.tier]}か月分）`],
+    ["状態", b.closed ? `閉鎖中（今の備えLv${v.dev.reserveLevel}）` : "稼働中"],
+    ["備え", RESERVE_FACILITIES[b.tier]?.effect ?? ""],
+  ];
+}
+
+const RESERVE_DESCRIPTION = "債券（もしもの備え）が増えると、備えLvごとに銀行のそばに施設が建ち、悪い出来事の被害が軽くなります。債券が減ると施設は閉まり、戻ると再開します。";
 
 function SpecialDetail({ rows, description, href, linkLabel }: { rows: [string, string][]; description: string; href: string; linkLabel: string }) {
   return (
@@ -173,30 +186,38 @@ export function TilePanel({ v, tile }: { v: ActiveView; tile: { x: number; y: nu
     const park = b.special === "park" && b.refId ? v.specials.parks[b.refId] : undefined;
     const statue = b.special === "statue" && b.refId ? v.specials.statues[b.refId] : undefined;
     // 公園・像は「[対象名]の公園」「[対象名]の像」と表示する
-    const name = b.line
+    const kind = b.line
       ? tierDef(b.line, b.tier).name
       : park
         ? `${park.name}の公園`
         : statue
           ? `${statue.name}の像`
-          : b.special
-            ? SPECIAL_LABELS[b.special]
-            : "";
+          : b.special === "reserve"
+            ? (RESERVE_FACILITIES[b.tier]?.name ?? SPECIAL_LABELS.reserve)
+            : b.special
+              ? SPECIAL_LABELS[b.special]
+              : "";
+    // 銀貨でつけた名前（REC-06）があれば、それを見出しにして種類を添える
+    const name = b.name ? `「${b.name}」` : kind;
     const bJob = city.jobs.find((j) => j.buildingId === b.id);
     return (
       <div className="space-y-3 text-sm">
         <div>
           <p className="font-pixel text-base">
             {name}
+            {b.name && <span className="ml-2 text-xs text-muted">{kind}</span>}
             {b.line && <span className="ml-2 text-xs text-muted">Lv{b.level}</span>}
           </p>
+          {b.decor && <p className="text-xs text-muted">装飾：{DECOR_LABELS[b.decor]}</p>}
           {b.line && <p className="mt-1 text-xs text-muted">{outputText(v, b)}</p>}
           {b.special === "park" && <SpecialDetail rows={parkRows(b, park)} description={PARK_DESCRIPTION} href="/subscriptions" linkLabel="サブスク一覧で編集" />}
           {b.special === "statue" && <SpecialDetail rows={statueRows(b, statue)} description={STATUE_DESCRIPTION} href="/wishes" linkLabel="ほしい物リストで積立・編集" />}
+          {b.special === "reserve" && <SpecialDetail rows={reserveRows(b, v)} description={RESERVE_DESCRIPTION} href="/gold" linkLabel="債券を見る" />}
         </div>
         {bJob && <JobLine v={v} label={bJob.kind === "evolve" ? `${tierDef(bJob.line, bJob.tier).name}へ進化中` : `Lv${bJob.level}へアップグレード中`} job={bJob} />}
         {b.line && city.closedUntil?.[b.id] !== undefined && <Repair v={v} id={b.id} until={city.closedUntil[b.id]} />}
         {b.line && <p className="text-xs text-muted">土地用途：{ZONE_LABELS[zone]}</p>}
+        {b.line !== "road" && <Customize v={v} b={b} />}
       </div>
     );
   }

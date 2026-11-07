@@ -1,4 +1,4 @@
-import type { LineId, SpecialKind, Zone } from "./catalog";
+import type { DecorKind, LineId, SpecialKind, Zone } from "./catalog";
 
 export interface Stock {
   wood: number;
@@ -19,6 +19,10 @@ export interface Building {
   special?: SpecialKind;
   /** 公園ならサブスクID、像ならほしい物ID */
   refId?: string;
+  /** 銀貨でつけた名前（docs/savings-driven-growth.md REC-06） */
+  name?: string;
+  /** 銀貨で添えた装飾（REC-06。見た目だけ） */
+  decor?: DecorKind;
   tier: number;
   level: number;
   /** 占有範囲の左上のマス（docs/map-layout-redesign.md §4.2）。銀行の中心が原点で、負もある */
@@ -26,7 +30,7 @@ export interface Building {
   y: number;
   /** false はマップ外（土地が足りない特殊施設）。x, y は意味を持たない */
   placed?: false;
-  /** 公園の閉園など */
+  /** 公園の閉園、火事の休業、備えLvが下がった備えの施設など */
   closed?: boolean;
   builtAt: number;
 }
@@ -146,6 +150,10 @@ export type CityEventType =
   | "SHORTAGE_RESOLVED"
   | "DISASTER"
   | "REPAIRED"
+  | "RESERVE_BUILT"
+  | "RESERVE_CLOSED"
+  | "RESERVE_OPENED"
+  | "DECORATED"
   | "BANK_LEVEL"
   | "GOLD_MINE_LEVEL"
   | "SILVER_MINE_LEVEL"
@@ -168,7 +176,7 @@ export interface CityEvent {
 }
 
 /** タイムラプス再生用の建物の要約 */
-export type BuildingSnap = Pick<Building, "id" | "line" | "special" | "refId" | "tier" | "level" | "x" | "y" | "closed" | "placed">;
+export type BuildingSnap = Pick<Building, "id" | "line" | "special" | "refId" | "tier" | "level" | "x" | "y" | "closed" | "placed" | "decor">;
 
 export function snapBuilding(b: Building): BuildingSnap {
   const s: BuildingSnap = { id: b.id, tier: b.tier, level: b.level, x: b.x, y: b.y };
@@ -177,5 +185,6 @@ export function snapBuilding(b: Building): BuildingSnap {
   if (b.refId) s.refId = b.refId;
   if (b.closed) s.closed = true;
   if (b.placed === false) s.placed = false;
+  if (b.decor) s.decor = b.decor;
   return s;
 }

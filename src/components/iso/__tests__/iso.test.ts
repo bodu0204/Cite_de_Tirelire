@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { agentFacing, createAgents, stepAgent } from "../agents";
-import { effectKind, flashAlpha, particles, popScale } from "../effects";
+import { COIN_FLIGHT_MS, coinFlight, effectKind, firework, FIREWORK_MS, flashAlpha, flightMs, particles, popScale } from "../effects";
 import { clampCamera, clampToLand, fitZoom, scaleOf, screenToWorld, snapZoom, stepZoom, viewRect, worldOffset, zoomAt, zoomRange } from "../camera";
 import { CHUNK, chunkKey, chunkRect, visibleChunks } from "../chunks";
 import { BUILDING_LINES, dummyMap, groundKey, isRoad, lockedKey, mapRect, roadMask, tileAt, tileIndex } from "../map";
@@ -293,5 +293,35 @@ describe("OBJ-13 完成・進化の演出", () => {
     expect(popScale(350)).toEqual({ x: 1, y: 1 });
     expect(flashAlpha(80)).toBeCloseTo(0.9);
     expect(flashAlpha(500)).toBe(0);
+  });
+});
+
+describe("FX-02 銀行から工事現場へ飛ぶ金貨", () => {
+  it("金貨は銀行の高さから出て、現場の足元に落ちる。同じ入力なら同じで、終われば消える", () => {
+    const start = coinFlight(0, 100, 40, 30, 3);
+    expect(start).toHaveLength(1);
+    expect(start[0].y).toBeCloseTo(-30, 0);
+    expect(start[0].shape).toBe(3);
+    // 1枚目が着く頃：足元のずれに着き、まだ飛んでいる金貨もある
+    const land = coinFlight(COIN_FLIGHT_MS, 100, 40, 30, 3);
+    expect(land[0].x).toBeCloseTo(100, 0);
+    expect(land[0].y).toBeCloseTo(40, 0);
+    expect(land.length).toBeGreaterThan(1);
+    // 途中は放物線で、出る高さより上を通る
+    expect(coinFlight(COIN_FLIGHT_MS * 0.3, 100, 40, 30, 3)[0].y).toBeLessThan(-30);
+    expect(coinFlight(400, 100, 40, 30, 3)).toEqual(coinFlight(400, 100, 40, 30, 3));
+    expect(coinFlight(flightMs(), 100, 40, 30, 3)).toEqual([]);
+  });
+});
+
+describe("REC-06 タイムラプスの花火", () => {
+  it("上ってから弾け、同じ seed なら同じ花火で、終われば消える", () => {
+    const rising = firework(200, 100, 5);
+    expect(rising.length).toBeGreaterThan(0);
+    expect(Math.min(...rising.map((p) => p.y))).toBeLessThan(0);
+    const burst = firework(700, 100, 5);
+    expect(burst.length).toBeGreaterThan(10);
+    expect(firework(900, 100, 5)).toEqual(firework(900, 100, 5));
+    expect(firework(FIREWORK_MS, 100, 5)).toEqual([]);
   });
 });

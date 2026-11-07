@@ -34,8 +34,8 @@ export interface Particle {
   x: number;
   y: number;
   color: number;
-  /** 1 は2ドット四方の粒、2 は十字のきらめき */
-  shape: 1 | 2;
+  /** 1 は2ドット四方の粒、2 は十字のきらめき、3 は光る点のついた3ドット四方の金貨 */
+  shape: 1 | 2 | 3;
 }
 
 const DUST = [0xefe6d2, 0xd7c8a8, 0xbfae92];
@@ -99,4 +99,98 @@ export function popScale(t: number): { x: number; y: number } {
 export function flashAlpha(t: number): number {
   if (t >= 500) return 0;
   return t < 80 ? (t / 80) * 0.9 : 0.9 * (1 - (t - 80) / 420);
+}
+
+// ---- 銀行から工事現場へ飛ぶ金貨（docs/savings-driven-growth.md FX-02） ----
+
+/** 1枚の金貨が飛ぶ時間、1つの現場へ飛ばす枚数と、その間隔（ミリ秒） */
+export const COIN_FLIGHT_MS = 650;
+export const COINS_PER_SITE = 5;
+export const COIN_GAP_MS = 60;
+/** 次の現場へ飛ばし始めるまでのずれ（工事が一斉に始まる様子を、順に飛ぶ金貨で見せる） */
+export const SITE_GAP_MS = 110;
+/** 一度に金貨を飛ばす現場の上限 */
+export const MAX_FLIGHTS = 16;
+/** 金貨が着いた所のきらめきの長さ */
+const LAND_MS = 180;
+
+/** 1つの現場への金貨の演出全体の長さ */
+export const flightMs = () => (COINS_PER_SITE - 1) * COIN_GAP_MS + COIN_FLIGHT_MS + LAND_MS;
+
+/**
+ * t ミリ秒後の、銀行から現場へ飛ぶ金貨。基準点は銀行の足元で、dx・dy は現場の足元までのずれ、
+ * lift は金貨が出る高さ（銀行の屋根のあたり。どれも 64px タイル基準のドット）。
+ * 金貨は放物線を描いて現場の足元に落ち、着いた所で小さくきらめく。seed で金貨ごとのばらつきを決める
+ */
+export function coinFlight(t: number, dx: number, dy: number, lift: number, seed: number): Particle[] {
+  const out: Particle[] = [];
+  const arc = 24 + Math.min(60, Math.hypot(dx, dy) * 0.2);
+  for (let k = 0; k < COINS_PER_SITE; k++) {
+    const age = t - k * COIN_GAP_MS;
+    if (age < 0) continue;
+    const h = hash2(k, seed, 47);
+    const jx = ((h % 7) - 3) * 0.8;
+    const jy = (((h >>> 4) % 5) - 2) * 0.6;
+    const u = age / COIN_FLIGHT_MS;
+    if (u <= 1) {
+      // 上へ弾み出てから落ちる（出る高さ → 足元。途中で arc だけ持ち上げる）
+      const x = dx * u + jx * (1 - u);
+      const y = -lift * (1 - u) + dy * u - arc * 4 * u * (1 - u) + jy * (1 - u);
+      out.push({ x, y, color: GOLD[k % GOLD.length], shape: 3 });
+    } else if (age - COIN_FLIGHT_MS < LAND_MS) {
+      out.push({ x: dx + jx, y: dy - 4 + jy, color: SPARK[k % SPARK.length], shape: 2 });
+    }
+  }
+  return out;
+}
+
+// ---- タイムラプスの花火（docs/savings-driven-growth.md REC-06。銀貨で買う演出） ----
+
+/** 花火1発の長さ：打ち上げ（RISE）と、弾けて消えるまで（BURST） */
+const RISE_MS = 520;
+const BURST_MS = 1100;
+export const FIREWORK_MS = RISE_MS + BURST_MS;
+/** 一度に打ち上げる花火の上限 */
+export const MAX_FIREWORKS = 8;
+
+const FIREWORK_COLORS = [
+  [0xff8a80, 0xffcdd2],
+  [0x82b1ff, 0xe3f2fd],
+  [0xb9f6ca, 0xf1f8e9],
+  [0xffe082, 0xfff8e1],
+  [0xea80fc, 0xf3e5f5],
+];
+
+/**
+ * t ミリ秒後の花火1発。基準点は打ち上げる地面で、rise ドット上がってから丸く弾け、ゆっくり落ちて消える。
+ * 色と広がり方は seed で決める（同じ seed なら同じ花火）
+ */
+export function firework(t: number, rise: number, seed: number): Particle[] {
+  const out: Particle[] = [];
+  const [main, light] = FIREWORK_COLORS[hash2(seed, 3, 53) % FIREWORK_COLORS.length];
+  if (t < RISE_MS) {
+    // 尾を引いて上る火の玉（減速しながら）
+    const u = t / RISE_MS;
+    const y = -rise * (1 - (1 - u) * (1 - u));
+    out.push({ x: 0, y, color: 0xfff8e1, shape: 1 });
+    if (u > 0.15) out.push({ x: 0, y: y + 5, color: light, shape: 1 });
+    return out;
+  }
+  const age = (t - RISE_MS) / 1000;
+  if (age * 1000 >= BURST_MS) return out;
+  const n = 22;
+  const speed = 42 + (hash2(seed, 5, 59) % 18);
+  for (let k = 0; k < n; k++) {
+    const a = (k / n) * Math.PI * 2 + (hash2(seed, 7, 61) % 100) / 100;
+    const v = speed * (0.75 + ((hash2(k, seed, 67) % 25) / 100));
+    // 外へ広がりながら減速し、少しずつ落ちる
+    const r = v * age * (1 - Math.min(0.9, age * 0.55));
+    const x = Math.cos(a) * r;
+    const y = -rise + Math.sin(a) * r * 0.85 + 22 * age * age;
+    // 最後の3分の1は点滅させて消す
+    const late = age * 1000 > BURST_MS * 0.66;
+    if (late && (k + Math.floor(age * 20)) % 2) continue;
+    out.push({ x, y, color: age < 0.35 ? light : main, shape: age < 0.3 ? 2 : 1 });
+  }
+  return out;
 }

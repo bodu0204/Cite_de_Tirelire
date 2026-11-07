@@ -1867,6 +1867,28 @@
       "refs": {
         "first_frame": "big/special/silver_mine"
       }
+    },
+    {
+      "key": "special/reserve",
+      "stage": "S6-reserve",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 1.0,
+      "description": "1). small disaster-prevention storehouse: a sturdy grey concrete shed with an orange roll-up shutter and a small first-aid cross sign 2). small fire station: red brick building with a big red garage door and a short lookout tower with a bell 3). small evacuation park: green lawn with a white canopy tent, a blue water tank and a few supply crates 4). small bank vault: low heavy stone strongroom with a big round steel vault door and gold trim. Each is a separate building that stands directly on the ground with no base platform, no dirt slab and no grass patch under it, the bottom of the walls follows a 2:1 diamond footprint that spans the full width of the canvas, nothing else around it",
+      "body": {},
+      "styled": true
+    },
+    {
+      "key": "props/decor",
+      "stage": "S6-reserve",
+      "endpoint": "generate-image-v2",
+      "heightTiles": 0,
+      "description": "1). round flower bed with red, yellow and white flowers 2). small stone fountain with blue water 3). japanese stone lantern 4). festive pole with colorful pennant flags. Each is a separate small isometric object on a transparent background, no ground, no shadow, no text",
+      "body": {},
+      "styled": true,
+      "size": [
+        32,
+        32
+      ]
     }
   ],
   "styleKey": "building/housing/1"
