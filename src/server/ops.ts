@@ -4,7 +4,7 @@ import { bondCap, bondResourceEligible } from "@/game/bond";
 import { createCity, seasonBase } from "@/game/city/init";
 import { cityNeeds } from "@/game/city/sim";
 import { buildingLabel, DECOR_KINDS, DECOR_LABELS, TIMELAPSE_FX } from "@/game/catalog";
-import { isPlaced } from "@/game/city/layout";
+import { buildingSize, isPlaced } from "@/game/city/layout";
 import {
   DECOR_SILVER,
   INITIAL_GOLD,
@@ -189,6 +189,8 @@ export function decorateBuilding(ctx: GameCtx, body: Body) {
   requireOpen(ctx);
   const b = ownBuilding(ctx, body);
   const decor = body.decor === null || body.decor === undefined || body.decor === "" ? null : oneOf(body.decor, DECOR_KINDS, "装飾");
+  // 装飾は建物の横の空き（2×2 以上の敷地の角）に置く。1×1 の建物（像・備えの施設）には空きがない
+  if (decor && buildingSize(b) < 2) fail("invalid", "装飾は 2×2 以上の建物の横に置きます。この建物には置けません");
   if ((b.decor ?? null) === decor) return { id: b.id, decor, silver: 0 };
   if (decor) {
     spendSilver(ctx, DECOR_SILVER, "装飾", "building_decor", b.id);
