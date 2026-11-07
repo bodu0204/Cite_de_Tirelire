@@ -19,6 +19,12 @@ describe("建物の絵のキー", () => {
     expect(buildingKey(b({ special: "statue", tier: 2, level: 3 }), 1)).toBe("special/statue/gold@stage3");
     expect(buildingKey(b({ special: "statue", tier: 1, level: 5 }), 1)).toBe("special/statue/silver");
   });
+
+  it("RSV-03 備えの施設は備えLv ごとの絵で、閉まった施設は暗く描く", () => {
+    expect(buildingKey(b({ special: "reserve", tier: 0 }), 1)).toBe("special/reserve/1");
+    expect(buildingKey(b({ special: "reserve", tier: 3 }), 1)).toBe("special/reserve/4");
+    expect(buildingKey(b({ special: "reserve", tier: 2, closed: true }), 1)).toBe("special/reserve/3@closed");
+  });
 });
 
 describe("大きな建物の絵のキー（docs/map-layout-redesign.md §4.5）", () => {
@@ -193,6 +199,15 @@ describe("M3 にぎわい", () => {
     expect(map.objects.find((o) => o.id === "gold")).toMatchObject({ x: 1, y: 1, key: "props/gold/2" });
     const none = cityToIso({ plots: INITIAL_PLOTS, buildings: [bank], zones, bankLevel: 1, gold: { uncollected: 0, ratePerMinute: 1 } });
     expect(none.map.objects.find((o) => o.id === "gold")).toBeUndefined();
+  });
+
+  it("REC-06 銀貨で添えた装飾は、建物の手前の角のマスに小物を置く", () => {
+    const house = { id: "h1", line: "housing" as const, tier: 1, level: 1, x: 3, y: 3, decor: "fountain" as const };
+    const plain = { id: "h2", line: "housing" as const, tier: 1, level: 1, x: -5, y: 3 };
+    const { map } = cityToIso({ plots: INITIAL_PLOTS, buildings: [house, plain], zones: {}, bankLevel: 1 });
+    // 住宅は 2×2 なので、手前の角は (4, 4)
+    expect(map.objects.find((o) => o.id === "decor:h1")).toMatchObject({ x: 4, y: 4, key: "props/decor/fountain" });
+    expect(map.objects.find((o) => o.id === "decor:h2")).toBeUndefined();
   });
 
   it("以前の街の金鉱・銀鉱は描かない", () => {

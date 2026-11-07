@@ -35,6 +35,10 @@ export function applyEvent(frame: ReplayFrame, e: ReplayEvent) {
     case "PARK_CLOSED":
     case "STATUE_PROGRESS":
     case "STATUE_COMPLETED":
+    case "RESERVE_BUILT":
+    case "RESERVE_CLOSED":
+    case "RESERVE_OPENED":
+    case "DECORATED":
       if (b) frame.buildings.set(b.id, { ...b });
       break;
     case "DEMOLISH":
@@ -103,4 +107,22 @@ export function rateAt(savings: { at: number; delta: number }[], goal: number, t
   let net = 0;
   for (const s of savings) if (s.at <= t) net += s.delta;
   return goal > 0 ? (Math.max(0, net) / goal) * 100 : 0;
+}
+
+/** 花火を打ち上げる節目と、1回に打ち上げる数（タイムラプスの演出。docs/savings-driven-growth.md REC-06） */
+export const FIREWORK_EVENTS: Record<string, number> = {
+  DEV_LEVEL: 2,
+  SAVINGS_MILESTONE: 2,
+  TECH_UNLOCKED: 1,
+  RESERVE_BUILT: 1,
+  STATUE_COMPLETED: 1,
+};
+/** 再生が終わった時（街が完成した瞬間）に打ち上げる数 */
+export const FIREWORK_FINALE = 6;
+
+/** 時刻 t までに打ち上げた花火の数（描画側は、この数が増えた分だけ打ち上げる） */
+export function fireworksAt(events: { at: number; type: string }[], t: number, finished = false): number {
+  let n = 0;
+  for (const e of events) if (e.at <= t) n += FIREWORK_EVENTS[e.type] ?? 0;
+  return n + (finished ? FIREWORK_FINALE : 0);
 }

@@ -51,6 +51,11 @@ export interface IsoOverlay {
    * dark は電気が足りない建物で、夜も窓を灯さない
    */
   troubles?: { x: number; y: number; kind: string; dark?: boolean }[];
+  /**
+   * タイムラプスの花火（docs/savings-driven-growth.md REC-06）の通し番号。増えた分だけ打ち上げる
+   * （最初に渡した数は打ち上げない）
+   */
+  fireworks?: number;
 }
 
 /**

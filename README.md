@@ -56,6 +56,7 @@ src/game/        ゲームエンジン（純粋なTypeScript。DB・UIに依存�
   city/economy.ts  街の指標（人口・労働・電力・物流・幸福度。街は自分では稼がない）
   city/sim.ts      10分ティックの放置シミュレーションと、建設資金での計画の消化
   city/disasters.ts 悪い出来事（台風・不作・火事・値上がり・停電）
+  city/reserve.ts  備えの施設（防災倉庫・消防署・避難公園・銀行の金庫）
   city/actions.ts  公園（サブスク）・像（ほしい物）の同期
   replay.ts        タイムラプスの再構築
 src/server/      サーバー（正本）

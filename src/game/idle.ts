@@ -4,6 +4,7 @@
 // ティック境界は絶対時刻に揃えるので、同じ経過時間なら同じ結果になる。
 import { bondCap, bondResourceEligible } from "./bond";
 import { alignTick, cityNeeds, tick } from "./city/sim";
+import { syncReserve } from "./city/reserve";
 import { DAY, MICRO_PER_GOLD, TICK_MS } from "./config";
 import { dayEvents, dayGrid, minuteRule, shiftDays, startOfDay, validWindow, type BudgetPlan, type CurrencyDefLite } from "./currency";
 import { autoConfirm, noteMined } from "./confirm";
@@ -226,8 +227,9 @@ export function advance(w: World, opts: AdvanceOpts, events: CityEvent[]): void 
     holdBondResource(w);
     grantBondResources(w.city, levels(), end);
     grantInterest(w.city, w.purse.bond, w.purse.bondCap, end);
-    // 備えLv（債券残高）は悪い出来事の被害を軽くする（RSV-03・EVT-04）
+    // 備えLv（債券残高）は悪い出来事の被害を軽くし、Lvごとに備えの施設が建つ（RSV-03・EVT-04）
     w.city.reserveLevel = reserveLevel(w.purse.bond, plan.budget);
+    syncReserve(w.city, w.city.reserveLevel, end, events);
     tick(w.city, end, events);
   }
   // 最後の端数は金鉱・ユーザ通貨だけ進め、街は次のティックまで待つ（債券化の資源も次のティックの前に入れる）

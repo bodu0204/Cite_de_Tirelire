@@ -154,7 +154,7 @@ export default function ExchangePage() {
         </>
       ),
       savings: { ok: true, note: "使った金貨の分が貯金に（1G＝1円）" },
-      resource: { ok: false, note: "1:1・無料。建設資金はつかない（銀貨は修繕や手数料に使う）" },
+      resource: { ok: false, note: "1:1・無料。建設資金はつかない（銀貨は修繕・装飾・命名・手数料に使う）" },
     },
   ];
   const route = routes.find((r) => r.value === mode)!;
@@ -277,7 +277,7 @@ export default function ExchangePage() {
             <div className={`rounded-lg border px-2 py-2 ${totalGains(cityGains) > 0 ? "border-accent bg-surface" : "border-line bg-surface-2"}`}>
               <div className="text-xs text-muted">街に入る建設資金</div>
               <div className="num text-sm font-semibold">{mode === "g2s" ? "入りません" : n > 0 ? gainsText(cityGains) : "—"}</div>
-              {mode === "g2s" && <div className="text-[11px] text-muted">銀貨は修繕や手数料に使います</div>}
+              {mode === "g2s" && <div className="text-[11px] text-muted">銀貨は修繕・装飾・命名や手数料に使います</div>}
               {mode !== "g2s" && v.dev.earlyBonusRate > 1 && <div className="text-[11px] text-dev">開拓期ボーナスで ×{fmt(v.dev.earlyBonusRate, 1)}</div>}
             </div>
             {mode === "g2b" && (
@@ -318,7 +318,7 @@ export default function ExchangePage() {
                     )}
                   </>
                 )}
-                {mode === "g2s" && <dd className="col-span-2 text-xs text-muted">銀貨から金貨には戻せません。銀貨は悪い出来事の修繕や手数料に使えます。</dd>}
+                {mode === "g2s" && <dd className="col-span-2 text-xs text-muted">銀貨から金貨には戻せません。銀貨は悪い出来事の修繕、建物の装飾・命名、タイムラプスの花火、手数料に使えます。</dd>}
                 {mode === "g2b" && (
                   <dd className="col-span-2 text-xs text-muted">
                     債券は元の通貨に戻せません。急な出費（金貨が足りない購入）の支払いに使われ、持っている間は毎日利息が建設資金として街に入ります。

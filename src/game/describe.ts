@@ -100,6 +100,14 @@ export function describeEvent(e: DescribableEvent): string {
       return describeDisaster(p as unknown as DisasterPayload);
     case "REPAIRED":
       return p.by === "silver" ? `${p.name}を銀貨で修繕し、再開しました` : `${p.name}が再開しました`;
+    case "RESERVE_BUILT":
+      return `備えLv${p.level}：${p.name}が建ちました`;
+    case "RESERVE_CLOSED":
+      return `債券が減り、${p.name}が閉まりました（備えLv${(p.level as number) - 1}）`;
+    case "RESERVE_OPENED":
+      return `債券が戻り、${p.name}が再開しました（備えLv${p.level}）`;
+    case "DECORATED":
+      return p.decor ? `${p.name}に${p.label}を飾りました` : `${p.name}の装飾を外しました`;
     case "BANK_LEVEL":
       return (p.level as number) >= 6 ? "銀行が完成しました！" : `銀行がLv${p.level}になりました`;
     case "GOLD_MINE_LEVEL":

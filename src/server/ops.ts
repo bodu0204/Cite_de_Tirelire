@@ -3,7 +3,21 @@ import { Prisma } from "@prisma/client";
 import { bondCap, bondResourceEligible } from "@/game/bond";
 import { createCity, seasonBase } from "@/game/city/init";
 import { cityNeeds } from "@/game/city/sim";
-import { INITIAL_GOLD, INITIAL_SILVER, REPAIR_SILVER, REWARD_DAILY_CAP, REWARD_PURCHASE, REWARD_SAVINGS, SAVINGS_DAILY_LIMIT } from "@/game/config";
+import { buildingLabel, DECOR_KINDS, DECOR_LABELS, TIMELAPSE_FX } from "@/game/catalog";
+import { isPlaced } from "@/game/city/layout";
+import {
+  DECOR_SILVER,
+  INITIAL_GOLD,
+  INITIAL_SILVER,
+  NAME_MAX,
+  NAME_SILVER,
+  REPAIR_SILVER,
+  REWARD_DAILY_CAP,
+  REWARD_PURCHASE,
+  REWARD_SAVINGS,
+  SAVINGS_DAILY_LIMIT,
+  TIMELAPSE_FX_SILVER,
+} from "@/game/config";
 import { reopen } from "@/game/city/disasters";
 import { fail } from "@/game/errors";
 import { quoteBondGains, quoteNeedsExchange, quoteResourceExchange, totalGains, ZERO_GAINS, type Currency } from "@/game/exchange";
@@ -13,7 +27,7 @@ import { goldMineLevel, silverMineLevel } from "@/game/levels";
 import { collect, newMine } from "@/game/mine";
 import { lotOrder, pay, summarize, type Lot, type Payment } from "@/game/settle";
 import { changePayday, dayKey, isValidTimeZone, parseDateInTz, periodKey } from "@/game/time";
-import type { Gains, StockKey } from "@/game/types";
+import { snapBuilding, type Gains, type StockKey } from "@/game/types";
 import {
   addCurrency,
   budgetPlan,
@@ -137,6 +151,72 @@ export function repairBuilding(ctx: GameCtx, body: Body) {
   addCurrency(ctx, "SILVER", -REPAIR_SILVER, "repair", id);
   reopen(city, b!, ctx.now, ctx.events, "silver");
   return { id, silver: -REPAIR_SILVER };
+}
+
+// ---- 銀貨の使い道：建物の命名・装飾・タイムラプスの演出（docs/savings-driven-growth.md REC-06） ----
+
+/** 名前・装飾をつける建物（盤面にある、道路以外の建物） */
+function ownBuilding(ctx: GameCtx, body: Body) {
+  const id = str(body.buildingId, "建物");
+  const b = ctx.city!.buildings.find((o) => o.id === id);
+  if (!b || !isPlaced(b) || b.line === "road") fail("invalid", "名前や装飾をつけられる建物ではありません");
+  return b!;
+}
+
+function spendSilver(ctx: GameCtx, amount: number, what: string, reason: string, refId: string) {
+  if (ctx.balances.silver < amount) fail("insufficient", `銀貨が足りません（${what}には ${amount}S かかります）`);
+  addCurrency(ctx, "SILVER", -amount, reason, refId);
+}
+
+/** 建物に名前をつける（銀貨 NAME_SILVER）。空にすると名前を外す（無料） */
+export function nameBuilding(ctx: GameCtx, body: Body) {
+  requireOpen(ctx);
+  const b = ownBuilding(ctx, body);
+  const name = str(body.name, "名前", { max: 100, optional: true }).replace(/\s+/g, " ");
+  if ([...name].length > NAME_MAX) fail("invalid", `名前は${NAME_MAX}文字以内で入力してください`);
+  if (!name) {
+    delete b.name;
+    return { id: b.id, name: null, silver: 0 };
+  }
+  if (name === b.name) return { id: b.id, name, silver: 0 };
+  spendSilver(ctx, NAME_SILVER, "名前をつけるの", "building_name", b.id);
+  b.name = name;
+  return { id: b.id, name, silver: -NAME_SILVER };
+}
+
+/** 建物に装飾を添える（銀貨 DECOR_SILVER）。null で外す（無料）。見た目だけで、街の数値は変えない */
+export function decorateBuilding(ctx: GameCtx, body: Body) {
+  requireOpen(ctx);
+  const b = ownBuilding(ctx, body);
+  const decor = body.decor === null || body.decor === undefined || body.decor === "" ? null : oneOf(body.decor, DECOR_KINDS, "装飾");
+  if ((b.decor ?? null) === decor) return { id: b.id, decor, silver: 0 };
+  if (decor) {
+    spendSilver(ctx, DECOR_SILVER, "装飾", "building_decor", b.id);
+    b.decor = decor;
+  } else delete b.decor;
+  // タイムラプスにも装飾が出るよう、建物の姿をイベントに残す
+  ctx.events.push({
+    at: ctx.now,
+    type: "DECORATED",
+    auto: false,
+    important: false,
+    payload: { building: snapBuilding(b), name: buildingLabel(b), decor, label: decor ? DECOR_LABELS[decor] : null },
+  });
+  return { id: b.id, decor, silver: decor ? -DECOR_SILVER : 0 };
+}
+
+/** 完了したシーズンのタイムラプスに演出（花火）を足す。銀貨は進行中のシーズンから払う */
+export async function buyTimelapseFx(ctx: GameCtx, seasonId: string, body: Body) {
+  requireOpen(ctx);
+  const fx = oneOf(body.fx, TIMELAPSE_FX, "演出");
+  const season = await ctx.tx.season.findFirst({ where: { id: seasonId, userId: ctx.user.id } });
+  if (!season) fail("not_found", "シーズンが見つかりません", 404);
+  if (season!.status !== "COMPLETED") fail("locked", "タイムラプスは目標を完了すると見られます", 403);
+  if (season!.timelapseFx.includes(fx)) return { fx: season!.timelapseFx, silver: 0 };
+  spendSilver(ctx, TIMELAPSE_FX_SILVER, "演出", "timelapse_fx", seasonId);
+  const list = [...season!.timelapseFx, fx];
+  await ctx.tx.season.update({ where: { id: seasonId }, data: { timelapseFx: list } });
+  return { fx: list, silver: -TIMELAPSE_FX_SILVER };
 }
 
 // ---- 銀鉱：記録と報酬 ----

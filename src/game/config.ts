@@ -171,5 +171,13 @@ export const FIRE_REOPEN_HOURS = 72;
 export const REPAIR_SILVER = 100;
 export const REPAIR_FUND_RATIO = 0.3;
 
+// ---- 銀貨の使い道（docs/savings-driven-growth.md REC-06） ----
+/** 建物の命名（記録1回分）・装飾（記録3回分）・タイムラプスの花火（記録6回分）に使う銀貨 */
+export const NAME_SILVER = 50;
+export const DECOR_SILVER = 150;
+export const TIMELAPSE_FX_SILVER = 300;
+/** 建物の名前の長さの上限（文字） */
+export const NAME_MAX = 12;
+
 // ---- 放置中の変化表示 ----
 export const AWAY_SUMMARY_MIN_MS = HOUR;
