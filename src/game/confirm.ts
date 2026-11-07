@@ -78,12 +78,16 @@ export function autoConfirm(p: Purse, now: number, cal: PeriodCal | string, esti
   const c = toCal(cal);
   let total = NO_CONFIRM;
   const rest: Record<string, number> = {};
-  for (const key of Object.keys(days).sort((a, b) => Number(a) - Number(b))) {
+  const keys = Object.keys(days).sort((a, b) => Number(a) - Number(b));
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i];
     const dayStart = Number(key);
     const due = Math.min(dayStart + (AUTO_CONFIRM_DAYS + 1) * DAY, periodRange(dayStart, c).end);
     if (due > now) {
-      rest[key] = days[key];
-      continue;
+      // 確定する時刻は日が遅いほど遅い（7日後も期間の終わりも遅くなる）ので、ここから後はまだ確定しない。
+      // 毎ティック呼ぶので、残りの日の収入期間は計算しない
+      for (const k of keys.slice(i)) rest[k] = days[k];
+      break;
     }
     const mined = days[key] / Number(MICRO_PER_GOLD);
     total = addConfirmed(total, confirmAmount(p, Math.max(0, mined - estimatePerDay), "confirm_auto"));

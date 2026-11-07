@@ -516,6 +516,9 @@ export function develop(s: CityState, now: number): void {
   if ((s.effects?.pauseUntil ?? 0) > now) return;
   const dev = devLevel(s.devPoints);
   const limit = CONCURRENT_JOBS[dev - 1] ?? CONCURRENT_JOBS[CONCURRENT_JOBS.length - 1];
+  // 工事の空きがない・建設資金が1円もない（値段は1円以上）なら、計画を立てても何も始められない。
+  // 計画（場所探し）はティックで一番重いので、立てる前に返す
+  if (s.jobs.length >= limit || s.treasury < 1) return;
   let cache = siteCache();
   let pm = plannedMetrics(s);
   for (const need of NEED_ORDER) {
