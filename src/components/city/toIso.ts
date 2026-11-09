@@ -4,6 +4,7 @@ import { LINES, type DecorKind, type LineId, type SpecialKind, type Zone } from 
 import { LOGISTICS_FLOOR, PLOT_SIZE } from "@/game/config";
 import { buildingSize, isLegacyMine, isPlannedRoad, landBounds, plotKey, plotOf, tileKey, type Rect } from "@/game/city/layout";
 import { MIN_ROAD } from "@/components/iso/agents";
+import decorSpotsJson from "../../../art/sprites/64/decor-spots.json";
 import { hash2, type IsoMap, type IsoObject, type IsoOverlay, lockedKey, tileIndex } from "@/components/iso/map";
 
 export interface CityBuilding {
@@ -74,11 +75,46 @@ export function agentCounts(population: number, logistics: number, roadTiles: nu
   };
 }
 
+/** 装飾を置く位置（建物の基準点からのずれ。64px タイル基準のドット。敷地の外でもよい）と、建物より手前に描くか */
+export interface DecorSpot {
+  ox: number;
+  oy: number;
+  front: boolean;
+}
+
+/** 装飾の位置の台帳（art/sprites/64/decor-spots.json。/dev/decor で編集する） */
+export interface DecorSpots {
+  /** 大きさ（一辺のマス数）ごとの既定 */
+  default: Record<string, DecorSpot>;
+  /** 建物の絵のキー（@ より前）ごと */
+  spots: Record<string, DecorSpot>;
+}
+
+export const DECOR_SPOTS = decorSpotsJson as DecorSpots;
+
+/** その建物の絵の装飾の位置。台帳になければ大きさごとの既定 */
+export function decorSpot(key: string, size: number, data: DecorSpots = DECOR_SPOTS): DecorSpot | null {
+  return data.spots[key.split("@")[0]] ?? data.default[String(size)] ?? null;
+}
+
 /**
- * 装飾の小物を置く位置：敷地の右の角のマス（x + 大きさ − 1, y）の中心からのずれ（64px タイル基準）。
- * 2×2・3×3 の建物の絵は敷地の左右の角に空きがあるので、建物に重ならないその角（敷地の右の頂点の少し内側）に置く
+ * 装飾の小物。手前に描くなら占有範囲の手前の角のマス、奥なら奥の角のマスに置き（重なり順が建物の前か後ろになる）、
+ * 建物の基準点からのずれを、そのマスの中心からのずれに直す（手前の角は基準点より (大きさ − 1) × 16 ドット下）
  */
-export const DECOR_OFFSET = { ox: 18, oy: 8 };
+export function decorObject(b: CityBuilding, size: number, key: string, data: DecorSpots = DECOR_SPOTS): IsoObject | null {
+  const spot = b.decor ? decorSpot(key, size, data) : null;
+  if (!spot) return null;
+  const k = size - 1;
+  return {
+    id: `decor:${b.id}`,
+    x: spot.front ? b.x + k : b.x,
+    y: spot.front ? b.y + k : b.y,
+    key: `props/decor/${b.decor}`,
+    ox: spot.ox,
+    oy: spot.oy + (spot.front ? -k : k) * 16,
+    dz: spot.front ? 0.35 : -0.35,
+  };
+}
 
 /** 金貨の山の段階（0 は出さない）：未回収が採掘の1時間分まで小、半日分まで中、それより多いと大 */
 export function goldStage(uncollected: number, ratePerMinute: number): number {
@@ -230,12 +266,14 @@ export function cityToIso(input: CityInput): { map: IsoMap; overlay: IsoOverlay 
     }
     const size = buildingSize(b);
     markLot(b.x, b.y, size);
-    objects.push({ id: b.id, x: b.x, y: b.y, key: buildingKey(b, input.bankLevel, size), ...(size > 1 ? { size } : {}) });
+    const key = buildingKey(b, input.bankLevel, size);
+    objects.push({ id: b.id, x: b.x, y: b.y, key, ...(size > 1 ? { size } : {}) });
     // 銀行の前（手前の角のマス）に、未受取の配当の量に応じた金貨の山（A4）
     const stage = b.special === "bank" && input.gold ? goldStage(input.gold.uncollected, input.gold.ratePerMinute) : 0;
     if (stage) objects.push({ id: "gold", x: b.x + size - 1, y: b.y + size - 1, key: `props/gold/${stage}`, dz: 0.3 });
-    // 銀貨で添えた装飾（REC-06）：建物の横の空き（敷地の右の角）。1×1 の建物には空きがないので置かない
-    if (b.decor && size >= 2) objects.push({ id: `decor:${b.id}`, x: b.x + size - 1, y: b.y, key: `props/decor/${b.decor}`, dz: 0.35, ...DECOR_OFFSET });
+    // 銀貨で添えた装飾（REC-06）：建物の絵ごとに決めた位置（decor-spots.json）。1×1 の建物には置かない
+    const decor = size >= 2 ? decorObject(b, size, key) : null;
+    if (decor) objects.push(decor);
   }
 
   // 未開放の区画（OBJ-02）：林か岩で覆い、開拓できる区画の真ん中に看板を立てる。開拓中の区画は林を切り開いた地面にする

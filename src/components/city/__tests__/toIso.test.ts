@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { INITIAL_PLOTS } from "@/game/config";
 import { tileIndex } from "@/components/iso/map";
-import { DECOR_OFFSET, LOCKED_BAND, MAX_CARS, MAX_PEOPLE, agentCounts, buildingKey, cityToIso, goldStage, hourIn, lightRatio, nightLevel, troubleIcons, type CityBuilding } from "../toIso";
-import { depth } from "@/components/iso/projection";
+import { decorObject, decorSpot, LOCKED_BAND, MAX_CARS, MAX_PEOPLE, agentCounts, buildingKey, cityToIso, goldStage, hourIn, lightRatio, nightLevel, troubleIcons, type CityBuilding } from "../toIso";
+import { depth, iso, toScreen } from "@/components/iso/projection";
 
 const b = (over: Partial<Parameters<typeof buildingKey>[0]>) => ({ id: "b", tier: 0, level: 1, x: 4, y: 4, ...over });
 
@@ -202,18 +202,39 @@ describe("M3 にぎわい", () => {
     expect(none.map.objects.find((o) => o.id === "gold")).toBeUndefined();
   });
 
-  it("REC-06 銀貨で添えた装飾は、建物の横の空き（敷地の右の角のマス）に小物を置き、建物より手前に描く", () => {
+  it("REC-06 銀貨で添えた装飾は、建物の絵ごとの位置（decor-spots.json）に置く。1×1 の建物には置かない", () => {
     const house = { id: "h1", line: "housing" as const, tier: 1, level: 1, x: 3, y: 3, decor: "fountain" as const };
     const plain = { id: "h2", line: "housing" as const, tier: 1, level: 1, x: -5, y: 3 };
     const statue = { id: "s1", special: "statue" as const, tier: 0, level: 5, x: 1, y: -2, decor: "flowers" as const };
     const { map } = cityToIso({ plots: INITIAL_PLOTS, buildings: [house, plain, statue], zones: {}, bankLevel: 1 });
-    // 住宅は 2×2 なので、右の角のマスは (4, 3)。重なり順は建物（占有範囲の中心）より手前
-    const decor = map.objects.find((o) => o.id === "decor:h1")!;
-    expect(decor).toMatchObject({ x: 4, y: 3, key: "props/decor/fountain", ...DECOR_OFFSET });
-    expect(depth(decor.x, decor.y) + (decor.dz ?? 0)).toBeGreaterThan(depth(3.5, 3.5));
+    const spot = decorSpot("big/building/housing/1", 2)!;
+    expect(map.objects.find((o) => o.id === "decor:h1")).toEqual(decorObject(house, 2, "big/building/housing/1"));
+    expect(map.objects.find((o) => o.id === "decor:h1")).toMatchObject({ key: "props/decor/fountain", ox: spot.ox });
     expect(map.objects.find((o) => o.id === "decor:h2")).toBeUndefined();
-    // 1×1 の建物には空きがないので置かない
     expect(map.objects.find((o) => o.id === "decor:s1")).toBeUndefined();
+  });
+
+  it("装飾の位置は建物の基準点からのずれで、敷地の外でもよい。手前なら建物より前、奥なら後ろに描く", () => {
+    const house = { id: "h1", line: "housing" as const, tier: 1, level: 1, x: 3, y: 3, decor: "lantern" as const };
+    const data = {
+      default: { "2": { ox: 50, oy: 8, front: true } },
+      spots: { "big/building/housing/1": { ox: -90, oy: 30, front: true }, "big/building/housing/2": { ox: 0, oy: -40, front: false } },
+    };
+    // 絵のキーの @ より後（建物Lv）は見ない。台帳になければ大きさごとの既定
+    expect(decorSpot("big/building/housing/1@lv3", 2, data)).toEqual({ ox: -90, oy: 30, front: true });
+    expect(decorSpot("big/building/farm/0", 2, data)).toEqual({ ox: 50, oy: 8, front: true });
+    expect(decorSpot("big/special/bank/1", 3, data)).toBeNull();
+    // 手前：手前の角のマス (4, 4) に置き、基準点（中心）からのずれをそのマスの中心からのずれに直す（16 ドット上）
+    const front = decorObject(house, 2, "big/building/housing/1", data)!;
+    expect(front).toMatchObject({ x: 4, y: 4, ox: -90, oy: 30 - 16 });
+    expect(depth(front.x, front.y) + front.dz!).toBeGreaterThan(depth(3.5, 3.5));
+    const c = toScreen(iso(64), 3.5, 3.5);
+    const f = toScreen(iso(64), front.x, front.y);
+    expect([f.sx + front.ox! - c.sx, f.sy + front.oy! - c.sy]).toEqual([-90, 30]);
+    // 奥：奥の角のマス (3, 3) に置き、建物の後ろに描く
+    const back = decorObject({ ...house, tier: 2 }, 2, "big/building/housing/2", data)!;
+    expect(back).toMatchObject({ x: 3, y: 3, ox: 0, oy: -40 + 16 });
+    expect(depth(back.x, back.y) + back.dz!).toBeLessThan(depth(3.5, 3.5));
   });
 
   it("以前の街の金鉱・銀鉱は描かない", () => {

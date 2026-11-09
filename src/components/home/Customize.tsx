@@ -52,10 +52,10 @@ export function Customize({ v, b }: { v: ActiveView; b: Building }) {
           {tooLong && <p className="text-danger">名前は{NAME_MAX}文字までです</p>}
         </form>
         {buildingSize(b) < 2 ? (
-          <p className="text-muted">装飾は 2×2 以上の建物の横（敷地の角）に置きます。この建物には置けません。</p>
+          <p className="text-muted">装飾は 2×2 以上の建物のそばに置きます。この建物には置けません。</p>
         ) : (
           <div>
-            <p className="text-muted">装飾（銀貨 {DECOR_SILVER}S。建物の横、敷地の角に置きます。見た目だけで、街の数値は変わりません）</p>
+            <p className="text-muted">装飾（銀貨 {DECOR_SILVER}S。建物のそばに置きます。見た目だけで、街の数値は変わりません）</p>
             <div className="mt-1 flex flex-wrap gap-1">
               {DECOR_KINDS.map((d) => (
                 <Button

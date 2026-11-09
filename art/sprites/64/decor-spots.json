@@ -1,0 +1,8 @@
+{
+  "$comment": "装飾（props/decor/*。docs/savings-driven-growth.md REC-06）を置く位置。spots のキーは建物の絵のキー（@ より前。2×2・3×3 は big/ 付き）。ox・oy は建物の基準点（占有範囲の中心の足元）から装飾の足元までのずれ（64px タイル基準のドット）で、敷地の外（はみ出る位置）でもよい。front は建物より手前に描くか。spots にない建物は default の大きさ（一辺のマス数）ごとの位置。/dev/decor で編集する",
+  "default": {
+    "2": { "ox": 50, "oy": 8, "front": true },
+    "3": { "ox": 82, "oy": 8, "front": true }
+  },
+  "spots": {}
+}
