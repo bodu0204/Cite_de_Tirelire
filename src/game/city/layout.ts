@@ -627,8 +627,14 @@ function plotZone(s: CityState, px: number, py: number): Zone | null {
   return best;
 }
 
+/** 区画を選ぶとき：同じ用途の区画と辺で接するごとの減点と、住宅と工業が接するごとの減点（docs/map-layout-redesign.md §7.5 ZN-01） */
+const SAME_ZONE_NEIGHBOR = 2;
+const CLASH_NEIGHBOR = 4;
+const clash = (a: Zone, b: Zone) => (a === "residential" && b === "industrial") || (a === "industrial" && b === "residential");
+
 /**
- * 街が開く区画：同じ用途の区画の隣を優先し、次に銀行に近いもの。決定的にタイブレークする
+ * 街が開く区画：銀行に近いものを選ぶ。土地用途は区画ごとに分かれるように、同じ用途の区画とは隣り合わせにくくし
+ * （中心から同じ用途が扇形に広がらない）、住宅と工業は隣り合わせない（公害。pollutionPairs）。決定的にタイブレークする
  */
 export function choosePlot(s: CityState, zone: Zone | null, cache?: SiteCache): string | null {
   if (!cache) return searchPlot(s, zone);
@@ -651,8 +657,12 @@ function searchPlot(s: CityState, zone: Zone | null, cache?: SiteCache): string 
         [-1, 0],
         [0, 1],
         [0, -1],
-      ])
-        if (plotSet(s).has(plotKey(px + dx, py + dy)) && plotZone(s, px + dx, py + dy) === zone) score += 3;
+      ]) {
+        if (!plotSet(s).has(plotKey(px + dx, py + dy))) continue;
+        const near = plotZone(s, px + dx, py + dy);
+        if (near === zone) score -= SAME_ZONE_NEIGHBOR;
+        else if (near && clash(zone, near)) score -= CLASH_NEIGHBOR;
+      }
     if (!best || score > best.score) best = { k, score };
   }
   return best?.k ?? null;

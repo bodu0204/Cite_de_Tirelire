@@ -4,7 +4,7 @@ import { CONCURRENT_JOBS, DAY, DEV_POINTS_PER_BASE, DEV_THRESHOLDS, HOUR, MINUTE
 import { syncParks, syncStatues } from "../city/actions";
 import { computeMetrics } from "../city/economy";
 import { createCity, migrateCity, seasonBase } from "../city/init";
-import { buildingSize, canPlace, connected, dropLegacyMines, expandablePlots, expansionError, findSite, footprint, isPlaced, isPlannedRoad, isTileUnlocked, occupancy, plotCross, plotLimit, plotOf, roadNetwork, tileKey } from "../city/layout";
+import { buildingSize, canPlace, choosePlot, connected, dropLegacyMines, expandablePlots, expansionError, findSite, footprint, isPlaced, isPlannedRoad, isTileUnlocked, occupancy, plotCross, plotLimit, plotOf, roadNetwork, tileKey } from "../city/layout";
 import { applyTechLevel, finishJob, plannedMetrics, plotCost, priceOf, simulate } from "../city/sim";
 import { devLevel } from "../levels";
 import { createReplay } from "../replay";
@@ -488,6 +488,21 @@ describe("開拓（docs/map-layout-redesign.md §7）", () => {
     expect(roadNetwork(s).tiles.size).toBe(36 + 9);
     // 新しい区画の 2×2 の敷地に建てられる
     expect(canPlace(s, { line: "housing", tier: 0 }, 5, 0)).toBe(true);
+  });
+
+  it("区画ごとに土地用途が分かれる：同じ用途の区画と、住宅と工業は隣り合わせにくい（§7.5）", () => {
+    const s = atDev(createCity(T0, BASE), 2);
+    // 初期の4区画：北西 住宅・北東 商業・南西 農業・南東 工業
+    const neighbors = (k: string) => {
+      const [px, py] = k.split(",").map(Number);
+      return [`${px + 1},${py}`, `${px - 1},${py}`, `${px},${py + 1}`, `${px},${py - 1}`];
+    };
+    const home = choosePlot(s, "residential")!;
+    expect(neighbors(home)).not.toContain("-1,-1");
+    expect(neighbors(home)).not.toContain("0,0");
+    const works = choosePlot(s, "industrial")!;
+    expect(neighbors(works)).not.toContain("0,0");
+    expect(neighbors(works)).not.toContain("-1,-1");
   });
 
   it("開拓できない区画：隣でない・上限", () => {
