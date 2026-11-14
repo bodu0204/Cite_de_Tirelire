@@ -7,7 +7,7 @@
 //       MODE=compare npx tsx scripts/balance.ts     貯め方・記録の有無ごとに節目の日を比べる（§12 の表）
 //       MODE=kappa npx tsx scripts/balance.ts       値段の係数 κ（PRC-01）ごとに、節目での街の大きさを比べる
 //       MODE=habit npx tsx scripts/balance.ts       貯める額 × 記録の間隔ごとに、1日の工事数・区画・技術の追いつきを比べる
-//                                                    （docs/saving-habit-balance.md。PROPOSAL=1 で To-Be の規則にする）
+//                                                    （docs/saving-habit-balance.md。LEGACY=1 で以前の規則と比べる）
 // 条件（環境変数）:
 //   M=100000      月間自由予算（円）
 //   GOAL=150000   貯金目標額（円）。基準額 ＝ min(M, GOAL)（PRC-06）
@@ -15,17 +15,31 @@
 //   INITIAL=0.05  初日の入金（M に対する割合）
 //   EVERY=1       記録の間隔（日）。1＝毎日記録する（すぐ確定）、3＝3日に1回、0＝記録しない（7日後か収入期間の締めで自動確定。REC-01）
 //                 LAG=7 は EVERY=0 と同じ（以前の書き方）
-//   PROPOSAL=0    1 なら docs/saving-habit-balance.md の To-Be の規則（貯金日で区画・値段の指数・技術の更新）で試算する
+//   LEGACY=0      1 なら docs/saving-habit-balance.md より前の規則（こまめボーナス・値段の指数・技術の更新なし、κ 0.0002、開拓費 1.1^n）で試算する
+//                 個別に変えるとき：KAPPA・ALPHA・PLOT_GROWTH・HABIT_FIRST・HABIT_EVERY・RENEW_DAYS・RENEW_RATE（ふだんは config.ts の値）
 //   EVENTS=1      悪い出来事の被害を受けるか（0 なら備えLv4 として扱い、すべて防ぐ）
 //   DAYS=180  SEED=1（シーズンの開始日を1週間ずつずらし、悪い出来事の起き方を変える）  PICK=1,2,3,7,14,21,30,45,60,90,120,150,180（表示する日）
 //   KAPPAS=0.0001,0.0002,0.0003,0.0005（MODE=kappa で比べる κ。ふだんは config.ts の FUND_PRICE_KAPPA）
 import { bondCap } from "../src/game/bond";
 import { computeMetrics } from "../src/game/city/economy";
 import { createCity, seasonBase } from "../src/game/city/init";
-import { plotRule } from "../src/game/city/layout";
+import { plotRule, savingDaysOf } from "../src/game/city/layout";
 import { alignTick, applyTechLevel, cityNeeds, pricing, renewal, tick } from "../src/game/city/sim";
 import { highestUnlockedTier } from "../src/game/catalog";
-import { DAY, FUND_PRICE_KAPPA, PLOT_COST_GROWTH, REPAIR_SILVER, SILVER_MINE_EXCHANGE_BONUS, SILVER_MINE_LEVEL_THRESHOLDS, TICK_MS } from "../src/game/config";
+import { countAutoDays, countRecordDay } from "../src/game/habit";
+import {
+  DAY,
+  FUND_PRICE_ALPHA,
+  FUND_PRICE_KAPPA,
+  HABIT_PLOTS,
+  PLOT_COST_GROWTH,
+  RENEWAL_DAYS,
+  RENEWAL_EVOLVE_RATE,
+  REPAIR_SILVER,
+  SILVER_MINE_EXCHANGE_BONUS,
+  SILVER_MINE_LEVEL_THRESHOLDS,
+  TICK_MS,
+} from "../src/game/config";
 import { reopen } from "../src/game/city/disasters";
 import { describeEvent } from "../src/game/describe";
 import { creditFund, reserveLevel } from "../src/game/fund";
@@ -182,10 +196,10 @@ function step(w: World, end: number, events: CityEvent[]) {
     w.records++;
     w.silver += RECORD_SILVER;
     // 貯金日（HAB-01）：記録で貯金を確定した暦日。使い過ぎ（債券がマイナス）の日は数えない
-    if (w.bond >= 0) s.savingDays = (s.savingDays ?? 0) + 1;
+    countRecordDay(s, `d${dayOf(w, end)}`, w.bond, end, events);
   }
-  // 記録しない人：自動の確定（その日の配当が7日後に確定する）は、7日分で貯金日1日と数える（HAB-01）
-  if (w.p.every === 0 && (end - w.t0) % DAY === TICK_MS && dayOf(w, end) > 7 && w.bond >= 0) s.savingDays = (s.savingDays ?? 0) + 1 / 7;
+  // 記録しない人：その日の配当が7日後に自動で確定する（7日分で貯金日1日。HAB-01）
+  if (w.p.every === 0 && (end - w.t0) % DAY === TICK_MS && dayOf(w, end) > 7) countAutoDays(s, 1, w.bond, end, events);
   addSavings(w, end, (w.p.rate * w.p.M * TICK_MS) / (30 * DAY));
   confirm(w, end, events);
   grantInterest(s, w.bond, w.cap, end);
@@ -232,23 +246,19 @@ function topShare(s: CityState): number {
   return multi.filter((b) => b.tier >= highestUnlockedTier(b.line!, s.techLevel, dev)).length / multi.length;
 }
 
-// ---- To-Be の規則（docs/saving-habit-balance.md） ----
+// ---- 規則（docs/saving-habit-balance.md） ----
 
-/** PAC-01：値段 ＝ 相対コスト^α × 基準額 × κ。α を下げて、段階が上がっても1件の値段があまり上がらないようにする */
-const PROPOSAL_PRICING = { kappa: 0.00025, alpha: 0.5, plotGrowth: 1.03 };
-/** HAB-02：区画の上限 ＝ 発展Lvの上限（今のまま）＋ こまめボーナス（貯金日の最初の7日は1日1区画、そのあとは4日ごとに1区画） */
-const PROPOSAL_HABIT = { first: 7, every: 4 };
-/** TEC-02：技術Lvが上がってから3日間は建て替えを先にし、その値段を4分の1にする（RENEW_RATE=0 で無料。§7.3） */
-const PROPOSAL_RENEWAL = { days: 3, evolveRate: 0.25 };
+/** 以前の規則（MODE=habit LEGACY=1 で比べる）：値段は相対コストに比例、開拓費 1.1^n、こまめボーナス・技術の更新なし */
+const LEGACY_RULES = { kappa: 0.0002, alpha: 1, plotGrowth: 1.1, habit: null, renewDays: 0, renewRate: 1 };
 
-function applyProposal(on: boolean) {
+function applyRules(legacy: boolean) {
   const env = (k: string, d: number) => (process.env[k] === undefined ? d : Number(process.env[k]));
-  pricing.kappa = env("KAPPA", on ? PROPOSAL_PRICING.kappa : FUND_PRICE_KAPPA);
-  pricing.alpha = env("ALPHA", on ? PROPOSAL_PRICING.alpha : 1);
-  pricing.plotGrowth = env("PLOT_GROWTH", on ? PROPOSAL_PRICING.plotGrowth : PLOT_COST_GROWTH);
-  plotRule.habit = on ? { first: env("HABIT_FIRST", PROPOSAL_HABIT.first), every: env("HABIT_EVERY", PROPOSAL_HABIT.every) } : null;
-  renewal.days = env("RENEW_DAYS", on ? PROPOSAL_RENEWAL.days : 0);
-  renewal.evolveRate = env("RENEW_RATE", on ? PROPOSAL_RENEWAL.evolveRate : 1);
+  pricing.kappa = env("KAPPA", legacy ? LEGACY_RULES.kappa : FUND_PRICE_KAPPA);
+  pricing.alpha = env("ALPHA", legacy ? LEGACY_RULES.alpha : FUND_PRICE_ALPHA);
+  pricing.plotGrowth = env("PLOT_GROWTH", legacy ? LEGACY_RULES.plotGrowth : PLOT_COST_GROWTH);
+  plotRule.habit = legacy && process.env.HABIT_FIRST === undefined ? null : { first: env("HABIT_FIRST", HABIT_PLOTS.first), every: env("HABIT_EVERY", HABIT_PLOTS.every) };
+  renewal.days = env("RENEW_DAYS", legacy ? LEGACY_RULES.renewDays : RENEWAL_DAYS);
+  renewal.evolveRate = env("RENEW_RATE", legacy ? LEGACY_RULES.renewRate : RENEWAL_EVOLVE_RATE);
 }
 
 // ---- 表示 ----
@@ -282,7 +292,7 @@ function describe(p: Params): string {
     `M ${yen(p.M)}・目標 ${yen(p.goal)}・基準額 ${yen(seasonBase(p.M, p.goal))}`,
     `毎月 M の ${Math.round(p.rate * 100)}%・初日 ${yen(p.initial * p.M)}`,
     p.every === 1 ? "毎日記録" : p.every > 1 ? `${p.every}日に1回記録` : "記録しない（7日後に確定）",
-    `κ ${pricing.kappa}${pricing.alpha === 1 ? "" : `・α ${pricing.alpha}`}${pricing.plotGrowth === PLOT_COST_GROWTH ? "" : `・開拓費 ${pricing.plotGrowth}^n`}`,
+    `κ ${pricing.kappa}・α ${pricing.alpha}・開拓費 ${pricing.plotGrowth}^n`,
     plotRule.habit ? `区画は発展Lv＋こまめボーナス（${plotRule.habit.first}日まで毎日、以降${plotRule.habit.every}日ごと）` : "区画は発展Lvで決まる",
     renewal.days > 0 ? `技術の更新 ${renewal.days}日・建て替え×${renewal.evolveRate}` : "",
     p.events ? `出来事あり（seed ${p.seed}）` : "出来事なし",
@@ -370,7 +380,7 @@ function kappa() {
     const r = snapshot(w);
     console.log(`${k} | ${at.join(" / ")} | ${Math.round(r.pop)}人・${r.buildings}棟・${r.plots}区画 | ${yen(w.city.treasury)}`);
   }
-  pricing.kappa = FUND_PRICE_KAPPA;
+  applyRules(process.env.LEGACY === "1");
 }
 
 /** 期間 [a, b] 日の1日あたりの完成した工事（道路を除く） */
@@ -439,7 +449,7 @@ function habit() {
         name,
         ...spans.map(([a, b]) => perDay(w, a, b).toFixed(1)),
         `${at(30)}/${at(90)}/${at(last)}`,
-        Math.floor(s.savingDays ?? 0),
+        savingDaysOf(s),
         dv,
         tc,
         `${catchUp(w, 3)}/${catchUp(w, 7)}`,
@@ -451,7 +461,7 @@ function habit() {
   });
 }
 
-applyProposal(process.env.PROPOSAL === "1");
+applyRules(process.env.LEGACY === "1");
 const mode = process.env.MODE ?? "run";
 if (mode === "compare") compare();
 else if (mode === "kappa") kappa();

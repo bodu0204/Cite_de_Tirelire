@@ -10,6 +10,7 @@ import { migrateCity, seasonBase } from "@/game/city/init";
 import { BudgetPlan, type CurrencyDefLite, type Rule } from "@/game/currency";
 import { DAY, FEE_INSTANT_ROAD, SPEND_ESTIMATE_DAYS, SPEND_ESTIMATE_DEFAULT_RATIO, SPEND_ESTIMATE_MIN_RECORDS } from "@/game/config";
 import { confirmByRecord } from "@/game/confirm";
+import { countRecordDay } from "@/game/habit";
 import { exchangeRate } from "@/game/exchange";
 import { creditFund } from "@/game/fund";
 import { fail } from "@/game/errors";
@@ -288,6 +289,14 @@ async function load(tx: Tx, userId: string, now: number): Promise<GameCtx> {
   dropLegacyMines(ctx.city);
   // 貯金で育つ街より前の街は、基準額を決めて発展Lvを保ったまま直す（docs/savings-driven-growth.md）
   migrateCity(ctx.city, { base: seasonBase(user.monthlyBudget, season.goalAmount), startedAt: season.startedAt.getTime() });
+  // 貯金日（docs/saving-habit-balance.md HAB-01）を持たない街は、このシーズンに記録の報酬を受けた暦日の数から始める
+  if (ctx.city.savingDays === undefined) {
+    const days = await tx.rewardClaim.groupBy({ by: ["dayKey"], where: { seasonId: season.id } });
+    ctx.city.savingDays = days.length;
+    ctx.city.autoSavedDays = 0;
+    const last = days.map((d) => d.dayKey).sort().at(-1);
+    if (last) ctx.city.lastSavingDay = last;
+  }
   ctx.cityVersion = row.version;
   ctx.mine = mineFromSeason(season);
 
@@ -354,6 +363,8 @@ export function confirmRecords(ctx: GameCtx): { amount: number; toBond: number; 
   if (status === "COMPLETED") return { amount: 0, toBond: 0, fund: 0 };
   const before = ctx.city.treasury;
   const c = withPurse(ctx, (p) => confirmByRecord(p, ctx.now));
+  // 記録した暦日を貯金日に数える（使い過ぎで債券がマイナスなら数えない。docs/saving-habit-balance.md HAB-01）
+  countRecordDay(ctx.city, dayKey(ctx.now, ctx.user.timezone), ctx.balances.bond, ctx.now, ctx.events);
   const lv = facilityLevels(ctx);
   if (c.overflow > 0) {
     creditFund(ctx.city, c.overflow * exchangeRate("gold", "treasury", lv), ctx.now);

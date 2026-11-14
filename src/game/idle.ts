@@ -10,6 +10,7 @@ import { dayEvents, dayGrid, minuteRule, shiftDays, startOfDay, validWindow, typ
 import { autoConfirm, noteMined } from "./confirm";
 import { exchangeRate, GAIN_KEYS, quoteNeedsExchange, ZERO_GAINS, type FacilityLevels } from "./exchange";
 import { bondInterestPerDay, creditFund, creditGains, logFund, reserveLevel } from "./fund";
+import { countAutoDays } from "./habit";
 import { goldMineLevel } from "./levels";
 import { accrue, floorMinute } from "./mine";
 import { depositToBond, type Lot, type Purse } from "./settle";
@@ -224,6 +225,8 @@ export function advance(w: World, opts: AdvanceOpts, events: CityEvent[]): void 
       creditFund(w.city, c.overflow * exchangeRate("gold", "treasury", levels()), end);
       w.citySpent = (w.citySpent ?? 0) + c.overflow;
     }
+    // 自動で確定した日も、7日分で貯金日1日に数える（docs/saving-habit-balance.md HAB-01）
+    countAutoDays(w.city, c.days, w.purse.bond, end, events);
     holdBondResource(w);
     grantBondResources(w.city, levels(), end);
     grantInterest(w.city, w.purse.bond, w.purse.bondCap, end);

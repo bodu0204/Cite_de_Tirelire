@@ -138,6 +138,8 @@ describe("AT-012 長期間の放置", () => {
   it("7日間で時系列のイベント、資源は負にならない", () => {
     const s = createCity(T0, BASE);
     s.treasury = 20_000;
+    // 毎日記録する人（貯金日でこまめボーナスの区画がつく。docs/saving-habit-balance.md HAB-02）
+    s.savingDays = 7;
     applyTechLevel(s, 2, T0, []);
     const events = run(s, 7 * DAY);
     for (let i = 1; i < events.length; i++) expect(events[i].at).toBeGreaterThanOrEqual(events[i - 1].at);
@@ -176,6 +178,7 @@ describe("AT-010 貯金による技術解放", () => {
   it("技術Lv3で工業系が建設可能になり、既存建物に技術ボーナス。発展ptは付与しない", () => {
     const s = createCity(T0, BASE);
     s.treasury = 15_000;
+    s.savingDays = 3;
     run(s, 3 * DAY); // 発展Lv2 以上へ
     const dev = s.devPoints;
     const prodBefore = computeMetrics(s).production.food;
@@ -194,6 +197,7 @@ describe("AT-011 技術が高く発展度が低い場合", () => {
   it("発展Lvが足りない施設は建設されず、貯金で工事が進むと発展Lvが上がる", () => {
     const s = createCity(T0, BASE);
     s.treasury = 10_000;
+    s.savingDays = 2;
     applyTechLevel(s, 5, T0, []);
     expect(devLevel(s.devPoints)).toBe(1);
     expect(highestUnlockedTier("office", s.techLevel, devLevel(s.devPoints))).toBeLessThan(0);
@@ -224,6 +228,7 @@ describe("AT-014 技術解放後の建物進化", () => {
   it("技術Lv2の農場が、技術Lv3で機械化農場へ進化する", () => {
     const s = createCity(T0, BASE);
     s.treasury = 20_000;
+    s.savingDays = 4;
     applyTechLevel(s, 2, T0, []);
     run(s, 4 * DAY);
     const farm = s.buildings.find((b) => b.line === "farm" && b.tier === 1);
@@ -233,6 +238,7 @@ describe("AT-014 技術解放後の建物進化", () => {
 
     applyTechLevel(s, 3, s.simTime, []);
     s.treasury += 30_000;
+    s.savingDays = 11;
     const events = run(s, 7 * DAY);
     const evolved = events.find((e) => e.type === "EVOLVE" && (e.payload.to as string) === "機械化農場");
     expect(evolved, "機械化農場への進化イベント").toBeDefined();
@@ -458,7 +464,7 @@ describe("開拓（docs/map-layout-redesign.md §7）", () => {
   };
 
   it("開拓できる区画の数は発展Lvで決まる。Lv6 からは発展ptで増え、400 で止まる", () => {
-    expect([1, 2, 3, 4, 5, 6].map((lv) => plotLimit(DEV_THRESHOLDS[lv - 1]))).toEqual([4, 8, 14, 22, 30, 40]);
+    expect([1, 2, 3, 4, 5, 6].map((lv) => plotLimit(DEV_THRESHOLDS[lv - 1]))).toEqual([6, 8, 14, 22, 30, 40]);
     expect(plotLimit(DEV_THRESHOLDS[5] + 150 * 10)).toBe(80);
     expect(plotLimit(1e9)).toBe(400);
   });
@@ -486,7 +492,14 @@ describe("開拓（docs/map-layout-redesign.md §7）", () => {
 
   it("開拓できない区画：隣でない・上限", () => {
     const s = createCity(T0, BASE);
-    expect(expansionError(s, 1, 0)).toMatch(/4 までです/);
+    // 発展Lv1 は6区画まで（初期の4区画 ＋ 2区画）
+    startExpand(s, 7, 3);
+    startExpand(s, -8, 3);
+    expect(expansionError(s, 1, -1)).toMatch(/6 までです/);
+    // 貯金日があれば、こまめボーナスの分だけ開ける（docs/saving-habit-balance.md HAB-02）
+    s.savingDays = 1;
+    expect(expansionError(s, 1, -1)).toBeNull();
+    s.jobs = [];
     atDev(s, 2);
     expect(expansionError(s, 2, 0)).toMatch(/隣から/);
     expect(expansionError(s, 0, 0)).toMatch(/開拓済み/);
@@ -577,6 +590,7 @@ describe("石材を作れないうちの開拓", () => {
   it("技術Lv1のままでも、開拓が止まらない（石材は在庫に持たず、値段に含めて建設資金で払う）", () => {
     const s = createCity(T0, BASE);
     s.treasury = 15_000;
+    s.savingDays = 7;
     run(s, 7 * DAY);
     expect(s.plots.length).toBeGreaterThan(6);
   });
