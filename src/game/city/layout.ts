@@ -473,13 +473,28 @@ export function forestSite(s: CityState, b: Kind): ForestSite | null {
 
 // ---- 開拓（docs/map-layout-redesign.md §7） ----
 
-/** 開拓できる区画数の上限（初期の区画を含む。Q8） */
-export function plotLimit(devPoints: number): number {
+/**
+ * 試算用のこまめボーナス（scripts/balance.ts MODE=habit PROPOSAL=1。docs/saving-habit-balance.md HAB-02）。
+ * habit が null（ふだん）なら区画の上限は発展Lvの表（PLOT_LIMIT）のまま。決めると、その上に貯金日の数だけ足す：
+ * 最初の first 日は1日1区画、そのあとは every 日ごとに1区画
+ */
+export const plotRule: { habit: null | { first: number; every: number } } = { habit: null };
+
+/** 貯金日によるこまめボーナスの区画数（HAB-02） */
+export function habitPlots(savingDays = 0): number {
+  const r = plotRule.habit;
+  if (!r) return 0;
+  const d = Math.max(0, Math.floor(savingDays));
+  return Math.min(d, r.first) + Math.floor(Math.max(0, d - r.first) / r.every);
+}
+
+/** 開拓できる区画数の上限（初期の区画を含む。Q8）。こまめボーナスを決めていれば足す */
+export function plotLimit(devPoints: number, savingDays = 0): number {
   const lv = devLevel(devPoints);
   const base = PLOT_LIMIT[Math.min(lv, PLOT_LIMIT.length) - 1];
   const top = DEV_THRESHOLDS[DEV_THRESHOLDS.length - 1];
   const extra = devPoints > top ? Math.floor((devPoints - top) / PLOT_STEP_POINTS) * PLOT_STEP : 0;
-  return Math.min(MAX_PLOTS, base + extra);
+  return Math.min(MAX_PLOTS, base + extra + habitPlots(savingDays));
 }
 
 /** 開拓中の区画（"px,py"） */
@@ -507,8 +522,9 @@ export function expansionError(s: CityState, px: number, py: number, net = roadN
   if (expandingPlots(s).has(k)) return "開拓中の区画です";
   const near = [plotKey(px + 1, py), plotKey(px - 1, py), plotKey(px, py + 1), plotKey(px, py - 1)];
   if (!near.some((n) => plotSet(s).has(n))) return "開拓済みの区画の隣から開拓してください";
-  if (plotsUsed(s) >= plotLimit(s.devPoints)) {
-    return plotsUsed(s) >= MAX_PLOTS ? "これ以上は開拓できません" : `開拓できる区画は ${plotLimit(s.devPoints)} までです。発展Lvを上げると増えます`;
+  const limit = plotLimit(s.devPoints, s.savingDays);
+  if (plotsUsed(s) >= limit) {
+    return plotsUsed(s) >= MAX_PLOTS ? "これ以上は開拓できません" : `開拓できる区画は ${limit} までです。発展Lvを上げると増えます`;
   }
   // 区画の十字の道路が、銀行までつながった道路の隣に来ること（Q4）
   if (!plotCross(px, py).some((t) => perimeter(t.x, t.y, 1).some((n) => net.tiles.has(tileKey(n.x, n.y))))) return "銀行までつながった道路が、この区画の境目まで届いていません";

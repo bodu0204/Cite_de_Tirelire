@@ -134,6 +134,10 @@ export interface CityState {
   effects?: CityEffects;
   /** 火事で休業した建物（建物ID → 自動で再開する時刻。EVT-05） */
   closedUntil?: Record<string, number>;
+  /** 貯金日の数（記録で貯金を確定した暦日。試算用：docs/saving-habit-balance.md HAB-01。区画の上限 layout.ts plotRule） */
+  savingDays?: number;
+  /** 最後に技術Lvが上がった時刻（試算用：docs/saving-habit-balance.md TEC-02。sim.ts renewal） */
+  techUpAt?: number;
 }
 
 export type CityEventType =

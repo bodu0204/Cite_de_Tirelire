@@ -28,8 +28,8 @@ export const MAX_PLOTS = 400;
  * 値段（円）は建物と同じく相対コストから決める（sim.ts priceOf。docs/savings-driven-growth.md PRC-04）
  */
 export const PLOT_COST_GROWTH = 1.1;
-export const expandCost = (n: number, stone = n >= 2) => {
-  const k = PLOT_COST_GROWTH ** n;
+export const expandCost = (n: number, stone = n >= 2, growth = PLOT_COST_GROWTH) => {
+  const k = growth ** n;
   // stone が false なら木材と都市資金だけ（最初の2区画と、石材加工所が解放されるまで。sim.ts plotCost）
   return { wood: Math.round(60 * k), stone: stone ? Math.round(20 * k) : 0, treasury: Math.round(150 * k) };
 };

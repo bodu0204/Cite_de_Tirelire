@@ -276,7 +276,7 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
       concurrentJobs: CONCURRENT_JOBS[dev - 1],
       tiles: unlockedTileCount(city),
       /** 開いた・開拓中の区画の数と、その上限（docs/map-layout-redesign.md §7.3） */
-      plots: { used: plotsUsed(city), limit: plotLimit(city.devPoints) },
+      plots: { used: plotsUsed(city), limit: plotLimit(city.devPoints, city.savingDays) },
       levelCap: levelCap(dev),
     },
     city,

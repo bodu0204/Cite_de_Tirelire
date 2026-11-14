@@ -16,6 +16,7 @@ import {
 import {
   BUILDING_LEVEL_CAP,
   CONCURRENT_JOBS,
+  DAY,
   DEV_POINTS_PER_BASE,
   DISCOUNT_MAX,
   DISCOUNT_PER_BUILDING,
@@ -29,6 +30,7 @@ import {
   INITIAL_PLOTS,
   MINUTE,
   MOVE_IN_PER_HOUR,
+  PLOT_COST_GROWTH,
   PLOT_SIZE,
   TICK_MS,
 } from "../config";
@@ -263,13 +265,40 @@ export function discountRate(s: CityState): number {
   return Math.min(DISCOUNT_MAX, n * DISCOUNT_PER_BUILDING);
 }
 
-/** 値段の係数 κ。ふだんは FUND_PRICE_KAPPA のまま（scripts/balance.ts が試算のときだけ変える） */
-export const pricing = { kappa: FUND_PRICE_KAPPA };
+/**
+ * 値段の係数 κ と、相対コストに掛ける指数 α。ふだんは FUND_PRICE_KAPPA・1 のまま（scripts/balance.ts が試算のときだけ変える。
+ * α を 1 より小さくすると、高い段階の建物ほど相対的に安くなる：docs/saving-habit-balance.md PAC-01。plotGrowth は区画の開拓費の伸び：PAC-03）
+ */
+export const pricing = { kappa: FUND_PRICE_KAPPA, alpha: 1, plotGrowth: PLOT_COST_GROWTH };
 
-/** 計画の値段（円）＝ 相対コスト × 基準額 × κ ×（1 − 割引）（PRC-01）。資材の値上がり（EVT-03）の間は上がる。1円以上 */
+/** 計画の値段（円）＝ 相対コスト^α × 基準額 × κ ×（1 − 割引）（PRC-01）。資材の値上がり（EVT-03）の間は上がる。1円以上 */
 export function priceOf(s: CityState, cost: Cost): number {
   const surge = active(s.effects?.surge, s.simTime) ? 1 + s.effects!.surge!.rate : 1;
-  return Math.max(1, Math.ceil(relCost(cost) * s.base * pricing.kappa * (1 - discountRate(s)) * surge));
+  const rel = pricing.alpha === 1 ? relCost(cost) : relCost(cost) ** pricing.alpha;
+  return Math.max(1, Math.ceil(rel * s.base * pricing.kappa * (1 - discountRate(s)) * surge));
+}
+
+/**
+ * 技術の更新（試算用：docs/saving-habit-balance.md TEC-02）。技術Lvが上がってから days 日の間は、
+ * 不足の解消のすぐあとに建て替え（efficiency）を回し、建て替えの値段に evolveRate を掛ける。
+ * days が 0（ふだん）なら計画の順は NEED_ORDER のまま
+ */
+export const renewal = { days: 0, evolveRate: 1 };
+
+const RENEWAL_ORDER: NeedKey[] = ["shortage", "efficiency", ...NEED_ORDER.filter((n) => n !== "shortage" && n !== "efficiency")];
+
+/** その時刻の計画の順（技術の更新の間は建て替えを先にする） */
+export function needOrder(s: Pick<CityState, "techUpAt">, now: number): NeedKey[] {
+  return renewing(s, now) ? RENEWAL_ORDER : NEED_ORDER;
+}
+
+const renewing = (s: Pick<CityState, "techUpAt">, now: number) =>
+  renewal.days > 0 && s.techUpAt !== undefined && now - s.techUpAt < renewal.days * DAY;
+
+/** 計画の値段（技術の更新の間の建て替えは evolveRate を掛ける） */
+function planPrice(s: CityState, plan: Plan, now: number): number {
+  const price = priceOf(s, plan.cost);
+  return plan.kind === "evolve" && renewal.evolveRate !== 1 && renewing(s, now) ? Math.ceil(price * renewal.evolveRate) : price;
 }
 
 /**
@@ -317,7 +346,7 @@ export function nextPlotIndex(s: CityState): number {
  */
 export function plotCost(s: CityState): Cost {
   const n = nextPlotIndex(s);
-  return expandCost(n, n >= 2 && highestUnlockedTier("quarry", s.techLevel, devLevel(s.devPoints)) >= 0);
+  return expandCost(n, n >= 2 && highestUnlockedTier("quarry", s.techLevel, devLevel(s.devPoints)) >= 0, pricing.plotGrowth);
 }
 
 /**
@@ -440,7 +469,7 @@ function concretePlans(s: CityState): Plan[] {
   const seen = new Set<string>();
   const out: Plan[] = [];
   const cache = siteCache();
-  for (const need of NEED_ORDER) {
+  for (const need of needOrder(s, s.simTime)) {
     for (const plan of plansFor(need, s, m, m.devLevel, cache)) {
       const key = plan.kind === "build" ? `build:${plan.line}` : plan.kind === "expand" ? "expand" : `${plan.kind}:${plan.building!.id}`;
       if (seen.has(key)) continue;
@@ -521,13 +550,13 @@ export function develop(s: CityState, now: number): void {
   if (s.jobs.length >= limit || s.treasury < 1) return;
   let cache = siteCache();
   let pm = plannedMetrics(s);
-  for (const need of NEED_ORDER) {
+  for (const need of needOrder(s, now)) {
     // 始めたジョブの分だけ候補が変わるので、何も始められなくなるまで候補を出し直す
     for (let started = true; started; ) {
       started = false;
       for (const plan of plansFor(need, s, pm, dev, cache)) {
         if (s.jobs.length >= limit) return;
-        const price = priceOf(s, plan.cost);
+        const price = planPrice(s, plan, now);
         if (s.treasury < price) return;
         startJob(s, plan, price, now);
         // 盤面と完成後の指標が変わったので、場所と指標は出し直す
@@ -564,6 +593,7 @@ function startJob(s: CityState, plan: Plan, price: number, now: number): Job {
 /** 技術Lvの反映。上昇時のみ解放イベントを出す（発展ポイントは付与しない） */
 export function applyTechLevel(s: CityState, level: number, at: number, events: CityEvent[]): void {
   if (level > s.techLevel) {
+    if (renewal.days > 0) s.techUpAt = at;
     for (let lv = s.techLevel + 1; lv <= level; lv++) {
       events.push({ at, type: "TECH_UNLOCKED", auto: false, important: true, payload: { level: lv, unlocks: unlocksAtTech(lv) } });
     }
