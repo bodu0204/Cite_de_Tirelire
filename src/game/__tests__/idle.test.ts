@@ -34,7 +34,7 @@ function world(defs: CurrencyDefLite[], o: { bond?: number } = {}): World {
   const accruals = new Map<string, Accrual>(defs.map((d) => [d.id, { currencyId: d.id, lastAccrualAt: START, fraction: 0n }]));
   return {
     purse: { mine: newMine(START, TZ), gold: 0, silver: 0, bond: o.bond ?? 0, bondCap: 0, moves: [], overspend: 0 },
-    city: createCity(START),
+    city: createCity(START, 60000),
     lots: [],
     accruals,
   };
@@ -53,13 +53,17 @@ describe("AT-020 余りを N 日後に債券へ", () => {
     expect(w.lots).toHaveLength(1);
     expect(dayKey(w.lots[0].issuedAt, TZ)).toBe("2026-10-19");
     expect(w.lots[0].remaining).toBe(7000);
+    // 発生した分は未受取（配当資金で受け取る）。精算では未受取から先に使う
+    expect(w.lots[0].pending).toBe(7000);
     pay(w.purse, 2000, w.lots, []);
     expect(w.lots[0].remaining).toBe(5000);
+    expect(w.lots[0].pending).toBe(5000);
 
     advance(w, { plan, bondRate: 0, until: MON + 3 * DAY - 1, newId }, []);
     expect(w.purse.bond).toBe(0);
     advance(w, { plan, bondRate: 0, until: MON + 3 * DAY, newId }, []);
     expect(w.lots[0].remaining).toBe(0);
+    expect(w.lots[0].pending).toBe(0);
     expect(w.purse.bond).toBe(5000);
   });
 
@@ -106,7 +110,7 @@ describe("AT-026 ユーザ通貨を20種類", () => {
 });
 
 describe("AT-027 放置を1回で計算しても、1時間ごとに計算しても同じ", () => {
-  it("債券倍率・期限の債券化・通貨の発生を含めて一致する", () => {
+  it("債券化の建設資金・債券の利息・期限の債券化・通貨の発生を含めて一致する", () => {
     const defs = [
       def("food", [{ kind: "weekly", every: 1, weekdays: [1], amount: 7000 }], { remainder: "TO_BOND", remainderDays: 2 }),
       def("snack", [{ kind: "minute", monthlyAmount: 5000 }], { remainder: "TO_BOND", remainderDays: 1, sortOrder: 1 }),

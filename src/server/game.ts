@@ -3,16 +3,23 @@
 import { randomUUID } from "node:crypto";
 import { Prisma, type CurrencyDef, type Season, type Subscription, type User, type WishItem } from "@prisma/client";
 import { bondCap } from "@/game/bond";
-import { FEE_INSTANT_ROAD, placeOffMapSpecials, syncParks, syncStatues, type ParkSource, type StatueSource } from "@/game/city/actions";
+import { placeOffMapSpecials, syncParks, syncStatues, type ParkSource, type StatueSource } from "@/game/city/actions";
 import { applyTechLevel } from "@/game/city/sim";
 import { dropLegacyMines } from "@/game/city/layout";
+import { migrateCity, seasonBase } from "@/game/city/init";
 import { BudgetPlan, type CurrencyDefLite, type Rule } from "@/game/currency";
+import { DAY, FEE_INSTANT_ROAD, SPEND_ESTIMATE_DAYS, SPEND_ESTIMATE_DEFAULT_RATIO, SPEND_ESTIMATE_MIN_RECORDS } from "@/game/config";
+import { confirmByRecord } from "@/game/confirm";
+import { countRecordDay } from "@/game/habit";
+import { habitPlots, savingDaysOf } from "@/game/city/layout";
+import { exchangeRate } from "@/game/exchange";
+import { creditFund } from "@/game/fund";
 import { fail } from "@/game/errors";
-import { advance, type Accrual, type CustomCut, type Grant } from "@/game/idle";
+import { advance, grantBondResources, type Accrual, type CustomCut, type Grant, type World } from "@/game/idle";
 import { achievementRate, bankLevel, goldMineLevel, savingsTotal, silverMineLevel, techLevel } from "@/game/levels";
 import { floorMinute, type GoldWindow, type MineState, type SubWindow } from "@/game/mine";
 import type { Lot, Purse } from "@/game/settle";
-import { monthCal, parseDateInTz, type PeriodCal } from "@/game/time";
+import { dayKey, monthCal, parseDateInTz, type PeriodCal } from "@/game/time";
 import type { CityEvent, CityState } from "@/game/types";
 import { prisma } from "./db";
 
@@ -57,7 +64,7 @@ export interface GameCtx {
   grants: Grant[];
   /** 当期のユーザ通貨の未発生分から減らす額（月の収入の−差分） */
   cuts: CustomCut[];
-  /** 都市に使った金貨の累計（貯金額の債券以外） */
+  /** ゲーム内で使った金貨の累計（貯金額の債券以外） */
   citySpent: number;
   /** シーズン行の追加更新 */
   seasonPatch: Prisma.SeasonUpdateInput;
@@ -109,6 +116,9 @@ export function mineFromSeason(s: Season): MineState {
     minedThisMonth: s.mineMinedMonth,
     settledThisMonth: s.mineSettledMonth,
     totalCollected: s.mineTotalCollected,
+    confirmedAt: s.mineConfirmedAt?.getTime(),
+    unconfirmed: (s.mineUnconfirmed as Record<string, number> | null) ?? {},
+    freeBond: s.mineFreeBond,
   };
 }
 
@@ -124,6 +134,9 @@ function mineToSeason(m: MineState): Prisma.SeasonUpdateInput {
     mineWindows: (m.windows ?? []).map((w) => ({ ...w, total: w.total.toString() })) as unknown as Prisma.InputJsonValue,
     mineCut: m.cut ?? 0n,
     mineDividend: m.dividend ?? 0n,
+    mineConfirmedAt: m.confirmedAt === undefined ? null : new Date(m.confirmedAt),
+    mineUnconfirmed: (m.unconfirmed ?? {}) as Prisma.InputJsonValue,
+    mineFreeBond: m.freeBond ?? 0,
   };
 }
 
@@ -275,6 +288,16 @@ async function load(tx: Tx, userId: string, now: number): Promise<GameCtx> {
   ctx.city = row.state as unknown as CityState;
   // 以前の街にあった金鉱・銀鉱の建物は取り除く（役割は銀行に移した）
   dropLegacyMines(ctx.city);
+  // 貯金で育つ街より前の街は、基準額を決めて発展Lvを保ったまま直す（docs/savings-driven-growth.md）
+  migrateCity(ctx.city, { base: seasonBase(user.monthlyBudget, season.goalAmount), startedAt: season.startedAt.getTime() });
+  // 貯金日（docs/saving-habit-balance.md HAB-01）を持たない街は、このシーズンに記録の報酬を受けた暦日の数から始める
+  if (ctx.city.savingDays === undefined) {
+    const days = await tx.rewardClaim.groupBy({ by: ["dayKey"], where: { seasonId: season.id } });
+    ctx.city.savingDays = days.length;
+    ctx.city.autoSavedDays = 0;
+    const last = days.map((d) => d.dayKey).sort().at(-1);
+    if (last) ctx.city.lastSavingDay = last;
+  }
   ctx.cityVersion = row.version;
   ctx.mine = mineFromSeason(season);
 
@@ -296,14 +319,15 @@ async function load(tx: Tx, userId: string, now: number): Promise<GameCtx> {
   ctx.grants = due.map((g) => ({ id: g.id, at: g.at.getTime(), currency: g.currency as Grant["currency"], currencyId: g.currencyId, amount: g.amount, dividend: g.dividend, grantedAt: null }));
   ctx.cuts = ((season.customCuts as CustomCut[] | null) ?? []).filter((c) => c.remaining > 0);
 
-  // 放置計算：10分ティックごとに 金鉱 → ユーザ通貨 → 街
+  // 放置計算：10分ティックごとに 金鉱 → ユーザ通貨 → 記録のない日の自動の確定 → 街
   const goldLevel = goldMineLevel(ctx.mine.totalCollected);
+  const plan = budgetPlan(ctx);
+  const estimatePerDay = await spendEstimate(ctx, plan);
   withPurse(ctx, (purse) => {
-    advance(
-      { purse, city: ctx.city!, lots: ctx.lots, accruals: ctx.accruals, grants: ctx.grants, cuts: ctx.cuts },
-      { plan: budgetPlan(ctx), bondRate: user.bondMiningRate, until: now, newId: newLotId },
-      ctx.events,
-    );
+    const w: World = { purse, city: ctx.city!, lots: ctx.lots, accruals: ctx.accruals, grants: ctx.grants, cuts: ctx.cuts };
+    advance(w, { plan, bondRate: user.bondMiningRate, until: now, newId: newLotId, estimatePerDay, silverMine: silverMineLevel(season.rewardedRecords) }, ctx.events);
+    // 自動で確定した配当のうち、債券に入りきらずに建設資金にした分はゲーム内で使った金貨（貯金額）に数える
+    ctx.citySpent += w.citySpent ?? 0;
   });
   // 債券化した採掘も金鉱Lvの経験値に含める
   emitFacilityLevels(ctx, { gold: goldLevel });
@@ -315,8 +339,47 @@ async function load(tx: Tx, userId: string, now: number): Promise<GameCtx> {
 
 export const newLotId = () => `l${randomUUID().replace(/-/g, "")}`;
 
-export function lotFromRow(l: { id: string; currencyId: string; issuedAt: Date; expiresAt: Date | null; amount: number; remaining: number }): Lot {
-  return { id: l.id, currencyId: l.currencyId, issuedAt: l.issuedAt.getTime(), expiresAt: l.expiresAt?.getTime() ?? null, amount: l.amount, remaining: l.remaining };
+/**
+ * 記録のない日を自動で確定するときに差し引く、推定の1日の支出（G。docs/savings-driven-growth.md REC-01）。
+ * 直近 SPEND_ESTIMATE_DAYS 日の支出（サブスクを除く）の記録から求め、記録が少なければ1日の配当の半分とみなす
+ */
+async function spendEstimate(ctx: GameCtx, plan: BudgetPlan): Promise<number> {
+  const since = dayKey(ctx.now - SPEND_ESTIMATE_DAYS * DAY, ctx.user.timezone);
+  const agg = await ctx.tx.purchase.aggregate({
+    where: { userId: ctx.user.id, isSubscription: false, date: { gte: since } },
+    _sum: { amount: true },
+    _count: { _all: true },
+  });
+  if (agg._count._all < SPEND_ESTIMATE_MIN_RECORDS) return (Math.max(0, plan.netAt(ctx.now)) / 30) * SPEND_ESTIMATE_DEFAULT_RATIO;
+  return (agg._sum.amount ?? 0) / SPEND_ESTIMATE_DAYS;
+}
+
+/**
+ * 記録を保存したとき：それまでの使わなかった配当（未回収の金貨）を確定し、債券（上限まで）と建設資金に入れる。
+ * 債券に入りきらない分は建設資金にし、ゲーム内で使った金貨（貯金額）に数える（docs/savings-driven-growth.md REC-01・RSV-01）
+ */
+export function confirmRecords(ctx: GameCtx): { amount: number; toBond: number; fund: number; habitPlots: number } {
+  requireSeason(ctx);
+  const status = (ctx.seasonPatch.status as string | undefined) ?? ctx.season.status;
+  if (status === "COMPLETED") return { amount: 0, toBond: 0, fund: 0, habitPlots: 0 };
+  const before = ctx.city.treasury;
+  const c = withPurse(ctx, (p) => confirmByRecord(p, ctx.now));
+  // 記録した暦日を貯金日に数える（使い過ぎで債券がマイナスなら数えない。docs/saving-habit-balance.md HAB-01）
+  const habitBefore = habitPlots(savingDaysOf(ctx.city));
+  countRecordDay(ctx.city, dayKey(ctx.now, ctx.user.timezone), ctx.balances.bond, ctx.now, ctx.events);
+  const habitAdded = habitPlots(savingDaysOf(ctx.city)) - habitBefore;
+  const lv = facilityLevels(ctx);
+  if (c.overflow > 0) {
+    creditFund(ctx.city, c.overflow * exchangeRate("gold", "treasury", lv), ctx.now);
+    ctx.citySpent += c.overflow;
+  }
+  // 債券に入った分の建設資金は、次のティックを待たずにすぐ入れる
+  grantBondResources(ctx.city, lv, ctx.now);
+  return { amount: c.amount, toBond: c.toBond, fund: Math.floor(ctx.city.treasury - before), habitPlots: habitAdded };
+}
+
+export function lotFromRow(l: { id: string; currencyId: string; issuedAt: Date; expiresAt: Date | null; amount: number; remaining: number; pending?: number }): Lot {
+  return { id: l.id, currencyId: l.currencyId, issuedAt: l.issuedAt.getTime(), expiresAt: l.expiresAt?.getTime() ?? null, amount: l.amount, remaining: l.remaining, pending: l.pending ?? 0 };
 }
 
 async function save(ctx: GameCtx) {
@@ -400,12 +463,13 @@ async function saveCurrencies(ctx: GameCtx, seasonId: string) {
         expiresAt: l.expiresAt === null ? null : new Date(l.expiresAt),
         amount: l.amount,
         remaining: l.remaining,
+        pending: Math.min(l.pending ?? 0, l.remaining),
       })),
     });
   }
   for (const l of ctx.lots) {
     if (l.isNew || !l.dirty) continue;
-    await tx.currencyLot.update({ where: { id: l.id }, data: { amount: l.amount, remaining: l.remaining } });
+    await tx.currencyLot.update({ where: { id: l.id }, data: { amount: l.amount, remaining: l.remaining, pending: Math.min(l.pending ?? 0, l.remaining) } });
   }
   for (const l of created) l.isNew = false;
   for (const l of ctx.lots) l.dirty = false;
@@ -463,7 +527,7 @@ export const bigintReplacer = (_k: string, v: unknown) => (typeof v === "bigint"
 
 // ---- 貯金額の再評価（技術Lv・銀行Lv・達成率・シーズン状態。docs/record-input-redesign.md §7.1） ----
 
-/** 貯金額（債券 ＋ 都市に使った金貨）と、その最高到達額・達成率 */
+/** 貯金額（債券 ＋ ゲーム内で使った金貨）と、その最高到達額・達成率 */
 export function savingsOf(ctx: GameCtx) {
   requireSeason(ctx);
   const amount = savingsTotal({ bond: ctx.balances.bond, citySpent: ctx.citySpent });
@@ -482,7 +546,7 @@ export function refreshSavings(ctx: GameCtx) {
   if (s.max !== season.maxSavingsAmount) ctx.seasonPatch.maxSavingsAmount = s.max;
 
   // 技術Lvは最高到達額で決まり、下がらない
-  applyTechLevel(city, Math.max(city.techLevel, techLevel(s.max)), ctx.now, ctx.events);
+  applyTechLevel(city, Math.max(city.techLevel, techLevel(s.max, city.base)), ctx.now, ctx.events);
 
   const lv = bankLevel(s.rate);
   if (lv !== city.bankLevel) {

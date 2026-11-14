@@ -2,9 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useSeasonView } from "@/components/GameProvider";
-import { Button } from "@/components/ui";
+import { Button, NumberInput } from "@/components/ui";
 import { api, fmt } from "@/lib/api";
-import { digits, ResolutionPreview, type Resolution } from "./shared";
+import { ResolutionPreview, type Resolution } from "./shared";
 
 export type AllocCurrency = "SAVE" | "GOLD" | "BOND" | "CUSTOM";
 export type Preset = "save" | "gold" | "ratio";
@@ -176,11 +176,10 @@ export function AllocationEditor({
               )}
             </div>
             <div className="flex items-center gap-1">
-              <input
+              <NumberInput
                 aria-label="量（円）"
-                inputMode="numeric"
                 value={String(r.amount)}
-                onChange={(e) => update(i, { amount: Number(digits(e.target.value) || 0) })}
+                onValueChange={(v) => update(i, { amount: Number(v || 0) })}
               />
               <button
                 type="button"

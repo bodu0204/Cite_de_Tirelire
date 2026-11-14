@@ -4,14 +4,15 @@ import { use, useEffect, useMemo, useRef, useState } from "react";
 import { CityView } from "@/components/city/CityView";
 import { useGame } from "@/components/GameProvider";
 import { Button, Card, Gauge, LinkButton } from "@/components/ui";
-import { DEV_NAMES } from "@/game/config";
+import { TIMELAPSE_FX_LABELS } from "@/game/catalog";
+import { DEV_NAMES, TIMELAPSE_FX_SILVER } from "@/game/config";
 import { describeEvent } from "@/game/describe";
-import { createReplay, rateAt, type ReplayEvent, type ReplayStart } from "@/game/replay";
+import { createReplay, disastersAt, fireworksAt, rateAt, type ReplayEvent, type ReplayStart } from "@/game/replay";
 import type { CityState } from "@/game/types";
 import { api, fmt, formatDate, yen } from "@/lib/api";
 
 interface Data {
-  season: { id: string; number: number; goal: number; startedAt: number; reachedAt: number | null; completedAt: number | null };
+  season: { id: string; number: number; goal: number; startedAt: number; reachedAt: number | null; completedAt: number | null; fx: string[] };
   start: CityState | null;
   events: (ReplayEvent & { auto: boolean; important: boolean })[];
   savings: { at: number; delta: number }[];
@@ -22,7 +23,7 @@ const SPEEDS = [1, 2, 4];
 
 export default function TimelapsePlayer({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const { view } = useGame();
+  const { view, act, toast, busy } = useGame();
   const tz = view?.user.timezone ?? "Asia/Tokyo";
   const [data, setData] = useState<Data | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -77,6 +78,17 @@ export default function TimelapsePlayer({ params }: { params: Promise<{ id: stri
   const rate = rateAt(data.savings, s.goal, t);
   const recent = data.events.filter((e) => e.important && e.at <= t).slice(-3).reverse();
   const finished = progress >= 1;
+  // 銀貨で買った演出（REC-06）：節目と完成の瞬間に花火を打ち上げる
+  const fireworks = s.fx.includes("fireworks") ? fireworksAt(data.events, t, finished) : undefined;
+  const silver = view && "currencies" in view ? view.currencies.silver : null;
+  const buyFireworks = async () => {
+    const r = await act<{ fx: string[] }>(`/api/seasons/${s.id}/timelapse/fx`, { fx: "fireworks" });
+    if (!r) return;
+    setData({ ...data, season: { ...s, fx: r.fx } });
+    toast(`${TIMELAPSE_FX_LABELS.fireworks}の演出を加えました（銀貨 −${TIMELAPSE_FX_SILVER}S）`, "reward");
+    setProgress(0);
+    setPlaying(true);
+  };
 
   return (
     <div className="mx-auto max-w-xl space-y-4">
@@ -92,6 +104,8 @@ export default function TimelapsePlayer({ params }: { params: Promise<{ id: stri
           buildings={[...frame.buildings.values()]}
           zones={frame.zones}
           bankLevel={frame.bankLevel}
+          fireworks={fireworks}
+          disasters={disastersAt(data.events, t)}
         />
         {finished && (
           <div className="rise pointer-events-none absolute inset-0 flex flex-col items-center justify-center rounded-xl bg-black/40 text-center text-white">
@@ -140,6 +154,16 @@ export default function TimelapsePlayer({ params }: { params: Promise<{ id: stri
           </div>
         </div>
       </Card>
+      {!s.fx.includes("fireworks") && (
+        <Card title="演出">
+          <p className="text-sm">
+            銀貨 {TIMELAPSE_FX_SILVER}S で、発展Lv・技術Lv・達成率の節目と、街が完成した瞬間に花火を打ち上げます。一度加えると、このシーズンのタイムラプスでずっと見られます。
+          </p>
+          <Button className="mt-2 w-full" variant="secondary" disabled={busy || silver === null || silver < TIMELAPSE_FX_SILVER} onClick={buyFireworks}>
+            {silver === null ? "進行中のシーズンの銀貨で加えられます" : `花火を加える（所持 ${fmt(silver)}S）`}
+          </Button>
+        </Card>
+      )}
       <Card title="出来事">
         <ul className="min-h-16 space-y-1 text-sm">
           {recent.map((e, i) => (

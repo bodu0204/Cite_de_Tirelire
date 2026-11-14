@@ -1,5 +1,5 @@
 // 描画に必要な絵のキーの一覧（LINT-01 の抜け漏れ検査の正本）。ゲームのカタログから作る。
-import { LINES, LINE_IDS } from "../../src/game/catalog";
+import { DECOR_KINDS, LINES, LINE_IDS, RESERVE_FACILITIES } from "../../src/game/catalog";
 
 export const GRASS_VARIANTS = 4;
 export const ROAD_MASKS = 16;
@@ -28,6 +28,9 @@ export function requiredKeys(): string[] {
   keys.push("special/gold_mine", "special/silver_mine");
   for (let t = 0; t < PARK_TIERS; t++) keys.push(`special/park/${t}`);
   for (const r of STATUE_RANKS) keys.push(`special/statue/${r}`);
+  // 備えの施設（docs/savings-driven-growth.md RSV-03）と、銀貨で添える装飾（REC-06）
+  for (let lv = 1; lv <= RESERVE_FACILITIES.length; lv++) keys.push(`special/reserve/${lv}`);
+  for (const d of DECOR_KINDS) keys.push(`props/decor/${d}`);
   keys.push("fx/scaffold", "fx/cover", "locked/forest", "locked/rocks", "locked/sign", ...LV_PROPS);
   for (let v = 0; v < AGENT_VARIANTS; v++) keys.push(`agent/person/${v}/se`, `agent/person/${v}/ne`, `agent/car/${v}/sw`, `agent/car/${v}/ne`);
   for (const t of TROUBLES) keys.push(`icons/${t}`);

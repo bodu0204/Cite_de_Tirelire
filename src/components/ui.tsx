@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from "react";
+import { digits, signedDigits } from "@/lib/numeric";
 
 export function Card({ children, className = "", title, action }: { children: ReactNode; className?: string; title?: ReactNode; action?: ReactNode }) {
   return (
@@ -69,6 +70,48 @@ export function Field({ label, children, hint }: { label: string; children: Reac
       {children}
       {hint && <span className="mt-1 block text-xs text-muted">{hint}</span>}
     </label>
+  );
+}
+
+/**
+ * 整数の入力欄。全角キーボードで打った数字（１２３・－）も半角にして受け付ける。
+ * 日本語入力の変換中は打った文字をそのまま見せ、確定したときに数字だけへ整える
+ * （変換中に値を書き換えると入力が途切れるため）。
+ */
+export function NumberInput({
+  value,
+  onValueChange,
+  allowNegative = false,
+  ...props
+}: Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "type"> & {
+  value: string;
+  onValueChange: (v: string) => void;
+  allowNegative?: boolean;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const clean = allowNegative ? signedDigits : digits;
+  const commit = (raw: string) => {
+    setDraft(null);
+    const v = clean(raw);
+    if (v !== value) onValueChange(v);
+  };
+  return (
+    <input
+      inputMode="numeric"
+      autoComplete="off"
+      {...props}
+      value={draft ?? value}
+      onChange={(e) => {
+        if ((e.nativeEvent as InputEvent).isComposing) setDraft(e.target.value);
+        else commit(e.target.value);
+      }}
+      onCompositionStart={(e) => setDraft(e.currentTarget.value)}
+      onCompositionEnd={(e) => commit(e.currentTarget.value)}
+      onBlur={(e) => {
+        if (draft !== null) commit(e.currentTarget.value);
+        props.onBlur?.(e);
+      }}
+    />
   );
 }
 

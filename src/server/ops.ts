@@ -1,35 +1,38 @@
 // ゲーム操作。すべて withGame の中（同期済み・ロック済み）で呼ばれる。
 import { Prisma } from "@prisma/client";
 import { bondCap, bondResourceEligible } from "@/game/bond";
-import { LINE_IDS, type LineId, type Zone } from "@/game/catalog";
-import {
-  demolish,
-  manualBuild,
-  manualEvolve,
-  manualExpand,
-  manualUpgrade,
-  moveBuilding,
-  rushJob,
-  setLocked,
-  setNoAuto,
-  setPolicy,
-  setZone,
-} from "@/game/city/actions";
-import { createCity, POLICY_PRESETS } from "@/game/city/init";
+import { createCity, seasonBase } from "@/game/city/init";
 import { cityNeeds } from "@/game/city/sim";
-import { INITIAL_GOLD, INITIAL_SILVER, REWARD_DAILY_CAP, REWARD_PURCHASE, REWARD_SAVINGS, SAVINGS_DAILY_LIMIT } from "@/game/config";
+import { buildingLabel, DECOR_KINDS, DECOR_LABELS, TIMELAPSE_FX } from "@/game/catalog";
+import { buildingSize, isPlaced } from "@/game/city/layout";
+import {
+  DECOR_SILVER,
+  INITIAL_GOLD,
+  INITIAL_SILVER,
+  NAME_MAX,
+  NAME_SILVER,
+  REPAIR_SILVER,
+  REWARD_DAILY_CAP,
+  REWARD_PURCHASE,
+  REWARD_SAVINGS,
+  SAVINGS_DAILY_LIMIT,
+  TIMELAPSE_FX_SILVER,
+} from "@/game/config";
+import { reopen } from "@/game/city/disasters";
 import { fail } from "@/game/errors";
-import { quoteNeedsExchange, quoteResourceExchange, totalGains, ZERO_GAINS, type Currency } from "@/game/exchange";
+import { quoteBondGains, quoteNeedsExchange, quoteResourceExchange, totalGains, ZERO_GAINS, type Currency } from "@/game/exchange";
+import { creditGains } from "@/game/fund";
 import { budgetOverruns, describeOverruns, startOfDay, type Overrun } from "@/game/currency";
 import { goldMineLevel, silverMineLevel } from "@/game/levels";
 import { collect, newMine } from "@/game/mine";
 import { lotOrder, pay, summarize, type Lot, type Payment } from "@/game/settle";
 import { changePayday, dayKey, isValidTimeZone, parseDateInTz, periodKey } from "@/game/time";
-import { DEFAULT_PRIORITIES, type CityPolicy, type Gains, type NeedKey, type StockKey } from "@/game/types";
+import { snapBuilding, type Gains, type StockKey } from "@/game/types";
 import {
   addCurrency,
   budgetPlan,
   calOf,
+  confirmRecords,
   erasJson,
   emitFacilityLevels,
   facilityLevels,
@@ -47,8 +50,6 @@ export { facilityLevels };
 
 type Body = Record<string, unknown>;
 
-const PRESETS = ["balanced", "housing", "industry", "commerce", "custom"] as const;
-
 function requireOpen(ctx: GameCtx) {
   requireSeason(ctx);
   return ctx;
@@ -59,14 +60,14 @@ function requireOpen(ctx: GameCtx) {
 export async function startSeason(ctx: GameCtx, body: Body) {
   if (ctx.season) fail("season_exists", "進行中のシーズンがあります", 409);
   const goal = int(body.goalAmount, "貯金目標額", { min: 1000, max: 100_000_000 });
-  const preset = body.preset ? oneOf(body.preset, PRESETS, "開発方針") : "balanced";
   if (body.monthlyBudget !== undefined) {
     ctx.user = await ctx.tx.user.update({ where: { id: ctx.user.id }, data: { monthlyBudget: int(body.monthlyBudget, "月間自由予算", { max: 10_000_000 }) } });
   }
   const tz = ctx.user.timezone;
   const number = (await ctx.tx.season.count({ where: { userId: ctx.user.id } })) + 1;
   const mine = newMine(ctx.now, ctx.cal);
-  const city = createCity(ctx.now, preset);
+  // 基準額（値段と発展Lv・技術Lvの単位）はシーズン開始時の月間自由予算と目標額で決め、シーズン中は変えない（PRC-05・PRC-06）
+  const city = createCity(ctx.now, seasonBase(ctx.user.monthlyBudget, goal));
   const season = await ctx.tx.season.create({
     data: {
       userId: ctx.user.id,
@@ -124,7 +125,100 @@ export function collectGold(ctx: GameCtx) {
   ctx.mine = r.mine;
   addCurrency(ctx, "GOLD", r.gold, "mine_collect");
   emitFacilityLevels(ctx, { gold: before });
-  return { collected: r.gold };
+  // 未受取のユーザ通貨もまとめて受け取る（残高の合計は変わらないので台帳には書かない）
+  const custom = new Map<string, number>();
+  for (const lot of ctx.lots) {
+    const p = Math.min(lot.pending ?? 0, lot.remaining);
+    if (p > 0) custom.set(lot.currencyId, (custom.get(lot.currencyId) ?? 0) + p);
+    if (lot.pending) {
+      lot.pending = 0;
+      lot.dirty = true;
+    }
+  }
+  return { collected: r.gold, custom: [...custom].map(([currencyId, amount]) => ({ currencyId, amount })) };
+}
+
+// ---- 悪い出来事：火事で休業した建物の修繕（docs/savings-driven-growth.md EVT-05） ----
+
+/** 火事で休業した建物を銀貨で修繕して、すぐ再開する */
+export function repairBuilding(ctx: GameCtx, body: Body) {
+  requireOpen(ctx);
+  const id = str(body.buildingId, "建物");
+  const city = ctx.city!;
+  const b = city.buildings.find((o) => o.id === id);
+  if (!b || !b.closed || !city.closedUntil?.[id]) fail("invalid", "修繕が必要な建物ではありません");
+  if (ctx.balances.silver < REPAIR_SILVER) fail("insufficient", `銀貨が足りません（修繕には ${REPAIR_SILVER}S かかります）`);
+  addCurrency(ctx, "SILVER", -REPAIR_SILVER, "repair", id);
+  reopen(city, b!, ctx.now, ctx.events, "silver");
+  return { id, silver: -REPAIR_SILVER };
+}
+
+// ---- 銀貨の使い道：建物の命名・装飾・タイムラプスの演出（docs/savings-driven-growth.md REC-06） ----
+
+/** 名前・装飾をつける建物（盤面にある、道路以外の建物） */
+function ownBuilding(ctx: GameCtx, body: Body) {
+  const id = str(body.buildingId, "建物");
+  const b = ctx.city!.buildings.find((o) => o.id === id);
+  if (!b || !isPlaced(b) || b.line === "road") fail("invalid", "名前や装飾をつけられる建物ではありません");
+  return b!;
+}
+
+function spendSilver(ctx: GameCtx, amount: number, what: string, reason: string, refId: string) {
+  if (ctx.balances.silver < amount) fail("insufficient", `銀貨が足りません（${what}には ${amount}S かかります）`);
+  addCurrency(ctx, "SILVER", -amount, reason, refId);
+}
+
+/** 建物に名前をつける（銀貨 NAME_SILVER）。空にすると名前を外す（無料） */
+export function nameBuilding(ctx: GameCtx, body: Body) {
+  requireOpen(ctx);
+  const b = ownBuilding(ctx, body);
+  const name = str(body.name, "名前", { max: 100, optional: true }).replace(/\s+/g, " ");
+  if ([...name].length > NAME_MAX) fail("invalid", `名前は${NAME_MAX}文字以内で入力してください`);
+  if (!name) {
+    delete b.name;
+    return { id: b.id, name: null, silver: 0 };
+  }
+  if (name === b.name) return { id: b.id, name, silver: 0 };
+  spendSilver(ctx, NAME_SILVER, "名前をつけるの", "building_name", b.id);
+  b.name = name;
+  return { id: b.id, name, silver: -NAME_SILVER };
+}
+
+/** 建物に装飾を添える（銀貨 DECOR_SILVER）。null で外す（無料）。見た目だけで、街の数値は変えない */
+export function decorateBuilding(ctx: GameCtx, body: Body) {
+  requireOpen(ctx);
+  const b = ownBuilding(ctx, body);
+  const decor = body.decor === null || body.decor === undefined || body.decor === "" ? null : oneOf(body.decor, DECOR_KINDS, "装飾");
+  // 装飾は 2×2 以上の建物のそばに置く（位置は建物の絵ごと。art/sprites/64/decor-spots.json）。1×1 の建物（像・備えの施設）には置かない
+  if (decor && buildingSize(b) < 2) fail("invalid", "装飾は 2×2 以上の建物のそばに置きます。この建物には置けません");
+  if ((b.decor ?? null) === decor) return { id: b.id, decor, silver: 0 };
+  if (decor) {
+    spendSilver(ctx, DECOR_SILVER, "装飾", "building_decor", b.id);
+    b.decor = decor;
+  } else delete b.decor;
+  // タイムラプスにも装飾が出るよう、建物の姿をイベントに残す
+  ctx.events.push({
+    at: ctx.now,
+    type: "DECORATED",
+    auto: false,
+    important: false,
+    payload: { building: snapBuilding(b), name: buildingLabel(b), decor, label: decor ? DECOR_LABELS[decor] : null },
+  });
+  return { id: b.id, decor, silver: decor ? -DECOR_SILVER : 0 };
+}
+
+/** 完了したシーズンのタイムラプスに演出（花火）を足す。銀貨は進行中のシーズンから払う */
+export async function buyTimelapseFx(ctx: GameCtx, seasonId: string, body: Body) {
+  requireOpen(ctx);
+  const fx = oneOf(body.fx, TIMELAPSE_FX, "演出");
+  const season = await ctx.tx.season.findFirst({ where: { id: seasonId, userId: ctx.user.id } });
+  if (!season) fail("not_found", "シーズンが見つかりません", 404);
+  if (season!.status !== "COMPLETED") fail("locked", "タイムラプスは目標を完了すると見られます", 403);
+  if (season!.timelapseFx.includes(fx)) return { fx: season!.timelapseFx, silver: 0 };
+  spendSilver(ctx, TIMELAPSE_FX_SILVER, "演出", "timelapse_fx", seasonId);
+  const list = [...season!.timelapseFx, fx];
+  await ctx.tx.season.update({ where: { id: seasonId }, data: { timelapseFx: list } });
+  return { fx: list, silver: -TIMELAPSE_FX_SILVER };
 }
 
 // ---- 銀鉱：記録と報酬 ----
@@ -286,7 +380,9 @@ export async function recordPurchase(ctx: GameCtx, body: Body) {
     await syncSpecials(ctx);
   }
   const reward = await grantReward(ctx, `purchase:${purchase.id}`, REWARD_PURCHASE);
-  return { id: purchase.id, reward, settled: settledAmount, reservedApplied, payment: summarize(payments), resolution };
+  // 記録したので、それまでの使わなかった配当を確定する（docs/savings-driven-growth.md REC-01）
+  const confirmed = ctx.season ? confirmRecords(ctx) : null;
+  return { id: purchase.id, reward, settled: settledAmount, reservedApplied, payment: summarize(payments), resolution, confirmed };
 }
 
 /** 支出の記録（items で一括保存） */
@@ -366,7 +462,20 @@ export async function recordSavings(ctx: GameCtx, body: Body) {
   if ((await savingsCountToday(ctx)) >= SAVINGS_DAILY_LIMIT) fail("daily_limit", `貯金管理の登録は1日${SAVINGS_DAILY_LIMIT}回までです`, 429);
   const tx = await ctx.tx.savingsTransaction.create({ data: { ...input, userId: ctx.user.id, seasonId: ctx.season?.id ?? null } });
   const reward = await grantReward(ctx, `savings:${tx.id}`, REWARD_SAVINGS);
-  return { id: tx.id, reward };
+  const confirmed = ctx.season ? confirmRecords(ctx) : null;
+  return { id: tx.id, reward, confirmed };
+}
+
+/**
+ * 「今日は支出なし」（docs/savings-driven-growth.md REC-02）：支出のない日を1タップで記録し、それまでの配当を確定する。
+ * 報酬は支出の記録と同じ（1日1回、1日の上限内）
+ */
+export async function recordNoSpend(ctx: GameCtx) {
+  requireOpen(ctx);
+  const day = dayKey(ctx.now, ctx.user.timezone);
+  const reward = await grantReward(ctx, `nospend:${ctx.user.id}:${day}`, REWARD_PURCHASE);
+  const confirmed = confirmRecords(ctx);
+  return { day, reward, confirmed };
 }
 
 async function ownSavings(ctx: GameCtx, id: string) {
@@ -391,10 +500,13 @@ export async function deleteSavings(ctx: GameCtx, id: string) {
 
 const RESOURCES: StockKey[] = ["wood", "stone", "food"];
 
-/** 交換で街に入れる資源と都市資金（ゲーム内のおまかせ交換と同じ量。docs/needs-based-exchange.md §5・§6・§13） */
-function addStock(ctx: GameCtx, gains: Gains) {
-  for (const k of RESOURCES) ctx.city!.stock[k] += gains[k];
-  ctx.city!.treasury += gains.treasury;
+/**
+ * 交換で街に入れる建設資金（docs/savings-driven-growth.md GRW-02）。開拓期ボーナスを足し、
+ * 足したボーナスも含めた獲得量を返す（ERL-01）
+ */
+function addStock(ctx: GameCtx, gains: Gains): Gains {
+  const bonus = creditGains(ctx.city!, gains, ctx.now);
+  return { ...gains, treasury: gains.treasury + bonus };
 }
 
 /**
@@ -402,15 +514,16 @@ function addStock(ctx: GameCtx, gains: Gains) {
  * 債券は表示の達成率に直接含まれるので、見込み貯金には加えない（二重に数えない）。
  * 同じ理由で、記録の報酬（現実のお金ではない）である銀貨は替えられない。
  * ユーザ通貨は期限の近いロットから使う。
- * 債券が 0〜3M の範囲に入る分は、同じ量の金貨でおまかせ交換したのと同じ資源もつける（手数料なし。元の通貨はそれ以上減らない）。
+ * 債券が 0〜3M の範囲に入る分は、同じ量の金貨で交換したのと同じ資源もつける（種類を選ぶか、おまかせ）（手数料なし。元の通貨はそれ以上減らない）。
  */
 function exchangeToBond(ctx: GameCtx, from: "gold" | "custom", amount: number, body: Body) {
   const before = ctx.balances.bond;
+  // 債券についてくる資源の種類（省略時はおまかせ）
+  const resource = body.resource === undefined ? "auto" : oneOf(body.resource, [...RESOURCES, "treasury", "auto"] as const, "資源");
   const grant = () => {
     const eligible = bondResourceEligible(before, amount, bondCap(ctx.user.monthlyBudget));
-    const q = quoteNeedsExchange("gold", eligible, cityNeeds(ctx.city!).needs, facilityLevels(ctx), { fee: false });
-    addStock(ctx, q.gains);
-    return { resourceEligible: eligible, gains: q.gains, split: q.split };
+    const gains = addStock(ctx, quoteBondGains(eligible, resource, cityNeeds(ctx.city!).needs, facilityLevels(ctx)));
+    return { resourceEligible: eligible, gains };
   };
   if (from === "gold") {
     addCurrency(ctx, "GOLD", -amount, "exchange_g2b");
@@ -420,12 +533,14 @@ function exchangeToBond(ctx: GameCtx, from: "gold" | "custom", amount: number, b
   const currencyId = str(body.currencyId, "ユーザ通貨");
   const def = ctx.defs.find((d) => d.id === currencyId);
   if (!def) fail("not_found", "ユーザ通貨が見つかりません", 404);
-  const lots = ctx.lots.filter((l) => l.currencyId === currencyId && l.remaining > 0).sort(lotOrder(() => 0));
-  const balance = lots.reduce((a, l) => a + l.remaining, 0);
-  if (balance < amount) fail("insufficient", `${def!.name}が足りません`);
+  // 受け取り済みの分だけ替えられる（未受取は配当資金で受け取ってから）
+  const held = (l: Lot) => l.remaining - (l.pending ?? 0);
+  const lots = ctx.lots.filter((l) => l.currencyId === currencyId && held(l) > 0).sort(lotOrder(() => 0));
+  const balance = lots.reduce((a, l) => a + held(l), 0);
+  if (balance < amount) fail("insufficient", `${def!.name}が足りません（未受取の分は配当資金で受け取ってから交換できます）`);
   let rest = amount;
   for (const lot of lots) {
-    const use = Math.min(rest, lot.remaining);
+    const use = Math.min(rest, held(lot));
     lot.remaining -= use;
     lot.dirty = true;
     rest -= use;
@@ -444,113 +559,37 @@ export function exchange(ctx: GameCtx, body: Body) {
     // 金貨→銀貨は無料（銀貨不足で操作不能にならないように）
     addCurrency(ctx, "GOLD", -amount, "exchange_g2s");
     addCurrency(ctx, "SILVER", amount, "exchange_g2s");
-    return { gold: -amount, silver: amount };
+    // 金貨（1G＝1円相当）をゲーム内で使った分なので貯金額に加える。銀貨の使い道（資源など）では数えないので二重にならない
+    ctx.citySpent += amount;
+    return { gold: -amount, silver: amount, citySpentAdded: amount };
   }
   if (kind === "gold_to_bond" || kind === "to_bond") {
     return exchangeToBond(ctx, kind === "gold_to_bond" ? "gold" : oneOf(body.currency, ["gold", "custom"] as const, "通貨"), amount, body);
   }
   const currency = oneOf(body.currency, ["gold", "silver"] as const, "通貨") as Currency;
+  // 銀貨は建設資金に替えない。修繕や手数料に使う（docs/savings-driven-growth.md REC-06）
+  if (currency === "silver") fail("invalid", "銀貨は建設資金に替えられません。銀貨は修繕や手数料に使います");
   const resource = oneOf(body.resource, [...RESOURCES, "treasury", "auto"] as const, "資源");
   const lv = facilityLevels(ctx);
-  // おまかせ：都市の必要資源の割合で振り分ける（手数料は1回分）
+  // おまかせも種類を選んだ交換も、全額が建設資金になる（手数料は1回分。GRW-02）
   const q =
     resource === "auto"
       ? quoteNeedsExchange(currency, amount, cityNeeds(ctx.city!).needs, lv)
       : (() => {
           const one = quoteResourceExchange(currency, resource, amount, lv);
           const gains: Gains = { ...ZERO_GAINS };
-          gains[resource] = one.gain;
+          // 木材・石材・食料を選んでも建設資金になる（GRW-02）
+          gains.treasury = one.gain;
           return { ...one, gains };
         })();
   const gain = totalGains(q.gains);
   if (gain <= 0) fail("too_small", "交換量が少なすぎます");
   addCurrency(ctx, "SILVER", -q.silverCost, "exchange_resource");
   addCurrency(ctx, "GOLD", -q.goldCost, "exchange_resource");
-  addStock(ctx, q.gains);
+  const gains = addStock(ctx, q.gains);
   // 金貨（1G＝1円相当）をゲーム内で使った分は、現実で使わずに済んだお金＝見込み貯金
   if (q.goldCost > 0) ctx.citySpent += q.goldCost;
-  return { ...q, gain, citySpentAdded: q.goldCost };
-}
-
-// ---- 街の操作 ----
-
-const ZONES: Zone[] = ["residential", "commercial", "industrial", "agricultural", "public", "special", "none"];
-const NEEDS: NeedKey[] = DEFAULT_PRIORITIES;
-
-export function cityAction(ctx: GameCtx, body: Body) {
-  requireOpen(ctx);
-  const city = ctx.city!;
-  const silver = ctx.balances.silver;
-  const type = oneOf(
-    body.type,
-    ["build", "upgrade", "evolve", "move", "demolish", "rush", "lock", "zone", "noAuto", "policy", "expand"] as const,
-    "操作",
-  );
-  // 範囲の確かめは actions.ts で行う（銀行の中心が原点なので負の座標もある）
-  const xy = () => ({ x: int(body.x, "X", { min: -100_000, max: 100_000 }), y: int(body.y, "Y", { min: -100_000, max: 100_000 }) });
-  const id = () => str(body.buildingId ?? body.jobId, "対象");
-  let fee = 0;
-  switch (type) {
-    case "build": {
-      const line = oneOf(body.line, LINE_IDS, "建物") as LineId;
-      const tier = body.tier === undefined ? undefined : int(body.tier, "段階", { max: 10 });
-      fee = manualBuild(city, { line, tier, ...xy() }, ctx.now, silver).silverFee;
-      break;
-    }
-    case "upgrade":
-      fee = manualUpgrade(city, id(), ctx.now, silver).silverFee;
-      break;
-    case "evolve":
-      fee = manualEvolve(city, id(), ctx.now, silver).silverFee;
-      break;
-    case "move": {
-      const { x, y } = xy();
-      fee = moveBuilding(city, id(), x, y, ctx.now, silver, ctx.events).silverFee;
-      break;
-    }
-    case "demolish":
-      demolish(city, id(), ctx.now, ctx.events);
-      break;
-    case "expand": {
-      // 選んだマスの区画を開拓する（docs/map-layout-redesign.md §7.2）
-      const { x, y } = xy();
-      fee = manualExpand(city, x, y, ctx.now, silver).silverFee;
-      break;
-    }
-    case "rush":
-      fee = rushJob(city, id(), ctx.now, silver, ctx.events).silverFee;
-      break;
-    case "lock":
-      setLocked(city, id(), bool(body.locked));
-      break;
-    case "zone": {
-      const { x, y } = xy();
-      setZone(city, x, y, oneOf(body.zone, ZONES, "土地用途"));
-      break;
-    }
-    case "noAuto": {
-      const { x, y } = xy();
-      setNoAuto(city, x, y, bool(body.noAuto));
-      break;
-    }
-    case "policy": {
-      const patch: Partial<CityPolicy> = {};
-      if (body.preset !== undefined) {
-        patch.preset = oneOf(body.preset, PRESETS, "開発方針");
-        if (patch.preset !== "custom") patch.priorities = [...POLICY_PRESETS[patch.preset].priorities];
-      }
-      if (Array.isArray(body.priorities)) {
-        patch.priorities = body.priorities.map((p) => oneOf(p, NEEDS, "優先順位"));
-        patch.preset = "custom";
-      }
-      if (body.autoEnabled !== undefined) patch.autoEnabled = bool(body.autoEnabled);
-      if (body.autoExpand !== undefined) patch.autoExpand = bool(body.autoExpand);
-      setPolicy(city, patch);
-      break;
-    }
-  }
-  addCurrency(ctx, "SILVER", -fee, `city_${type}`);
-  return { silverFee: fee };
+  return { ...q, gains, gain: totalGains(gains), citySpentAdded: q.goldCost };
 }
 
 // ---- サブスク ----

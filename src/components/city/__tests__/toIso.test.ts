@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { INITIAL_PLOTS } from "@/game/config";
 import { tileIndex } from "@/components/iso/map";
-import { LOCKED_BAND, MAX_CARS, MAX_PEOPLE, agentCounts, buildingKey, cityToIso, goldStage, hourIn, lightRatio, nightLevel, troubleIcons, type CityBuilding } from "../toIso";
+import { BLACKOUT_LIGHTS, decorObject, decorSpot, LOCKED_BAND, MAX_CARS, MAX_PEOPLE, agentCounts, buildingKey, cityToIso, goldStage, hourIn, lightRatio, nightLevel, troubleIcons, type CityBuilding } from "../toIso";
+import { depth, iso, toScreen } from "@/components/iso/projection";
 
 const b = (over: Partial<Parameters<typeof buildingKey>[0]>) => ({ id: "b", tier: 0, level: 1, x: 4, y: 4, ...over });
 
@@ -18,6 +19,40 @@ describe("建物の絵のキー", () => {
     expect(buildingKey(b({ special: "park", tier: 2, closed: true }), 1)).toBe("special/park/2@closed");
     expect(buildingKey(b({ special: "statue", tier: 2, level: 3 }), 1)).toBe("special/statue/gold@stage3");
     expect(buildingKey(b({ special: "statue", tier: 1, level: 5 }), 1)).toBe("special/statue/silver");
+  });
+
+  it("RSV-03 備えの施設は備えLv ごとの絵で、閉まった施設は暗く描く", () => {
+    expect(buildingKey(b({ special: "reserve", tier: 0 }), 1)).toBe("special/reserve/1");
+    expect(buildingKey(b({ special: "reserve", tier: 3 }), 1)).toBe("special/reserve/4");
+    expect(buildingKey(b({ special: "reserve", tier: 2, closed: true }), 1)).toBe("special/reserve/3@closed");
+  });
+});
+
+describe("悪い出来事の見た目（docs/savings-driven-growth.md EVT-03）", () => {
+  const farm = { id: "f1", line: "farm" as const, tier: 1, level: 3, x: -5, y: 0 };
+  const house = { id: "h1", line: "housing" as const, tier: 1, level: 2, x: 3, y: -5 };
+
+  it("火事で休業した建物は @burnt、不作の間の畑は @withered（建物Lvの小物より優先）", () => {
+    expect(buildingKey({ ...house, closed: true }, 1, 2)).toBe("big/building/housing/1@burnt");
+    expect(buildingKey(farm, 1, 2, { crop: true })).toBe("big/building/farm/1@withered");
+    expect(buildingKey({ ...farm, closed: true }, 1, 2, { crop: true })).toBe("big/building/farm/1@burnt");
+    expect(buildingKey(farm, 1, 2)).toBe("big/building/farm/1@lv3");
+    // 閉園した公園は今までどおり @closed
+    expect(buildingKey({ id: "p", special: "park", tier: 1, level: 1, x: 0, y: 0, closed: true }, 1)).toBe("special/park/1@closed");
+  });
+
+  it("火事は炎と煙、台風は雨、値上がりは工事の矢印、停電は灯らない窓、不作は畑の食料アイコンを重ね書きに出す", () => {
+    const base = { plots: INITIAL_PLOTS, zones: {}, bankLevel: 1, occupancy: 1 };
+    const calm = cityToIso({ ...base, buildings: [farm, house] }).overlay;
+    expect(calm.fires).toBeUndefined();
+    expect(calm.storm).toBeUndefined();
+    expect(calm.surge).toBeUndefined();
+    const o = cityToIso({ ...base, buildings: [farm, { ...house, closed: true }], disasters: { typhoon: true, crop: true, surge: true, blackout: true } }).overlay;
+    expect(o.fires).toEqual([{ x: 3, y: -5, size: 2 }]);
+    expect(o.storm).toBe(true);
+    expect(o.surge).toBe(true);
+    expect(o.lights).toBeCloseTo(calm.lights! * BLACKOUT_LIGHTS, 9);
+    expect(o.troubles).toContainEqual({ x: -5, y: 0, kind: "food" });
   });
 });
 
@@ -48,7 +83,6 @@ describe("盤面の変換", () => {
       plots: INITIAL_PLOTS,
       buildings: [b({ id: "r", line: "road", tier: 0, x: -3, y: 2 }), b({ id: "h", line: "housing", x: -5, y: -5 })],
       zones: { "-5,-5": "residential" },
-      noAuto: ["4,4"],
       bankLevel: 1,
     });
     expect({ x0: map.x0, y0: map.y0, width: map.width, height: map.height }).toEqual({ x0: -5 - LOCKED_BAND, y0: -5 - LOCKED_BAND, width: 10 + LOCKED_BAND * 2, height: 10 + LOCKED_BAND * 2 });
@@ -58,7 +92,6 @@ describe("盤面の変換", () => {
     expect(map.home).toEqual({ x: 0, y: 0 });
     expect(overlay.zones![tileIndex(map, -5, -5)]).toBe("residential");
     expect(overlay.zones![tileIndex(map, 0, 0)]).toBe("none");
-    expect(overlay.noAuto![tileIndex(map, 4, 4)]).toBe(true);
     // 範囲（開いた区画の隣の区画まで）の未開放のマスはすべて林か岩。範囲の外は描画側が同じ並びで埋める
     expect(map.outside).toBe("locked");
     const locked = map.objects.filter((o) => o.key.startsWith("locked/"));
@@ -195,6 +228,41 @@ describe("M3 にぎわい", () => {
     expect(map.objects.find((o) => o.id === "gold")).toMatchObject({ x: 1, y: 1, key: "props/gold/2" });
     const none = cityToIso({ plots: INITIAL_PLOTS, buildings: [bank], zones, bankLevel: 1, gold: { uncollected: 0, ratePerMinute: 1 } });
     expect(none.map.objects.find((o) => o.id === "gold")).toBeUndefined();
+  });
+
+  it("REC-06 銀貨で添えた装飾は、建物の絵ごとの位置（decor-spots.json）に置く。1×1 の建物には置かない", () => {
+    const house = { id: "h1", line: "housing" as const, tier: 1, level: 1, x: 3, y: 3, decor: "fountain" as const };
+    const plain = { id: "h2", line: "housing" as const, tier: 1, level: 1, x: -5, y: 3 };
+    const statue = { id: "s1", special: "statue" as const, tier: 0, level: 5, x: 1, y: -2, decor: "flowers" as const };
+    const { map } = cityToIso({ plots: INITIAL_PLOTS, buildings: [house, plain, statue], zones: {}, bankLevel: 1 });
+    const spot = decorSpot("big/building/housing/1", 2)!;
+    expect(map.objects.find((o) => o.id === "decor:h1")).toEqual(decorObject(house, 2, "big/building/housing/1"));
+    expect(map.objects.find((o) => o.id === "decor:h1")).toMatchObject({ key: "props/decor/fountain", ox: spot.ox });
+    expect(map.objects.find((o) => o.id === "decor:h2")).toBeUndefined();
+    expect(map.objects.find((o) => o.id === "decor:s1")).toBeUndefined();
+  });
+
+  it("装飾の位置は建物の基準点からのずれで、敷地の外でもよい。手前なら建物より前、奥なら後ろに描く", () => {
+    const house = { id: "h1", line: "housing" as const, tier: 1, level: 1, x: 3, y: 3, decor: "lantern" as const };
+    const data = {
+      default: { "2": { ox: 50, oy: 8, front: true } },
+      spots: { "big/building/housing/1": { ox: -90, oy: 30, front: true }, "big/building/housing/2": { ox: 0, oy: -40, front: false } },
+    };
+    // 絵のキーの @ より後（建物Lv）は見ない。台帳になければ大きさごとの既定
+    expect(decorSpot("big/building/housing/1@lv3", 2, data)).toEqual({ ox: -90, oy: 30, front: true });
+    expect(decorSpot("big/building/farm/0", 2, data)).toEqual({ ox: 50, oy: 8, front: true });
+    expect(decorSpot("big/special/bank/1", 3, data)).toBeNull();
+    // 手前：手前の角のマス (4, 4) に置き、基準点（中心）からのずれをそのマスの中心からのずれに直す（16 ドット上）
+    const front = decorObject(house, 2, "big/building/housing/1", data)!;
+    expect(front).toMatchObject({ x: 4, y: 4, ox: -90, oy: 30 - 16 });
+    expect(depth(front.x, front.y) + front.dz!).toBeGreaterThan(depth(3.5, 3.5));
+    const c = toScreen(iso(64), 3.5, 3.5);
+    const f = toScreen(iso(64), front.x, front.y);
+    expect([f.sx + front.ox! - c.sx, f.sy + front.oy! - c.sy]).toEqual([-90, 30]);
+    // 奥：奥の角のマス (3, 3) に置き、建物の後ろに描く
+    const back = decorObject({ ...house, tier: 2 }, 2, "big/building/housing/2", data)!;
+    expect(back).toMatchObject({ x: 3, y: 3, ox: 0, oy: -40 + 16 });
+    expect(depth(back.x, back.y) + back.dz!).toBeLessThan(depth(3.5, 3.5));
   });
 
   it("以前の街の金鉱・銀鉱は描かない", () => {

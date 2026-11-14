@@ -5,11 +5,12 @@ import { coverPlans, PLAN_KEYS, type PlanCoverage, type PlanQueue, type PlanStoc
 import type { Gains } from "@/game/types";
 import { fmt } from "@/lib/api";
 import { Card, Gauge } from "../ui";
+import { GoldNeed, type GoldFor } from "./GoldNeed";
 
 /** 最初に表示する計画の数（交換後に足りなくなる計画がそれより後ろなら、そこまで表示する） */
 const INITIAL_ROWS = 6;
 
-export const LABEL: Record<keyof PlanStock, string> = { wood: "木材", stone: "石材", treasury: "都市資金" };
+export const LABEL: Record<keyof PlanStock, string> = { wood: "木材", stone: "石材", treasury: "建設資金" };
 
 export const planLabel = (p: QueuePlan) =>
   p.kind === "build" ? `${p.name}を新築` : p.kind === "evolve" ? `${p.name}へ進化` : p.kind === "expand" ? p.name : `${p.name} Lv${p.level}へ`;
@@ -45,6 +46,17 @@ function Bars({ plan, before, after }: { plan: QueuePlan; before: PlanStock; aft
   );
 }
 
+/**
+ * 交換で実施できるようになる計画を、同じものでまとめる（「木造住宅を新築 ×3・レンガ住宅へ進化 ×5」）。
+ * 1件が安く、1回の交換で数十件が実施できるようになるため（docs/saving-habit-balance.md §8）
+ */
+export function groupPlans(plans: QueuePlan[], limit = 5): string {
+  const count = new Map<string, number>();
+  for (const p of plans) count.set(planLabel(p), (count.get(planLabel(p)) ?? 0) + 1);
+  const parts = [...count].map(([k, n]) => (n > 1 ? `${k} ×${n}` : k));
+  return parts.length > limit ? `${parts.slice(0, limit).join("・")} ほか${parts.length - limit}種類` : parts.join("・");
+}
+
 export const shortText = (s: PlanStock) =>
   PLAN_KEYS.filter((k) => s[k] > 0)
     .map((k) => `${LABEL[k]} ${fmt(Math.ceil(s[k]))}`)
@@ -60,6 +72,7 @@ export function PlanList({
   foodNeed,
   gains,
   waiting = [],
+  goldFor,
 }: {
   queue: PlanQueue;
   /** 今の在庫（木材・石材・都市資金） */
@@ -68,17 +81,26 @@ export function PlanList({
   foodNeed: number;
   /** この交換で街に入る資源と都市資金 */
   gains: Gains;
-  /** 具体的な計画がないとき、街が資源ではなく待っているもの（home/waiting.ts） */
+  /**
+   * 街が建設資金ではなく待っているもの（home/waiting.ts）。具体的な計画がない時と、
+   * 交換後に今ある計画をすべて払える時に出す
+   */
   waiting?: string[];
+  /** 建設資金の不足を、交換に要る金貨で示す（開拓期ボーナスの間は ~~92G~~ → 46G。GoldNeed.tsx） */
+  goldFor?: (fund: number) => GoldFor;
 }) {
   const [all, setAll] = useState(false);
   /** 交換しなくても実施できる計画を隠す（交換で実施できるようになる計画は隠さない） */
   const [hideOk, setHideOk] = useState(false);
   const before = coverPlans(queue, stock);
   const after = coverPlans(queue, { wood: stock.wood + gains.wood, stone: stock.stone + gains.stone, treasury: stock.treasury + gains.treasury });
-  const enabled = after.plans.filter((p, i) => p.ok && !before.plans[i].ok).length;
+  const enabledPlans = after.plans.filter((p, i) => p.ok && !before.plans[i].ok).map((p) => p.plan);
+  const enabled = enabledPlans.length;
   const okCount = before.plans.filter((p) => p.ok).length;
   const moreExpansion = after.expansion.count - before.expansion.count;
+  // 交換後に今ある計画をすべて払える：建設資金ではなく、工事の空きや工期を待っている。次の目標は拡張計画
+  const allOk = after.plans.every((p) => p.ok);
+  const need = (short: PlanStock) => (goldFor ? <GoldNeed need={goldFor(short.treasury)} /> : shortText(short));
 
   const rows = after.plans.map((a, i) => ({ a, b: before.plans[i], i })).filter((r) => !(hideOk && r.b.ok));
   const firstShort = rows.findIndex((r) => !r.a.ok);
@@ -109,6 +131,7 @@ export function PlanList({
             {enabled > 0 && moreExpansion > 0 && "、"}
             {moreExpansion > 0 && <span className="font-semibold">拡張計画 {moreExpansion}件分の資源がそろうように</span>}
             なります。
+            {enabled > 1 && <span className="mt-0.5 block text-xs text-muted">建つもの：{groupPlans(enabledPlans)}</span>}
           </>
         ) : (
           <span className="text-muted">交換額を入力すると、交換後の在庫で実施できる計画がわかります。</span>
@@ -130,7 +153,7 @@ export function PlanList({
                 <span className={`shrink-0 rounded-md border px-1.5 text-xs ${TONE[st.tone]}`}>{st.text}</span>
               </div>
               <Bars plan={a.plan} before={b.covered} after={a.covered} />
-              {!a.ok && <p className="mt-1 text-xs text-danger">ここまで実施するには あと {shortText(a.short)}</p>}
+              {!a.ok && <p className="mt-1 text-xs text-danger">ここまで実施するには あと {need(a.short)}</p>}
             </li>
           );
         })}
@@ -141,9 +164,10 @@ export function PlanList({
             </button>
           </li>
         )}
-        {waiting.length > 0 && (
+        {allOk && waiting.length > 0 && (
           <li className="rounded-lg border border-line bg-surface-2 p-2 text-sm">
-            具体的な計画はありません。街は今、資源ではなく次を待っています。
+            {queue.plans.length === 0 ? "具体的な計画はありません。" : "今ある計画は、この交換ですべて払えます。"}
+            街は今、建設資金ではなく次を待っています。
             <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs">
               {waiting.map((w) => (
                 <li key={w}>{w}</li>
@@ -154,6 +178,7 @@ export function PlanList({
         <li className="rounded-lg border border-dashed border-line p-2">
           <div className="flex items-start justify-between gap-2">
             <span className="text-sm">
+              {allOk && <span className="font-semibold">次の目標：</span>}
               拡張計画（{x.next.plan.name}相当）
               <span className="block text-xs text-muted">具体的な計画のあとに続く備蓄の目標</span>
             </span>
@@ -163,7 +188,7 @@ export function PlanList({
             </span>
           </div>
           <Bars plan={x.next.plan} before={xBefore} after={x.next.covered} />
-          <p className="mt-1 text-xs text-muted">次の1件まで あと {shortText(x.next.short) || "なし"}</p>
+          <p className="mt-1 text-xs text-muted">次の1件まで あと {x.next.ok ? "なし" : need(x.next.short)}</p>
         </li>
       </ol>
 

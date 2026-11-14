@@ -1,6 +1,6 @@
 "use client";
 
-import { DEV_THRESHOLDS, MAX_DEV, MAX_TECH, TECH_THRESHOLDS } from "@/game/config";
+import { DEV_NAMES, DEV_THRESHOLDS, MAX_DEV, MAX_TECH } from "@/game/config";
 import { bankLevelBand } from "@/game/levels";
 import { fmt, yen } from "@/lib/api";
 import type { ActiveView } from "@/server/view";
@@ -8,7 +8,7 @@ import { Gauge } from "../ui";
 
 export function SavingsGauge({ v }: { v: ActiveView }) {
   const s = v.season;
-  // 貯金額 ＝ 債券 ＋ 都市に使った金貨。バーは都市に使った金貨を塗り、債券を斜線で重ねる（債券がマイナスなら減らす）
+  // 貯金額 ＝ 債券 ＋ ゲーム内で使った金貨。バーはゲーム内で使った金貨を塗り、債券を斜線で重ねる（債券がマイナスなら減らす）
   const total = Math.max(0, s.savings);
   const city = Math.max(0, Math.min(s.citySpent, total));
   // バーは次の銀行Lvまでの達成率
@@ -57,13 +57,19 @@ export function WishSavingsGauge({ v }: { v: ActiveView }) {
   );
 }
 
+/** 技術の更新の残り時間（「あと2日5時間」） */
+function leftText(ms: number): string {
+  const h = Math.max(1, Math.ceil(ms / 3_600_000));
+  return h >= 24 ? `${Math.floor(h / 24)}日${h % 24 ? `${h % 24}時間` : ""}` : `${h}時間`;
+}
+
 export function TechGauge({ v }: { v: ActiveView }) {
   const t = v.tech;
-  const prev = TECH_THRESHOLDS[t.level - 1];
+  const prev = t.prev;
   return (
     <div>
       <div className="flex items-baseline justify-between">
-        <span className="text-sm font-medium">技術Lv</span>
+        <span className="text-sm font-medium">技術Lv・{t.era}</span>
         <span className="font-pixel text-xl" style={{ color: "var(--tech)" }}>
           {t.level}
           <span className="text-sm text-muted"> / {MAX_TECH}</span>
@@ -75,11 +81,18 @@ export function TechGauge({ v }: { v: ActiveView }) {
           "すべての技術を解放しました"
         ) : (
           <>
-            あと <span className="num font-semibold text-ink">{yen(t.remaining)}</span> 貯金すると Lv{t.level + 1}
+            あと <span className="num font-semibold text-ink">{yen(t.remaining)}</span> 貯金すると「{t.nextEra}」
             {t.nextUnlocks.length > 0 && <>：{t.nextUnlocks.slice(0, 4).join("・")}</>}
           </>
         )}
       </p>
+      {t.renewal && (
+        // 技術の更新（docs/saving-habit-balance.md TEC-02・TEC-04）
+        <p className="mt-1 rounded-md bg-surface-2 px-2 py-1 text-xs">
+          <span className="font-semibold">技術の更新中</span>：あと{leftText(t.renewal.until - v.serverNow)}、建て替えが{t.renewal.free ? "無料" : "安く"}です
+          {t.renewal.evolved > 0 && <>（{fmt(t.renewal.evolved)}棟が新しくなりました）</>}
+        </p>
+      )}
     </div>
   );
 }
@@ -98,14 +111,24 @@ export function DevGauge({ v }: { v: ActiveView }) {
       </div>
       <Gauge value={d.next === null ? 1 : d.points - prev} max={d.next === null ? 1 : d.next - prev} color="var(--dev)" label="次の発展Lvまで" />
       <p className="mt-1 text-xs text-muted">
-        {d.next === null ? "最大の都市規模です。建物の高層化で成長を続けます" : <>あと {fmt(d.next - d.points)}pt</>}
+        {d.nextAt === null ? "最大の都市規模です。建物の高層化で成長を続けます" : <>あと {yen(Math.max(0, d.nextAt - d.completed))}分の工事</>}
+        {d.forecastDays !== null && (
+          <span className="font-semibold text-ink">
+            {" "}
+            ・ このペースなら{d.forecastDays === 0 ? "まもなく" : `約${d.forecastDays}日後に`}「{DEV_NAMES[d.level]}」
+          </span>
+        )}
         <span>
           {" "}
-          ・ 発展速度 {fmt(d.ratePerHour, 1)}pt/時（稼働 {Math.round(d.operation * 100)}%{d.bondMultiplier > 1 && ` ・ 債券 ×${fmt(d.bondMultiplier, 2)}`}）
+          ・ 建設資金 {yen(Math.floor(d.fund))}
+          {d.interestPerDay > 0 && `（債券の利息 +${yen(Math.floor(d.interestPerDay))}/日）`}
+          {d.earlyBonusRate > 1 && ` ・ 開拓期ボーナス ×${fmt(d.earlyBonusRate, 1)}`}
         </span>
         <span>
           {" "}
           ・ 開拓できる区画 {d.plots.used} / {d.plots.limit}
+          {d.plots.habit > 0 && `（発展Lv ${d.plots.base} ＋ こまめボーナス ${d.plots.habit}）`}
+          {d.plots.nextHabitIn !== null && ` ・ あと${d.plots.nextHabitIn}日の貯金で区画が1つ増えます`}
         </span>
       </p>
     </div>

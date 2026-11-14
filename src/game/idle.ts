@@ -1,12 +1,16 @@
-// 放置計算（docs/bond-and-custom-currency.md §7）。
-// 債券倍率が街の発展に効くため、10分ティックごとに「金鉱（債券化含む）→ ユーザ通貨の発生・期限 → 街の1ティック」を繰り返す。
-// 街はティック開始時の債券残高で倍率を決める。債券化でつく資源（docs/needs-based-exchange.md §7）もティックの前に入れる。
+// 放置計算（docs/bond-and-custom-currency.md §7、docs/savings-driven-growth.md §16）。
+// 債券化と債券の利息が街の建設資金になるため、10分ティックごとに「金鉱（債券化含む）→ ユーザ通貨の発生・期限 →
+// 債券化の建設資金・利息 → 街の1ティック」を繰り返す。利息はティックの終わりの債券残高で決める（分け方によらず同じ結果にするため）。
 // ティック境界は絶対時刻に揃えるので、同じ経過時間なら同じ結果になる。
-import { bondCap, bondMultiplier, bondResourceEligible } from "./bond";
+import { bondCap, bondResourceEligible } from "./bond";
 import { alignTick, cityNeeds, tick } from "./city/sim";
-import { MICRO_PER_GOLD, TICK_MS } from "./config";
+import { syncReserve } from "./city/reserve";
+import { DAY, MICRO_PER_GOLD, TICK_MS } from "./config";
 import { dayEvents, dayGrid, minuteRule, shiftDays, startOfDay, validWindow, type BudgetPlan, type CurrencyDefLite } from "./currency";
-import { GAIN_KEYS, quoteNeedsExchange, ZERO_GAINS } from "./exchange";
+import { autoConfirm, noteMined } from "./confirm";
+import { exchangeRate, GAIN_KEYS, quoteNeedsExchange, ZERO_GAINS, type FacilityLevels } from "./exchange";
+import { bondInterestPerDay, creditFund, creditGains, logFund, reserveLevel } from "./fund";
+import { countAutoDays } from "./habit";
 import { goldMineLevel } from "./levels";
 import { accrue, floorMinute } from "./mine";
 import { depositToBond, type Lot, type Purse } from "./settle";
@@ -54,6 +58,8 @@ export interface World {
   grants?: Grant[];
   /** ユーザ通貨の未発生分から減らす額 */
   cuts?: CustomCut[];
+  /** この放置計算で、確定した配当のうち債券に入りきらずに建設資金にした金貨（ゲーム内で使った金貨に数える。REC-01） */
+  citySpent?: number;
 }
 
 export interface AdvanceOpts {
@@ -62,6 +68,10 @@ export interface AdvanceOpts {
   bondRate: number;
   until: number;
   newId: () => string;
+  /** 記録のない日を自動で確定するときに差し引く、推定の1日の支出（G。docs/savings-driven-growth.md REC-01） */
+  estimatePerDay?: number;
+  /** 記録Lv（建設資金への交換の効率。REC-03） */
+  silverMine?: number;
 }
 
 /** 金鉱・ユーザ通貨・街を until まで進める */
@@ -111,6 +121,8 @@ export function advance(w: World, opts: AdvanceOpts, events: CityEvent[]): void 
     const lot = lotFor(def, dayStart);
     lot.amount += amount;
     lot.remaining += amount;
+    // 発生ルールの分は未受取（配当資金で受け取る）。収入の振り分けは金貨と同じくそのまま所持へ
+    if (!o.grant) lot.pending = (lot.pending ?? 0) + amount;
     lot.dirty = true;
     issued.set(def.id, (issued.get(def.id) ?? 0) + amount);
   };
@@ -152,14 +164,16 @@ export function advance(w: World, opts: AdvanceOpts, events: CityEvent[]): void 
     issued.clear();
   };
   const advanceMoney = (end: number) => {
-    // 金鉱（債券化を含む）
+    // 金鉱（債券化を含む）。未回収に入った配当は、自動の確定のために日ごとに覚える
+    const before = w.purse.mine.uncollected;
+    const from = w.purse.mine.lastAccrualAt;
     const r = accrue(w.purse.mine, {
       plan,
       tz: plan.cal,
       until: end,
       bond: { balance: w.purse.bond, rate: opts.bondRate, cap: w.purse.bondCap },
     });
-    w.purse.mine = r.mine;
+    w.purse.mine = noteMined(r.mine, Math.max(from, end - 1), r.mine.uncollected - before, tz);
     w.purse.bondResource = (w.purse.bondResource ?? 0) + bondResourceEligible(w.purse.bond, r.toBond, w.purse.bondCap);
     w.purse.bond = r.bond;
     toBond += r.toBond;
@@ -194,19 +208,32 @@ export function advance(w: World, opts: AdvanceOpts, events: CityEvent[]): void 
         w.purse.moves.push({ currency: "CUSTOM", delta: -lot.remaining, reason: "currency_expire_bond", currencyId: lot.currencyId });
         depositToBond(w.purse, lot.remaining, "currency_expire_bond", lot.currencyId);
         lot.remaining = 0;
+        lot.pending = 0;
         lot.dirty = true;
       }
     }
   };
 
+  const levels = (): FacilityLevels => ({ bank: w.city.bankLevel, goldMine: goldMineLevel(w.purse.mine.totalCollected), silverMine: opts.silverMine ?? 1 });
   const target = alignTick(until);
   while (w.city.simTime < target) {
     const end = w.city.simTime + TICK_MS;
-    const k = bondMultiplier(w.purse.bond, plan.budget);
     advanceMoney(end);
+    // 記録のない日の配当の自動の確定（債券に入りきらない分は建設資金に）
+    const c = autoConfirm(w.purse, end, plan.cal, opts.estimatePerDay ?? 0);
+    if (c.overflow > 0) {
+      creditFund(w.city, c.overflow * exchangeRate("gold", "treasury", levels()), end);
+      w.citySpent = (w.citySpent ?? 0) + c.overflow;
+    }
+    // 自動で確定した日も、7日分で貯金日1日に数える（docs/saving-habit-balance.md HAB-01）
+    countAutoDays(w.city, c.days, w.purse.bond, end, events);
     holdBondResource(w);
-    grantBondResources(w.city, goldMineLevel(w.purse.mine.totalCollected));
-    tick(w.city, end, events, k);
+    grantBondResources(w.city, levels(), end);
+    grantInterest(w.city, w.purse.bond, w.purse.bondCap, end);
+    // 備えLv（債券残高）は悪い出来事の被害を軽くし、Lvごとに備えの施設が建つ（RSV-03・EVT-04）
+    w.city.reserveLevel = reserveLevel(w.purse.bond, plan.budget);
+    syncReserve(w.city, w.city.reserveLevel, end, events);
+    tick(w.city, end, events);
   }
   // 最後の端数は金鉱・ユーザ通貨だけ進め、街は次のティックまで待つ（債券化の資源も次のティックの前に入れる）
   advanceMoney(until);
@@ -222,20 +249,29 @@ function holdBondResource(w: World) {
 }
 
 /**
- * 預けた額を、同じ量の金貨でおまかせ交換したのと同じ資源にして在庫に加える（手数料なし、小数のまま）。
- * 割合はティック開始時の街の必要資源で決める（docs/needs-based-exchange.md §7）。
+ * 預けた額を、同じ量の金貨で交換したのと同じ建設資金にして街に入れる（手数料なし、小数のまま。開拓期ボーナスつき）。
+ * at はティックの終わり（債券化した時刻として開拓期ボーナスを判定する）
  */
-export function grantBondResources(city: CityState, goldMine: number) {
+export function grantBondResources(city: CityState, lv: FacilityLevels, at: number) {
   const amount = city.bondResourcePending ?? 0;
   if (amount <= 0) return;
-  const q = quoteNeedsExchange("gold", amount, cityNeeds(city).needs, { bank: city.bankLevel, goldMine, silverMine: 1 }, { fee: false, floor: false });
+  const q = quoteNeedsExchange("gold", amount, cityNeeds(city).needs, lv, { fee: false, floor: false });
   // 都市資金を足す前の記録には treasury が無い
   const total = (city.bondResourceTotal ??= { ...ZERO_GAINS });
   total.treasury ??= 0;
-  for (const k of ["wood", "stone", "food"] as const) city.stock[k] += q.gains[k];
-  city.treasury += q.gains.treasury;
+  const bonus = creditGains(city, q.gains, at);
   for (const k of GAIN_KEYS) total[k] += q.gains[k];
+  total.treasury += bonus;
   city.bondResourcePending = 0;
+}
+
+/** 債券の利息を1ティック分、建設資金として入れる（RSV-02。貯金額には数えない・開拓期ボーナスはつかない） */
+export function grantInterest(city: CityState, bond: number, cap: number, at: number) {
+  const interest = (bondInterestPerDay(bond, cap) * TICK_MS) / DAY;
+  if (interest <= 0) return;
+  city.treasury += interest;
+  city.interestTotal = (city.interestTotal ?? 0) + interest;
+  logFund(city, at, interest);
 }
 
 /**

@@ -11,7 +11,7 @@ export function EventLog({ events, tz, limit = 12 }: { events: { at: number; typ
       {events.slice(0, limit).map((e, i) => (
         <li key={`${e.at}-${i}`} className="flex gap-3">
           <time className="num w-20 shrink-0 text-xs leading-5 text-muted">{formatDateTime(e.at, tz)}</time>
-          <span>{describeEvent({ type: e.type, auto: e.auto, payload: e.payload as Record<string, unknown> })}</span>
+          <span>{describeEvent({ type: e.type, payload: e.payload as Record<string, unknown> })}</span>
         </li>
       ))}
     </ol>

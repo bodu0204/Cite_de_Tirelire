@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useGame } from "@/components/GameProvider";
-import { Button, Card, CustomIcon, Empty, Field, Modal } from "@/components/ui";
+import { Button, Card, CustomIcon, Empty, Field, Modal, NumberInput } from "@/components/ui";
 import type { Rule, RuleKind } from "@/game/currency";
 import { api, ApiError, fmt, formatDate, todayIn, yen } from "@/lib/api";
 import { useList } from "@/lib/useList";
@@ -22,6 +22,8 @@ interface Currency {
   startDate: string;
   endDate: string | null;
   balance: number;
+  /** 未受取（配当資金で受け取る） */
+  pending: number;
   nextIssue: { date: string; amount: number } | null;
   nextExpiry: { at: number; amount: number } | null;
 }
@@ -85,7 +87,6 @@ function newRule(kind: RuleKind): Rule {
 }
 
 const toggle = (xs: number[], v: number) => (xs.includes(v) ? xs.filter((x) => x !== v) : [...xs, v].sort((a, b) => a - b));
-const digits = (s: string) => Number(s.replace(/\D/g, "") || 0);
 
 function Chips<T extends string | number>({ items, value, onToggle, label }: { items: { v: T; label: string }[]; value: T[]; onToggle: (v: T) => void; label: string }) {
   return (
@@ -280,7 +281,7 @@ function EmojiPicker({ value, onChange }: { value: string; onChange: (v: string)
 function RuleEditor({ rule, onChange, onRemove, today }: { rule: Rule; onChange: (r: Rule) => void; onRemove: () => void; today: string }) {
   const amountField = rule.kind === "minute" ? null : (
     <Field label="1回の量">
-      <input inputMode="numeric" value={rule.amount || ""} onChange={(e) => onChange({ ...rule, amount: digits(e.target.value) })} />
+      <NumberInput value={rule.amount ? String(rule.amount) : ""} onValueChange={(v) => onChange({ ...rule, amount: Number(v || 0) })} />
     </Field>
   );
   const every = (label: string, unit: string) =>
@@ -306,7 +307,7 @@ function RuleEditor({ rule, onChange, onRemove, today }: { rule: Rule; onChange:
       </div>
       {rule.kind === "minute" && (
         <Field label="月あたりの量" hint="金貨と同じく毎分少しずつ発生します（1日ぶんを1回分として期限を数えます）。">
-          <input inputMode="numeric" value={rule.monthlyAmount || ""} onChange={(e) => onChange({ ...rule, monthlyAmount: digits(e.target.value) })} />
+          <NumberInput value={rule.monthlyAmount ? String(rule.monthlyAmount) : ""} onValueChange={(v) => onChange({ ...rule, monthlyAmount: Number(v || 0) })} />
         </Field>
       )}
       {rule.kind === "weekly" && (
@@ -454,12 +455,11 @@ function CurrencyForm({ initial, categories, onDone, tz, onCategoriesChanged }: 
         {f.remainder === "TO_BOND" && (
           <div className="ml-6 flex flex-wrap items-center gap-2 text-sm">
             発生から
-            <input
+            <NumberInput
               aria-label="債券へ移すまでの日数"
-              inputMode="numeric"
               className="w-16"
               value={f.remainderDays}
-              onChange={(e) => setF({ ...f, remainderDays: e.target.value.replace(/\D/g, "") })}
+              onValueChange={(v) => setF({ ...f, remainderDays: v })}
             />
             日後の0:00に、残りを債券へ移す
           </div>
@@ -609,7 +609,7 @@ export default function CurrenciesPage() {
                 <div className="flex items-center gap-2">
                   <CustomIcon icon={c.icon} size={20} />
                   <span className="flex-1 font-medium">{c.name}</span>
-                  <span className="num font-pixel text-lg">{fmt(c.balance)}</span>
+                  <span className="num font-pixel text-lg">{fmt(c.balance)}{c.pending > 0 && <span className="ml-1 text-xs text-muted">＋未受取 {fmt(c.pending)}</span>}</span>
                 </div>
                 <div className="text-xs text-muted">
                   {c.rules.map(describeRule).join(" ＋ ")}
@@ -630,7 +630,7 @@ export default function CurrenciesPage() {
                   <button
                     className="text-danger underline"
                     onClick={async () => {
-                      if (!confirm(`${c.name}を削除しますか？今の残高 ${fmt(c.balance)} は金貨に戻ります。`)) return;
+                      if (!confirm(`${c.name}を削除しますか？今の残高 ${fmt(c.balance + c.pending)}（未受取を含む）は金貨に戻ります。`)) return;
                       if (await act(`/api/currencies/${c.id}`, undefined, "DELETE")) currencies.reload();
                     }}
                   >

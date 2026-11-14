@@ -44,16 +44,27 @@ req POST /api/savings "{\"kind\":\"DEPOSIT\",\"amount\":1000,\"date\":\"$TODAY\"
 req GET /api/savings | j '[o.today, o.limit]'
 echo "== daily cap: 4th record gives 0"; req POST /api/purchases "{\"amount\":300,\"date\":\"$TODAY\",\"name\":\"コーヒー\"}"
 echo "== g2s with 0 gold fails"; req POST /api/exchange '{"kind":"gold_to_silver","amount":10}'
-echo "== silver->wood (no savings)";  req POST /api/exchange '{"kind":"to_resource","currency":"silver","resource":"wood","amount":20}'
-echo "== seed 5000 gold, gold->stone adds to savings amount (city spent)"
+echo "== silver->fund is rejected (silver is for repairs and fees)";  req POST /api/exchange '{"kind":"to_resource","currency":"silver","resource":"wood","amount":20}' | j 'o.error && o.error.code'
+echo "== no-spend today: confirms unspent dividend into bond / fund"; req POST /api/records/no-spend | j '[o.reward, o.confirmed]'
+req GET /api/state | j '[o.currencies.bond, o.mine.uncollected, o.mine.confirmedAt !== null, o.city.treasury]'
+echo "== seed 5000 gold, gold->fund adds to savings amount (city spent)"
 $PSQL -qtAc "UPDATE \"Season\" SET gold = gold + 5000 WHERE id = (SELECT s.id FROM \"Season\" s JOIN \"User\" u ON u.id = s.\"userId\" WHERE u.email = '$EMAIL' AND s.status <> 'COMPLETED')" >/dev/null
 req POST /api/exchange '{"kind":"to_resource","currency":"gold","resource":"stone","amount":2000}'
 req GET /api/state | j '[o.currencies.gold, o.season.citySpent, o.season.savings, o.season.rate, o.tech.level, o.wishSavings]'
 echo "== gold->bond is 1:1, counted once in savings"; req POST /api/exchange '{"kind":"gold_to_bond","amount":500}'
-req GET /api/state | j '[o.currencies.gold, o.currencies.bond, o.season.citySpent, o.season.savings, o.dev.bondMultiplier]'
+req GET /api/state | j '[o.currencies.gold, o.currencies.bond, o.season.citySpent, o.season.savings, o.dev.interestPerDay, o.dev.reserveLevel]'
+echo "== name and decorate a building with silver (REC-06)"
+$PSQL -qtAc "UPDATE \"Season\" SET silver = silver + 1000 WHERE id = (SELECT s.id FROM \"Season\" s JOIN \"User\" u ON u.id = s.\"userId\" WHERE u.email = '$EMAIL' AND s.status <> 'COMPLETED')" >/dev/null
+B1=$(req GET /api/state | j 'o.city.buildings.find(b=>b.line==="housing").id')
+req POST /api/city/name "{\"buildingId\":\"$B1\",\"name\":\"ひだまり荘\"}" | j '[o.name, o.silver]'
+req POST /api/city/decor "{\"buildingId\":\"$B1\",\"decor\":\"fountain\"}" | j '[o.decor, o.silver]'
+req GET /api/state | j "[o.currencies.silver, ...(b=>[b.name, b.decor])(o.city.buildings.find(b=>b.id===\"$B1\"))]"
+echo "== roads cannot be named; too long names are rejected"; RD=$(req GET /api/state | j 'o.city.buildings.find(b=>b.line==="road").id')
+req POST /api/city/name "{\"buildingId\":\"$RD\",\"name\":\"道\"}" | j 'o.error && o.error.code'
+req POST /api/city/name "{\"buildingId\":\"$B1\",\"name\":\"とても長い名前をつけようとしてみる\"}" | j 'o.error && o.error.code'
 echo "== silver->bond is not allowed"; req POST /api/exchange '{"kind":"to_bond","currency":"silver","amount":10}'
 echo "== custom->bond needs balance"; req POST /api/exchange "{\"kind\":\"to_bond\",\"currency\":\"custom\",\"currencyId\":\"$CUR\",\"amount\":100000}"
-echo "== silver shortage: resource exchange fails, bond untouched"; req POST /api/exchange '{"kind":"to_resource","currency":"silver","resource":"wood","amount":100000}'
+echo "== silver exchange to fund is rejected, bond untouched"; req POST /api/exchange '{"kind":"to_resource","currency":"silver","resource":"wood","amount":100000}'
 echo "== wish contribution counts as wish savings"; req POST /api/wishes/$W/contribute '{"amount":500}'
 req GET /api/state | j '[o.wishSavings, o.season.savings]'
 echo "== wish purchase before fully saved is rejected"; req POST /api/purchases "{\"wishItemId\":\"$W\",\"date\":\"$TODAY\",\"amount\":8000}" | j 'o.error && o.error.code'
@@ -89,16 +100,20 @@ EST=$(req GET /api/adjustments/estimate | j 'o.estimated')
 echo "== adjustment quote/record: actual = estimate - 1000"; req POST /api/adjustments/quote "{\"actual\":$((EST - 1000))}" | j '[o.diff, o.resolution.bond, o.resolution.feeSilver]'
 req POST /api/adjustments "{\"actual\":$((EST - 1000))}" | j '[o.diff, o.resolution.amount]'
 echo "== income day 25: next payday onward"; req PATCH /api/settings '{"incomeDay":25}'; req GET /api/state | j '[o.user.incomeDay, o.income]'
-echo "== manual build";  req POST /api/city '{"type":"build","line":"housing","x":4,"y":3}'
-echo "== rush";          JOB=$(req GET /api/state | j 'o.city.jobs.find(j=>!j.auto)?.id'); req POST /api/city "{\"type\":\"rush\",\"jobId\":\"$JOB\"}"
-echo "== zone + policy"; req POST /api/city '{"type":"zone","x":5,"y":6,"zone":"residential"}'; req POST /api/city '{"type":"policy","preset":"housing"}'
 echo "== timelapse locked"; SID=$(req GET /api/state | j 'o.season.id'); req GET /api/seasons/$SID/timelapse
+echo "== reserve facilities: bond of 0.5M raises the reserve level; the facility is built on the next 10-minute tick (RSV-03)"
+$PSQL -qtAc "UPDATE \"Season\" SET bond = bond + 40000 WHERE id = '$SID'" >/dev/null
+req GET /api/state | j '[o.dev.reserveLevel, o.city.buildings.filter(b=>b.special==="reserve").map(b=>[b.tier, b.x, b.y])]'
 echo "== reach goal (savings amount >= goal)"; req GET /api/state | j '[o.season.status, o.season.rate, o.season.savings, o.tech.level]'
 echo "== complete";      req POST /api/season/complete
-echo "== build after complete fails"; req POST /api/city '{"type":"build","line":"housing","x":3,"y":6}'
 echo "== timelapse";     req GET /api/seasons/$SID/timelapse | j '[o.season.number, !!o.start, !!o.final, o.events.length, o.events.map(e=>e.type).filter((v,i,a)=>a.indexOf(v)===i).join(",")]'
 echo "== new season keeps history, resets bond and custom balances"; req POST /api/season '{"goalAmount":50000}'; req GET /api/state | j '[o.season.number, o.season.savings, o.currencies, o.tech.level, o.hasArchive]'
 req GET /api/purchases | j 'o.items.length'
+echo "== timelapse fireworks are bought with the current season's silver (REC-06)"
+$PSQL -qtAc "UPDATE \"Season\" SET silver = silver + 500 WHERE id = (SELECT s.id FROM \"Season\" s JOIN \"User\" u ON u.id = s.\"userId\" WHERE u.email = '$EMAIL' AND s.status <> 'COMPLETED')" >/dev/null
+req POST /api/seasons/$SID/timelapse/fx '{"fx":"fireworks"}' | j '[o.fx, o.silver]'
+req POST /api/seasons/$SID/timelapse/fx '{"fx":"fireworks"}' | j '[o.fx, o.silver]'
+req GET /api/seasons/$SID/timelapse | j 'o.season.fx'
 echo "== export";        curl -sS -b "$JAR" "$BASE/api/export" | head -c 120; echo
 echo "== cross-origin rejected"; curl -sS -b "$JAR" -X POST "$BASE/api/mine/collect" -H "origin: https://evil.example" -H "content-type: application/json" -d '{}'; echo
 echo "== delete account"; req POST /api/account '{"password":"password123"}'

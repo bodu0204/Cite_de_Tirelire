@@ -2,11 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useGame, useSeasonView } from "@/components/GameProvider";
-import { Button, Card, Empty, Field } from "@/components/ui";
+import { Button, Card, Empty, Field, NumberInput } from "@/components/ui";
 import { REWARD_PURCHASE } from "@/game/config";
 import { api, fmt, todayIn, yen } from "@/lib/api";
 import { AllocationEditor, type AllocationRow, type IncomeQuote } from "./Allocation";
-import { digits, ResolutionPreview } from "./shared";
+import { confirmedText, ResolutionPreview, type Confirmed } from "./shared";
 
 interface BasePeriod {
   key: string;
@@ -47,8 +47,9 @@ function MonthlyIncomes({ onDone }: { onDone: () => void }) {
     const amount = Number(st.amount || 0);
     return { kind: "MONTHLY", monthKey: p.key, amount, autoExchange: st.autoExchange, ...(amount > p.base && st.rows ? { allocation: st.rows } : {}) };
   };
-  const done = async (n: number, reward: number) => {
-    toast(reward > 0 ? `月の収入を${n}件記録しました！ 銀貨 +${reward}S` : `月の収入を${n}件記録しました`, reward > 0 ? "reward" : "info");
+  const done = async (n: number, reward: number, confirmed?: Confirmed | null) => {
+    const c = confirmedText(confirmed);
+    toast(reward > 0 ? `月の収入を${n}件記録しました！ 銀貨 +${reward}S${c}` : `月の収入を${n}件記録しました${c}`, reward > 0 ? "reward" : "info");
     await load();
     onDone();
   };
@@ -75,13 +76,13 @@ function MonthlyIncomes({ onDone }: { onDone: () => void }) {
                     {p.startDate}〜{p.endDate}
                   </div>
                 </div>
-                <input aria-label={`${monthLabel(p.key)}（円）`} inputMode="numeric" className="w-32" value={st.amount} onChange={(e) => set(p.key, { amount: digits(e.target.value) })} />
+                <NumberInput aria-label={`${monthLabel(p.key)}（円）`} className="w-32" value={st.amount} onValueChange={(v) => set(p.key, { amount: v })} />
                 <span className="text-sm">円</span>
                 <Button
                   disabled={busy || !st.amount}
                   onClick={async () => {
-                    const r = await act<{ reward: number }>("/api/incomes", body(p));
-                    if (r) await done(1, r.reward);
+                    const r = await act<{ reward: number; confirmed?: Confirmed | null }>("/api/incomes", body(p));
+                    if (r) await done(1, r.reward, r.confirmed);
                   }}
                 >
                   保存
@@ -131,8 +132,8 @@ function MonthlyIncomes({ onDone }: { onDone: () => void }) {
           className="w-full"
           disabled={busy || periods.some((p) => !state[p.key]?.amount)}
           onClick={async () => {
-            const r = await act<{ items: { reward: number }[] }>("/api/incomes", { items: periods.map(body) });
-            if (r) await done(r.items.length, r.items.reduce((a, x) => a + x.reward, 0));
+            const r = await act<{ items: { reward: number }[]; confirmed?: Confirmed | null }>("/api/incomes", { items: periods.map(body) });
+            if (r) await done(r.items.length, r.items.reduce((a, x) => a + x.reward, 0), r.confirmed);
           }}
         >
           一括保存（{periods.length}件）
@@ -160,9 +161,9 @@ function ExtraIncomeForm({ onDone }: { onDone: () => void }) {
       className="space-y-3"
       onSubmit={async (e) => {
         e.preventDefault();
-        const r = await act<{ reward: number }>("/api/incomes", { kind: "EXTRA", ...f, amount, ...(rows ? { allocation: rows } : {}) });
+        const r = await act<{ reward: number; confirmed?: Confirmed | null }>("/api/incomes", { kind: "EXTRA", ...f, amount, ...(rows ? { allocation: rows } : {}) });
         if (!r) return;
-        toast(r.reward > 0 ? `臨時の収入を記録しました！ 銀貨 +${r.reward}S` : "臨時の収入を記録しました", r.reward > 0 ? "reward" : "info");
+        toast(r.reward > 0 ? `臨時の収入を記録しました！ 銀貨 +${r.reward}S${confirmedText(r.confirmed)}` : `臨時の収入を記録しました${confirmedText(r.confirmed)}`, r.reward > 0 ? "reward" : "info");
         setF((p) => ({ ...p, amount: "", name: "", memo: "", autoExchange: false }));
         setRows(null);
         setKey((k) => k + 1);
@@ -171,7 +172,7 @@ function ExtraIncomeForm({ onDone }: { onDone: () => void }) {
     >
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label="金額（円）">
-          <input inputMode="numeric" required value={f.amount} onChange={(e) => setF({ ...f, amount: digits(e.target.value) })} />
+          <NumberInput required value={f.amount} onValueChange={(v) => setF({ ...f, amount: v })} />
         </Field>
         <Field label="日付" hint="過去の日付でも、記録した時点から配当します。">
           <input type="date" required value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} />

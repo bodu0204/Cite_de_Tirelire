@@ -1,5 +1,5 @@
 // 建物カタログ：系統（ライン）× 段階（ティア）。生産・消費・建設費はここから算出する。
-import { BUILD_TIME_SCALE, REVENUE_SCALE, TREASURY_COST_SCALE } from "./config";
+import { BUILD_TIME_SCALE, TREASURY_COST_SCALE } from "./config";
 
 export type LineId =
   | "housing"
@@ -49,7 +49,7 @@ export interface TierDef {
   food?: number;
   wood?: number;
   stone?: number;
-  revenue?: number; // 都市資金
+  revenue?: number; // 都市資金（以前の収益。貯金で育つ街では使わない：GRW-01）
   customers?: number; // 商業の受け入れ人数
   logistics?: number; // 物流容量（建物何棟分）
   serve?: number; // 公共施設がカバーする人口
@@ -237,7 +237,6 @@ for (const line of LINE_IDS) {
   for (const t of LINES[line].tiers) {
     t.cost.treasury *= TREASURY_COST_SCALE;
     t.buildMinutes *= BUILD_TIME_SCALE;
-    if (t.revenue) t.revenue *= REVENUE_SCALE;
   }
 }
 
@@ -289,13 +288,48 @@ export function evolveCost(line: LineId, toTier: number): Cost {
 
 // ---- 特殊施設 ----
 
-export type SpecialKind = "bank" | "park" | "statue";
+export type SpecialKind = "bank" | "park" | "statue" | "reserve";
 
 export const SPECIAL_LABELS: Record<SpecialKind, string> = {
   bank: "銀行",
   park: "公園",
   statue: "像",
+  reserve: "備えの施設",
 };
+
+/**
+ * 備えLv（債券残高。docs/savings-driven-growth.md RSV-03）ごとに銀行のそばに建つ施設。tier は備えLv − 1。
+ * effect はその備えLvで悪い出来事の被害がどう変わるか（EVT-04）
+ */
+export const RESERVE_FACILITIES = [
+  { name: "防災倉庫", effect: "悪い出来事の被害の時間と割合が半分になります" },
+  { name: "消防署", effect: "台風で工事が止まるのと、資材の値上がりを防ぎます" },
+  { name: "避難公園", effect: "火事で休業した建物を、建設資金ですぐ修繕します" },
+  { name: "銀行の金庫", effect: "悪い出来事をすべて防ぎます" },
+] as const;
+
+/** 銀貨で建物に添える装飾（REC-06）。見た目だけで、街の数値は変えない */
+export const DECOR_KINDS = ["flowers", "fountain", "lantern", "banner"] as const;
+export type DecorKind = (typeof DECOR_KINDS)[number];
+export const DECOR_LABELS: Record<DecorKind, string> = {
+  flowers: "花壇",
+  fountain: "噴水",
+  lantern: "灯籠",
+  banner: "祭りの旗",
+};
+
+/** 銀貨で買うタイムラプスの演出（REC-06）。fireworks は節目と完成の瞬間に花火を打ち上げる */
+export const TIMELAPSE_FX = ["fireworks"] as const;
+export type TimelapseFx = (typeof TIMELAPSE_FX)[number];
+export const TIMELAPSE_FX_LABELS: Record<TimelapseFx, string> = { fireworks: "花火" };
+
+/** 建物の表示名：銀貨でつけた名前があればそれ、なければ種類の名前（公園・像の対象名は画面側で足す） */
+export function buildingLabel(b: { line?: LineId; special?: SpecialKind; tier: number; name?: string }): string {
+  if (b.name) return b.name;
+  if (b.line) return tierDef(b.line, b.tier).name;
+  if (b.special === "reserve") return RESERVE_FACILITIES[b.tier]?.name ?? SPECIAL_LABELS.reserve;
+  return b.special ? SPECIAL_LABELS[b.special] : "";
+}
 
 export const ZONE_LABELS: Record<Zone, string> = {
   residential: "住宅地区",

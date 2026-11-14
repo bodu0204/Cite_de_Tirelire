@@ -1,4 +1,4 @@
-import type { LineId, SpecialKind, Zone } from "./catalog";
+import type { DecorKind, LineId, SpecialKind, Zone } from "./catalog";
 
 export interface Stock {
   wood: number;
@@ -19,6 +19,10 @@ export interface Building {
   special?: SpecialKind;
   /** 公園ならサブスクID、像ならほしい物ID */
   refId?: string;
+  /** 銀貨でつけた名前（docs/savings-driven-growth.md REC-06） */
+  name?: string;
+  /** 銀貨で添えた装飾（REC-06。見た目だけ） */
+  decor?: DecorKind;
   tier: number;
   level: number;
   /** 占有範囲の左上のマス（docs/map-layout-redesign.md §4.2）。銀行の中心が原点で、負もある */
@@ -26,11 +30,7 @@ export interface Building {
   y: number;
   /** false はマップ外（土地が足りない特殊施設）。x, y は意味を持たない */
   placed?: false;
-  /** 固定：自動開発の対象外、移動不可 */
-  locked: boolean;
-  /** 手動で配置・編集された（自動配置変更の対象外） */
-  manual: boolean;
-  /** 公園の閉園など */
+  /** 公園の閉園、火事の休業、備えLvが下がった備えの施設など */
   closed?: boolean;
   builtAt: number;
 }
@@ -41,7 +41,6 @@ export type JobKind = "build" | "upgrade" | "evolve" | "expand";
 export interface Job {
   id: string;
   kind: JobKind;
-  auto: boolean;
   line: LineId;
   tier: number;
   level: number;
@@ -50,32 +49,43 @@ export interface Job {
   /** 対象のマス。expand は区画の左上のマス */
   x: number;
   y: number;
-  /** expand：開く区画（"px,py"）と、その土地用途（自動開発が土地を求めた建物の用途。手動は未指定） */
+  /** expand：開く区画（"px,py"）と、その土地用途（土地を求めた建物の用途） */
   plot?: string;
   zone?: Zone;
   startedAt: number;
   finishAt: number;
+  /** 着工時に払った値段（円）。完成すると発展ptに数える（GRW-04） */
+  price?: number;
+  /** 技術の更新（TEC-02）の間に始めた建て替え。完成すると更新の数に数える */
+  renewal?: boolean;
 }
 
 export type NeedKey = "shortage" | "jobs" | "housing" | "logistics" | "efficiency" | "industry" | "beautify";
 
-export const DEFAULT_PRIORITIES: NeedKey[] = [
+/**
+ * 街の発展が必要事項を検討する順（すべての街で同じ）。新産業は系統ごとに1棟目だけなので、雇用・住宅より先にしても
+ * ほかを長く待たせない（docs/savings-driven-growth.md GRW-07）
+ */
+export const NEED_ORDER: NeedKey[] = [
   "shortage",
+  "industry",
   "jobs",
   "housing",
   "logistics",
   "efficiency",
-  "industry",
   "beautify",
 ];
 
-export interface CityPolicy {
-  preset: "balanced" | "housing" | "industry" | "commerce" | "custom";
-  priorities: NeedKey[];
-  /** false で自動開発を止める */
-  autoEnabled: boolean;
-  /** false で自動開発の開拓を止める（省略すると開拓する。Q9） */
-  autoExpand?: boolean;
+/** 悪い出来事の続いている効果（docs/savings-driven-growth.md EVT-03） */
+export interface CityEffects {
+  /** 台風：この時刻まで工事が止まる */
+  pauseUntil?: number;
+  /** 不作：食料生産が rate 減る */
+  crop?: { until: number; rate: number };
+  /** 資材の値上がり：計画の値段が rate 上がる */
+  surge?: { until: number; rate: number };
+  /** 停電：電力の供給が rate 減る */
+  blackout?: { until: number; rate: number };
 }
 
 export interface CityState {
@@ -84,30 +94,59 @@ export interface CityState {
   simTime: number;
   buildings: Building[];
   jobs: Job[];
+  /** 食料だけを使う。木材・石材は建物の見た目にだけ残し、在庫には持たない（docs/savings-driven-growth.md GRW-02） */
   stock: Stock;
+  /** 建設資金（円）。貯金からだけ入り、計画の値段を払う（GRW-01） */
   treasury: number;
   population: number;
   peakPopulation: number;
   happiness: number;
+  /** 発展pt ＝ 完成した計画の累計額 ÷ 基準額 × 1000（GRW-04） */
   devPoints: number;
+  /** 基準額（円）：シーズン開始時の月間自由予算と目標額の小さいほう。値段と発展Lv・技術Lvの閾値の単位（PRC-05・PRC-06） */
+  base: number;
+  /** 完成した計画の累計額（円） */
+  completed: number;
+  /** シーズン開始時刻（開拓期ボーナスの判定。ERL-01） */
+  startedAt: number;
+  /** 開拓期ボーナスで増えた建設資金の累計（円。上限 ERL-02） */
+  earlyBonus: number;
   /** 建築実績の最高記録。重複計上を防ぐ（"line:tier" → 棟数, "lv:line" → Lv合計） */
   peaks: Record<string, number>;
   /** マスの土地用途（キーは "x,y"）。書いていないマスは未指定 */
   zones: Record<string, Zone>;
-  /** 自動建設を禁止したマス（"x,y"） */
-  noAuto: string[];
   /** 開拓した区画（"px,py"。区画 (px, py) はマス x = 5px〜5px+4、y = 5py〜5py+4） */
   plots: string[];
-  policy: CityPolicy;
   techLevel: number;
   /** 銀行Lv（達成率から決まる。タイムラプスの外観用に街の状態にも持つ） */
   bankLevel: number;
   nextId: number;
   flags: { foodShort: boolean; powerShort: boolean };
-  /** 債券化（採掘・ユーザ通貨の余り）で資源をつける額のうち、まだ資源にしていない分（金貨換算）。次のティックの前に資源にする */
+  /** 債券化（採掘・ユーザ通貨の余り）で建設資金をつける額のうち、まだ街に入れていない分（金貨換算）。次のティックの前に入れる */
   bondResourcePending?: number;
-  /** 債券化で得た資源の累計（放置中の変化の表示用） */
+  /** 債券化で得た建設資金の累計（放置中の変化の表示用。treasury だけを使う） */
   bondResourceTotal?: Gains;
+  /** 債券の利息で得た建設資金の累計（円。RSV-02） */
+  interestTotal?: number;
+  /** シーズンの日（1〜）ごとに入った建設資金（直近14日。見通し REC-04） */
+  fundLog?: Record<string, number>;
+  /** 備えLv（債券残高から。放置計算がティックごとに入れる。悪い出来事の被害を軽くする。RSV-03・EVT-04） */
+  reserveLevel?: number;
+  /** 悪い出来事の効果（いつまで続くか。EVT-03） */
+  effects?: CityEffects;
+  /** 火事で休業した建物（建物ID → 自動で再開する時刻。EVT-05） */
+  closedUntil?: Record<string, number>;
+  /**
+   * 記録で貯金を確定した暦日の数（docs/saving-habit-balance.md HAB-01）。貯金日は、これに自動で確定した日（autoSavedDays）の
+   * 7日分で1日を足したもの（layout.ts savingDaysOf）。こまめボーナスで区画の上限が増える（layout.ts habitPlots）
+   */
+  savingDays?: number;
+  /** 記録のない日が自動で確定した日の数（HAB-01） */
+  autoSavedDays?: number;
+  /** 最後に貯金日に数えた暦日（ユーザーのタイムゾーンの YYYY-MM-DD。1日に1回だけ数える） */
+  lastSavingDay?: string;
+  /** 技術の更新（TEC-02）：上がった技術Lv、始まり・終わりの時刻、その間に建て替えた数。終わりに RENEWED を出したら reported */
+  renewal?: { level: number; from: number; until: number; evolved: number; reported?: boolean };
 }
 
 export type CityEventType =
@@ -117,11 +156,19 @@ export type CityEventType =
   | "DEMOLISH"
   | "MOVE"
   | "TECH_UNLOCKED"
+  | "RENEWED"
+  | "HABIT_PLOT"
   | "DEV_LEVEL"
   | "PLOT_EXPANDED"
   | "POPULATION"
   | "SHORTAGE_STARTED"
   | "SHORTAGE_RESOLVED"
+  | "DISASTER"
+  | "REPAIRED"
+  | "RESERVE_BUILT"
+  | "RESERVE_CLOSED"
+  | "RESERVE_OPENED"
+  | "DECORATED"
   | "BANK_LEVEL"
   | "GOLD_MINE_LEVEL"
   | "SILVER_MINE_LEVEL"
@@ -136,14 +183,15 @@ export type CityEventType =
 export interface CityEvent {
   at: number;
   type: CityEventType;
+  /** 街が自ら起こしたできごと（建設・人口・不足など）。家計から起きたもの（公園・像・技術Lv・銀行など）は false */
   auto: boolean;
-  /** 自動発展ログに出す重要イベントか */
+  /** 街のできごとに出す重要イベントか */
   important: boolean;
   payload: Record<string, unknown>;
 }
 
 /** タイムラプス再生用の建物の要約 */
-export type BuildingSnap = Pick<Building, "id" | "line" | "special" | "refId" | "tier" | "level" | "x" | "y" | "closed" | "placed">;
+export type BuildingSnap = Pick<Building, "id" | "line" | "special" | "refId" | "tier" | "level" | "x" | "y" | "closed" | "placed" | "decor">;
 
 export function snapBuilding(b: Building): BuildingSnap {
   const s: BuildingSnap = { id: b.id, tier: b.tier, level: b.level, x: b.x, y: b.y };
@@ -152,5 +200,6 @@ export function snapBuilding(b: Building): BuildingSnap {
   if (b.refId) s.refId = b.refId;
   if (b.closed) s.closed = true;
   if (b.placed === false) s.placed = false;
+  if (b.decor) s.decor = b.decor;
   return s;
 }

@@ -1,9 +1,10 @@
-// 放置シミュレーションと自律型開発システム。
+// 放置シミュレーションと街の発展（docs/savings-driven-growth.md：街は貯金だけで計画列を消化して発展する）。
 // 10分刻みの絶対時刻に揃えたティックで進めるため、いつアクセスしても同じ経過時間なら同じ結果になる。
 import {
   evolveCost,
   highestUnlockedTier,
   isTierUnlocked,
+  levelMultiplier,
   LINE_IDS,
   LINES,
   tierDef,
@@ -14,30 +15,37 @@ import {
   type LineId,
 } from "../catalog";
 import {
-  AUTO_MAX_WAIT_HOURS,
   BUILDING_LEVEL_CAP,
-  DEV_BUILD,
-  DEV_EVOLVE,
-  DEV_LEVEL_UP,
-  DEV_PER_HOUR,
-  DEV_POP_STEP,
+  CONCURRENT_JOBS,
+  DAY,
+  DEV_POINTS_PER_BASE,
+  FUND_PRICE_ALPHA,
+  DISCOUNT_MAX,
+  DISCOUNT_PER_BUILDING,
   expandCost,
   expandMinutes,
+  FUND_PRICE_KAPPA,
   GOLD_RESOURCE_VALUE,
   HAPPINESS_EASE_HOUR,
   HOUR,
   HOUSING_VACANCY_TARGET,
   INITIAL_PLOTS,
   MINUTE,
+  MOVE_IN_PER_HOUR,
+  PLOT_COST_GROWTH,
   PLOT_SIZE,
+  RENEWAL_DAYS,
+  RENEWAL_EVOLVE_RATE,
+  TECH_ERAS,
   TICK_MS,
 } from "../config";
 import { devLevel } from "../levels";
 import { coverPlans, firstShort, type PlanQueue, type QueuePlan } from "../planQueue";
 import type { Zone } from "../catalog";
-import { snapBuilding, type Building, type CityEvent, type CityState, type Gains, type Job, type NeedKey } from "../types";
+import { NEED_ORDER, snapBuilding, type Building, type CityEvent, type CityState, type Gains, type Job, type NeedKey } from "../types";
+import { active, clearEffects, maybeDisaster, reopenDue } from "./disasters";
 import { computeMetrics, type Metrics } from "./economy";
-import { choosePlot, findSite, occupancy, placeWaitingSpecials, plotCross, plotsUsed, siteCache, tileKey, type SiteCache } from "./layout";
+import { choosePlot, findSite, occupancy, placeWaitingSpecials, plotCross, plotsUsed, pollutionPairs, siteCache, tileKey, type SiteCache } from "./layout";
 
 export const alignTick = (t: number) => Math.floor(t / TICK_MS) * TICK_MS;
 
@@ -60,32 +68,33 @@ export function simulate(s: CityState, until: number, events: CityEvent[]): void
 }
 
 /**
- * 1ティック進める。devMultiplier（債券倍率）は時間発展にだけ掛ける。
- * 建設時間・人口増加・建設完了などの発展ptは変えない。
+ * 1ティック進める。街は自分では稼がない：建設資金（treasury）は貯金からだけ入り（idle.ts）、
+ * ここでは工事の完了・食料・幸福度・人口と、建設資金での計画の消化だけを行う（GRW-01）。
  */
-export function tick(s: CityState, end: number, events: CityEvent[], devMultiplier = 1) {
+export function tick(s: CityState, end: number, events: CityEvent[]) {
+  // 悪い出来事（docs/savings-driven-growth.md §10）：休業の再開 → 今のティックに起きる出来事
+  reopenDue(s, end, events);
+  maybeDisaster(s, end, events, (c, b) => priceOf(c, tierDef(b.line!, b.tier).cost));
   completeJobs(s, end, events);
 
-  const m = computeMetrics(s);
+  const board = siteCache(s);
+  const m = computeMetrics(s, (board.pollution ??= pollutionPairs(s)));
   const dtH = TICK_MS / HOUR;
 
   const available = s.stock.food + m.production.food * dtH;
   const need = m.foodUse * dtH;
   const foodRatio = need > 0 ? Math.min(1, available / need) : 1;
   s.stock.food = Math.max(0, available - need);
-  s.stock.wood += m.production.wood * dtH;
-  s.stock.stone += m.production.stone * dtH;
-  s.treasury += m.production.treasury * dtH;
 
   s.happiness += (m.happinessTarget - s.happiness) * Math.min(1, HAPPINESS_EASE_HOUR * dtH);
 
-  // 人口は減らさない（街を壊さない）。住宅が減った場合のみ上限に合わせる
-  s.population = Math.min(m.housingCap, s.population + m.growth * foodRatio * dtH);
-  s.population = Math.max(0, s.population);
+  // 人口は住宅の空きに移り住んで増える（GRW-09）。減らさない（街を壊さない）
+  if (s.population < m.housingCap) {
+    s.population = Math.min(m.housingCap, s.population + (m.housingCap - s.population) * Math.min(1, MOVE_IN_PER_HOUR * dtH) * foodRatio);
+  }
   if (s.population > s.peakPopulation) {
     const before = s.peakPopulation;
     s.peakPopulation = s.population;
-    s.devPoints += Math.floor(s.population / DEV_POP_STEP) - Math.floor(before / DEV_POP_STEP);
     const step = 25;
     if (Math.floor(s.population / step) > Math.floor(before / step)) {
       events.push({
@@ -98,16 +107,14 @@ export function tick(s: CityState, end: number, events: CityEvent[], devMultipli
     }
   }
 
-  const devBefore = devLevel(s.devPoints);
-  s.devPoints += DEV_PER_HOUR * dtH * m.operation * devMultiplier;
-  emitDevLevel(s, devBefore, end, events);
-
   const foodShort = foodRatio < 1;
   const powerShort = m.powerRatio < 1;
   shortageEvent(s, "food", foodShort, end, events);
   shortageEvent(s, "power", powerShort, end, events);
 
-  if (s.policy.autoEnabled) autoDevelop(s, computeMetrics(s), end);
+  develop(s, end);
+  reportRenewal(s, end, events);
+  clearEffects(s, end);
   s.simTime = end;
 }
 
@@ -135,16 +142,21 @@ function bump(s: CityState, key: string, value: number): boolean {
   return false;
 }
 
-/** 実績の最高記録を超えたときだけ発展ポイントを加算する（建設・撤去の繰り返し対策） */
+/** 建築実績の最高記録を更新する（タイムラプス・表示用。発展ptは完成した計画の値段で数える：addCompleted） */
 export function creditBuild(s: CityState, b: Building, kind: "build" | "upgrade" | "evolve") {
   if (!b.line) return;
   const same = s.buildings.filter((o) => o.line === b.line);
+  if (kind === "build") bump(s, `n:${b.line}`, same.length);
+  if (kind === "evolve") bump(s, `t:${b.line}:${b.tier}`, same.filter((o) => o.tier === b.tier).length);
+  if (kind === "upgrade") bump(s, `lv:${b.line}`, same.reduce((a, o) => a + o.level, 0));
+}
+
+/** 完成した計画の値段を累計に足し、発展ptを求め直す（GRW-04） */
+export function addCompleted(s: CityState, price: number, at: number, events: CityEvent[]) {
   const before = devLevel(s.devPoints);
-  if (kind === "build" && bump(s, `n:${b.line}`, same.length)) s.devPoints += DEV_BUILD;
-  if (kind === "evolve" && bump(s, `t:${b.line}:${b.tier}`, same.filter((o) => o.tier === b.tier).length))
-    s.devPoints += DEV_EVOLVE;
-  if (kind === "upgrade" && bump(s, `lv:${b.line}`, same.reduce((a, o) => a + o.level, 0))) s.devPoints += DEV_LEVEL_UP;
-  return before;
+  s.completed += price;
+  s.devPoints = (s.completed / s.base) * DEV_POINTS_PER_BASE;
+  emitDevLevel(s, before, at, events);
 }
 
 /**
@@ -164,22 +176,26 @@ function openPlot(s: CityState, job: Job, at: number, events: CityEvent[]) {
   const roads: Building[] = [];
   for (const t of cross) {
     if (occ.has(tileKey(t.x, t.y))) continue;
-    const road: Building = { id: newId(s), line: "road", tier: job.tier, level: 1, x: t.x, y: t.y, locked: false, manual: !job.auto, builtAt: at };
+    const road: Building = { id: newId(s), line: "road", tier: job.tier, level: 1, x: t.x, y: t.y, builtAt: at };
     s.buildings.push(road);
     roads.push(road);
   }
   const count = s.buildings.filter((b) => b.line === "road").length;
   s.peaks["n:road"] = Math.max(s.peaks["n:road"] ?? 0, count);
-  events.push({ at, type: "PLOT_EXPANDED", auto: job.auto, important: true, payload: { plot, zone: job.zone ?? null, roads: roads.map(snapBuilding) } });
+  events.push({ at, type: "PLOT_EXPANDED", auto: true, important: true, payload: { plot, zone: job.zone ?? null, roads: roads.map(snapBuilding) } });
   // 場所が足りずにマップ外で待っていた公園・像を置く
   placeWaitingSpecials(s);
 }
 
 export function finishJob(s: CityState, job: Job, at: number, events: CityEvent[]) {
   s.jobs = s.jobs.filter((j) => j.id !== job.id);
-  if (job.kind === "expand") return openPlot(s, job, at, events);
+  if (job.kind === "expand") openPlot(s, job, at, events);
+  else completeBuilding(s, job, at, events);
+  if (job.price) addCompleted(s, job.price, at, events);
+}
+
+function completeBuilding(s: CityState, job: Job, at: number, events: CityEvent[]) {
   let b: Building | undefined;
-  let before: number | undefined;
   if (job.kind === "build") {
     b = {
       id: job.buildingId,
@@ -188,40 +204,38 @@ export function finishJob(s: CityState, job: Job, at: number, events: CityEvent[
       level: 1,
       x: job.x,
       y: job.y,
-      locked: false,
-      manual: !job.auto,
       builtAt: at,
     };
     s.buildings.push(b);
-    before = creditBuild(s, b, "build");
-    events.push({ at, type: "BUILD", auto: job.auto, important: true, payload: { building: snapBuilding(b), name: buildingName(b) } });
+    creditBuild(s, b, "build");
+    events.push({ at, type: "BUILD", auto: true, important: true, payload: { building: snapBuilding(b), name: buildingName(b) } });
   } else {
     b = s.buildings.find((o) => o.id === job.buildingId);
     if (!b) return;
     if (job.kind === "upgrade") {
       b.level = job.level;
-      before = creditBuild(s, b, "upgrade");
+      creditBuild(s, b, "upgrade");
       events.push({
         at,
         type: "UPGRADE",
-        auto: job.auto,
+        auto: true,
         important: true,
         payload: { building: snapBuilding(b), name: buildingName(b), level: b.level },
       });
     } else {
       const from = buildingName(b);
       b.tier = job.tier;
-      before = creditBuild(s, b, "evolve");
+      creditBuild(s, b, "evolve");
+      if (job.renewal && s.renewal) s.renewal.evolved++;
       events.push({
         at,
         type: "EVOLVE",
-        auto: job.auto,
+        auto: true,
         important: true,
         payload: { building: snapBuilding(b), from, to: buildingName(b) },
       });
     }
   }
-  if (before !== undefined) emitDevLevel(s, before, at, events);
 }
 
 function completeJobs(s: CityState, end: number, events: CityEvent[]) {
@@ -231,9 +245,9 @@ function completeJobs(s: CityState, end: number, events: CityEvent[]) {
   for (const job of due) finishJob(s, job, Math.max(job.finishAt, end - TICK_MS), events);
 }
 
-// ---- 自律型開発システム ----
+// ---- 街の発展 ----
 
-interface Plan {
+export interface Plan {
   kind: Job["kind"];
   line: LineId;
   tier: number;
@@ -247,40 +261,83 @@ interface Plan {
   minutes: number;
 }
 
-export function canAfford(s: CityState, cost: Cost, useTreasury: boolean): boolean {
-  return s.stock.wood >= cost.wood && s.stock.stone >= cost.stone && (!useTreasury || s.treasury >= cost.treasury);
-}
+// ---- 値段（docs/savings-driven-growth.md §6） ----
 
-/** 不足分を内部生産で貯めるのにかかる時間（時間） */
-function waitHours(s: CityState, m: Metrics, cost: Cost): number {
-  const parts: [number, number][] = [
-    [cost.wood - s.stock.wood, m.production.wood],
-    [cost.stone - s.stock.stone, m.production.stone],
-    [cost.treasury - s.treasury, m.production.treasury],
-  ];
-  let h = 0;
-  for (const [deficit, rate] of parts) {
-    if (deficit <= 0) continue;
-    if (rate <= 1e-9) return Infinity;
-    h = Math.max(h, deficit / rate);
-  }
-  return h;
+/** カタログの相対コスト（木材 ÷10 ＋ 石材 ÷5 ＋ 都市資金 ÷10。以前の金貨1枚あたりの交換量で換算） */
+export const relCost = (c: Cost) =>
+  c.wood / GOLD_RESOURCE_VALUE.wood + c.stone / GOLD_RESOURCE_VALUE.stone + c.treasury / GOLD_RESOURCE_VALUE.treasury;
+
+/** 建設費の割引：木材加工所・石材加工所・工場1棟あたり DISCOUNT_PER_BUILDING、上限 DISCOUNT_MAX（GRW-05） */
+export function discountRate(s: CityState): number {
+  const n = s.buildings.filter((b) => !b.closed && (b.line === "lumber" || b.line === "quarry" || b.line === "factory")).length;
+  return Math.min(DISCOUNT_MAX, n * DISCOUNT_PER_BUILDING);
 }
 
 /**
- * 工事中のジョブがすべて終わったものとした指標。自動開発の判断と計画列に使う
+ * 値段の係数 κ、相対コストに掛ける指数 α（docs/saving-habit-balance.md PAC-01）、区画の開拓費の伸び（PAC-03）。
+ * ふだんは config.ts の値のまま（scripts/balance.ts が試算のときだけ変える）
+ */
+export const pricing = { kappa: FUND_PRICE_KAPPA, alpha: FUND_PRICE_ALPHA, plotGrowth: PLOT_COST_GROWTH };
+
+/** 計画の値段（円）＝ 相対コスト^α × 基準額 × κ ×（1 − 割引）（PRC-01）。資材の値上がり（EVT-03）の間は上がる。1円以上 */
+export function priceOf(s: CityState, cost: Cost): number {
+  const surge = active(s.effects?.surge, s.simTime) ? 1 + s.effects!.surge!.rate : 1;
+  const rel = pricing.alpha === 1 ? relCost(cost) : relCost(cost) ** pricing.alpha;
+  return Math.max(1, Math.ceil(rel * s.base * pricing.kappa * (1 - discountRate(s)) * surge));
+}
+
+/**
+ * 技術の更新（docs/saving-habit-balance.md TEC-02）。技術Lvが上がってから days 日の間は、
+ * 不足の解消のすぐあとに建て替え（efficiency）を回し、建て替えの値段に evolveRate を掛ける（0 なら無料）。
+ * ふだんは config.ts の値のまま（scripts/balance.ts が試算のときだけ変える。days が 0 なら更新しない）
+ */
+export const renewal = { days: RENEWAL_DAYS, evolveRate: RENEWAL_EVOLVE_RATE };
+
+const RENEWAL_ORDER: NeedKey[] = ["shortage", "efficiency", ...NEED_ORDER.filter((n) => n !== "shortage" && n !== "efficiency")];
+
+/** その時刻の計画の順（技術の更新の間は建て替えを先にする） */
+export function needOrder(s: Pick<CityState, "renewal">, now: number): NeedKey[] {
+  return renewing(s, now) ? RENEWAL_ORDER : NEED_ORDER;
+}
+
+/** 技術の更新の間か（TEC-02） */
+export function renewing(s: Pick<CityState, "renewal">, now: number): boolean {
+  const r = s.renewal;
+  return !!r && now >= r.from && now < r.until;
+}
+
+/** 計画の値段（技術の更新の間の建て替えは evolveRate を掛ける） */
+export function planPrice(s: CityState, plan: Pick<Plan, "kind" | "cost">, now: number): number {
+  if (plan.kind === "evolve" && renewal.evolveRate !== 1 && renewing(s, now)) return Math.ceil(priceOf(s, plan.cost) * renewal.evolveRate);
+  return priceOf(s, plan.cost);
+}
+
+/** 技術の更新の終わり：更新の間に始めた建て替えがすべて終わったら、建て替えた数を知らせる（TEC-04） */
+function reportRenewal(s: CityState, at: number, events: CityEvent[]) {
+  const r = s.renewal;
+  if (!r || r.reported || at < r.until || s.jobs.some((j) => j.renewal)) return;
+  r.reported = true;
+  events.push({ at, type: "RENEWED", auto: true, important: true, payload: { level: r.level, era: TECH_ERAS[r.level - 1], evolved: r.evolved } });
+}
+
+/**
+ * 工事中のジョブがすべて終わったものとした指標。発展の判断と計画列に使う
  * （工事中の分を足りないと数えると、同じ不足に何件も建てて作りすぎる）
  */
 export function plannedMetrics(s: CityState): Metrics {
-  if (s.jobs.length === 0) return computeMetrics(s);
+  // 住宅と工業の隣接は盤面（工事中の新築を含む）だけで決まるので、盤面が変わるまで使い回す
+  const board = siteCache(s);
+  if (s.jobs.length === 0) return computeMetrics(s, (board.pollution ??= pollutionPairs(s)));
+  const byBuilding = new Map(s.jobs.map((j) => [j.buildingId, j]));
   const buildings = s.buildings.map((b) => {
-    const j = s.jobs.find((j) => j.buildingId === b.id);
+    const j = byBuilding.get(b.id);
     if (!j) return b;
     return j.kind === "upgrade" ? { ...b, level: j.level } : j.kind === "evolve" ? { ...b, tier: j.tier } : b;
   });
   for (const j of s.jobs)
-    if (j.kind === "build") buildings.push({ id: j.buildingId, line: j.line, tier: j.tier, level: 1, x: j.x, y: j.y, locked: false, manual: !j.auto, builtAt: j.finishAt });
-  return computeMetrics({ ...s, buildings });
+    if (j.kind === "build") buildings.push({ id: j.buildingId, line: j.line, tier: j.tier, level: 1, x: j.x, y: j.y, builtAt: j.finishAt });
+  const planned = { ...s, buildings };
+  return computeMetrics(planned, (board.plannedPollution ??= pollutionPairs(planned)));
 }
 
 const busy = (s: CityState, id: string) => s.jobs.some((j) => j.buildingId === id);
@@ -312,14 +369,14 @@ export function nextPlotIndex(s: CityState): number {
  */
 export function plotCost(s: CityState): Cost {
   const n = nextPlotIndex(s);
-  return expandCost(n, n >= 2 && highestUnlockedTier("quarry", s.techLevel, devLevel(s.devPoints)) >= 0);
+  return expandCost(n, n >= 2 && highestUnlockedTier("quarry", s.techLevel, devLevel(s.devPoints)) >= 0, pricing.plotGrowth);
 }
 
 /**
- * 区画の開拓の計画（自動開発。Q9）。同時に開拓するのは1区画まで。開く区画には、土地を求めた建物の用途を付ける
+ * 区画の開拓の計画（Q9）。同時に開拓するのは1区画まで。開く区画には、土地を求めた建物の用途を付ける
  */
 function expandPlan(s: CityState, dev: number, zone: Zone | null, cache?: SiteCache): Plan | null {
-  if (s.policy.autoExpand === false || s.jobs.some((j) => j.kind === "expand")) return null;
+  if (s.jobs.some((j) => j.kind === "expand")) return null;
   const plot = choosePlot(s, zone, cache);
   if (!plot) return null;
   const n = nextPlotIndex(s);
@@ -328,10 +385,17 @@ function expandPlan(s: CityState, dev: number, zone: Zone | null, cache?: SiteCa
   return { kind: "expand", line: "road", tier, level: 1, site: { x: px * PLOT_SIZE, y: py * PLOT_SIZE }, plot, zone: zone ?? undefined, cost: plotCost(s), minutes: expandMinutes(n) };
 }
 
+/** 建て替えで増える電力の需要が、今の電力の余りに収まるか（工事中の分を含めた指標 m で見る） */
+function powerFits(m: Metrics, p: Plan): boolean {
+  if (p.kind !== "evolve" || p.line === "power" || !p.building) return true;
+  const more = ((tierDef(p.line, p.tier).power ?? 0) - (tierDef(p.line, p.building.tier).power ?? 0)) * levelMultiplier(p.building.level);
+  return more <= 0 || m.powerDemand + more <= m.powerSupply + 1e-9;
+}
+
 function evolvePlans(s: CityState, lines: LineId[], dev: number): Plan[] {
   const out: Plan[] = [];
   const candidates = s.buildings
-    .filter((b) => b.line && lines.includes(b.line) && !b.locked && !busy(s, b.id))
+    .filter((b) => b.line && lines.includes(b.line) && !busy(s, b.id))
     .filter((b) => isTierUnlocked(b.line!, b.tier + 1, s.techLevel, dev))
     .sort((a, b) => lines.indexOf(a.line!) - lines.indexOf(b.line!) || a.tier - b.tier || a.builtAt - b.builtAt || a.id.localeCompare(b.id));
   for (const b of candidates) {
@@ -344,7 +408,7 @@ function evolvePlans(s: CityState, lines: LineId[], dev: number): Plan[] {
 function upgradePlans(s: CityState, lines: LineId[], dev: number): Plan[] {
   const cap = levelCap(dev);
   return s.buildings
-    .filter((b) => b.line && lines.includes(b.line) && !b.locked && !busy(s, b.id) && b.level < cap)
+    .filter((b) => b.line && lines.includes(b.line) && !busy(s, b.id) && b.level < cap)
     .sort((a, b) => a.level - b.level || lines.indexOf(a.line!) - lines.indexOf(b.line!) || a.id.localeCompare(b.id))
     .map((b) => ({
       kind: "upgrade" as const,
@@ -359,26 +423,35 @@ function upgradePlans(s: CityState, lines: LineId[], dev: number): Plan[] {
 
 const PRODUCERS: LineId[] = ["farm", "factory", "commerce", "office", "lumber", "quarry", "power"];
 const EVOLVE_ORDER: LineId[] = ["farm", "housing", "factory", "commerce", "power", "road", "school", "culture", "office"];
+/** 雇用のために建て替え・増築する仕事場 */
+const WORKPLACES: LineId[] = ["factory", "commerce", "office"];
 const NEW_INDUSTRY: LineId[] = ["quarry", "factory", "commerce", "school", "clinic", "culture", "rail", "logistics", "office", "future"];
 
-/** 必要事項ごとの候補（上から順に検討する） */
-function plansFor(need: NeedKey, s: CityState, m: Metrics, dev: number, cache = siteCache()): Plan[] {
+/** 必要事項ごとの候補（上から順に検討する）。scripts/balance.ts も使う */
+export function plansFor(need: NeedKey, s: CityState, m: Metrics, dev: number, cache = siteCache()): Plan[] {
   const plans: (Plan | null)[] = [];
   const buildPlan = (s: CityState, line: LineId, dev: number) => buildPlanAt(s, line, dev, cache);
   const pop = s.population;
   switch (need) {
     case "shortage": {
+      // 電力を食料より先にする。電力が足りない間は、電力を使う段階への農場の進化をしない（GRW-07）
+      const powerShort = m.powerDemand > m.powerSupply + 1e-9;
+      if (powerShort) plans.push(buildPlan(s, "power", dev), ...evolvePlans(s, ["power"], dev), ...upgradePlans(s, ["power"], dev));
       const foodLow = m.production.food < m.foodUse * 1.05 && s.stock.food < m.foodUse * 24;
-      if (foodLow) plans.push(...evolvePlans(s, ["farm"], dev), buildPlan(s, "farm", dev), ...upgradePlans(s, ["farm"], dev));
-      if (m.powerDemand > m.powerSupply + 1e-9)
-        plans.push(buildPlan(s, "power", dev), ...evolvePlans(s, ["power"], dev), ...upgradePlans(s, ["power"], dev));
+      if (foodLow) {
+        // 働き手が足りない間は農場を増やさず（増やすほど働き手が足りなくなる）、住宅を先にする
+        const laborShort = m.laborRatio < 0.95;
+        if (laborShort) plans.push(...plansFor("housing", s, m, dev, cache));
+        plans.push(...evolvePlans(s, ["farm"], dev).filter((p) => !(powerShort && tierDef(p.line, p.tier).power)));
+        if (!laborShort) plans.push(buildPlan(s, "farm", dev), ...upgradePlans(s, ["farm"], dev));
+      }
       if (m.production.wood < 0.5) plans.push(buildPlan(s, "lumber", dev));
       if (m.production.stone < 0.3 && highestUnlockedTier("quarry", s.techLevel, dev) >= 0) plans.push(buildPlan(s, "quarry", dev));
       break;
     }
     case "jobs": {
       if (m.labor <= m.jobSlots + 0.5) break;
-      const commerceFirst = s.policy.preset === "commerce" || m.commerceCap < pop;
+      const commerceFirst = m.commerceCap < pop;
       const order: LineId[] = commerceFirst
         ? ["commerce", "office", "factory", "quarry", "lumber", "farm"]
         : ["factory", "commerce", "office", "quarry", "lumber", "farm"];
@@ -387,12 +460,15 @@ function plansFor(need: NeedKey, s: CityState, m: Metrics, dev: number, cache = 
         if (line === "farm" && m.production.food > m.foodUse * 2) continue;
         plans.push(buildPlan(s, line, dev));
       }
+      // 区画の上限に当たって新築できなくても雇用を増やせるよう、仕事場の建て替えと増築も候補にする
+      // （住宅は建て替え・増築で上に伸びるので、仕事場も伸ばさないと働き口が足りなくなる。docs/saving-habit-balance.md §12）
+      plans.push(...evolvePlans(s, WORKPLACES, dev), ...upgradePlans(s, WORKPLACES, dev));
       break;
     }
     case "housing": {
       const vacancy = m.housingCap > 0 ? (m.housingCap - pop) / m.housingCap : 0;
       if (vacancy >= HOUSING_VACANCY_TARGET || m.employment < 0.9) break;
-      plans.push(buildPlan(s, "housing", dev), ...evolvePlans(s, ["housing"], dev), ...upgradePlans(s, ["housing"], dev));
+      plans.push(buildPlan(s, "housing", dev), ...evolvePlans(s, ["housing"], dev).filter((p) => powerFits(m, p)), ...upgradePlans(s, ["housing"], dev));
       break;
     }
     case "logistics": {
@@ -403,7 +479,14 @@ function plansFor(need: NeedKey, s: CityState, m: Metrics, dev: number, cache = 
       break;
     }
     case "efficiency": {
-      plans.push(...evolvePlans(s, EVOLVE_ORDER, dev));
+      // 働き口が足りない間は住宅を建て替えない（技術の更新の間は、街を一斉に新しくするので建て替える。TEC-02）
+      const lines = m.employment < 0.9 && !renewing(s, s.simTime) ? EVOLVE_ORDER.filter((l) => l !== "housing") : EVOLVE_ORDER;
+      // 電力の余りを超えて電力を使う段階には建て替えない（技術の更新で一斉に建て替えると、発電所がないまま農場が止まる。GRW-07）。
+      // 電力が足りずに待つ建て替えがあれば、収まる建て替えのあとに発電所を建てる（建てば次の計画で建て替えられる）
+      const evolves = evolvePlans(s, lines, dev);
+      const fits = evolves.filter((p) => powerFits(m, p));
+      plans.push(...fits);
+      if (fits.length < evolves.length) plans.push(buildPlan(s, "power", dev), ...evolvePlans(s, ["power"], dev), ...upgradePlans(s, ["power"], dev));
       plans.push(...upgradePlans(s, PRODUCERS, dev).slice(0, 3));
       break;
     }
@@ -413,7 +496,9 @@ function plansFor(need: NeedKey, s: CityState, m: Metrics, dev: number, cache = 
     }
     case "beautify": {
       if (pop > m.publicCap) plans.push(buildPlan(s, "school", dev), buildPlan(s, "clinic", dev), buildPlan(s, "culture", dev));
-      plans.push(...upgradePlans(s, ["housing", "school", "culture", "clinic"], dev).slice(0, 2));
+      // 働き口が足りない間は、景観のために住宅を増築しない（人が増えるほど働き口が足りなくなる）
+      const lines: LineId[] = m.employment < 0.9 ? ["school", "culture", "clinic"] : ["housing", "school", "culture", "clinic"];
+      plans.push(...upgradePlans(s, lines, dev).slice(0, 2));
       break;
     }
   }
@@ -422,13 +507,13 @@ function plansFor(need: NeedKey, s: CityState, m: Metrics, dev: number, cache = 
 
 // ---- 計画列と必要資源（docs/needs-based-exchange.md §4） ----
 
-/** 計画列の具体的な計画：方針の優先順に全項目の候補を並べ、同じ建物の重複を除く */
+/** 計画列の具体的な計画：決まった順（NEED_ORDER）に全項目の候補を並べ、同じ建物の重複を除く */
 function concretePlans(s: CityState): Plan[] {
   const m = plannedMetrics(s);
   const seen = new Set<string>();
   const out: Plan[] = [];
-  const cache = siteCache();
-  for (const need of s.policy.priorities) {
+  const cache = siteCache(s);
+  for (const need of needOrder(s, s.simTime)) {
     for (const plan of plansFor(need, s, m, m.devLevel, cache)) {
       const key = plan.kind === "build" ? `build:${plan.line}` : plan.kind === "expand" ? "expand" : `${plan.kind}:${plan.building!.id}`;
       if (seen.has(key)) continue;
@@ -439,17 +524,18 @@ function concretePlans(s: CityState): Plan[] {
   return out;
 }
 
-const goldValue = (c: Pick<Cost, "wood" | "stone">) => c.wood / GOLD_RESOURCE_VALUE.wood + c.stone / GOLD_RESOURCE_VALUE.stone;
+/** 値段（円）を建設資金の列に入れた Cost（木材・石材は使わない） */
+const fundCost = (price: number): Cost => ({ wood: 0, stone: 0, treasury: price });
 
-/** 拡張計画1件：解放済みの新築のうち、木材＋石材の金貨換算が最も高いもの */
+/** 拡張計画1件：解放済みの新築のうち、値段が最も高いもの（cost は値段を建設資金に入れたもの） */
 export function expansionPlan(s: CityState, dev: number): { line: LineId; tier: number; cost: Cost } {
-  let best = { line: "housing" as LineId, tier: 0, cost: tierDef("housing", 0).cost };
+  let best = { line: "housing" as LineId, tier: 0, rel: relCost(tierDef("housing", 0).cost) };
   for (const line of LINE_IDS) {
     LINES[line].tiers.forEach((t, tier) => {
-      if (isTierUnlocked(line, tier, s.techLevel, dev) && goldValue(t.cost) > goldValue(best.cost)) best = { line, tier, cost: t.cost };
+      if (isTierUnlocked(line, tier, s.techLevel, dev) && relCost(t.cost) > best.rel) best = { line, tier, rel: relCost(t.cost) };
     });
   }
-  return best;
+  return { line: best.line, tier: best.tier, cost: fundCost(priceOf(s, tierDef(best.line, best.tier).cost)) };
 }
 
 /** 計画列：具体的な計画と、そのあとに無限に続く拡張計画1件分。街の状態は変えない */
@@ -463,11 +549,14 @@ export function planQueue(s: CityState, m: Metrics = computeMetrics(s)): PlanQue
     cost: p.cost,
   });
   const x = expansionPlan(s, m.devLevel);
-  return { plans: concretePlans(s).map(q), expansion: q({ kind: "build", line: x.line, tier: x.tier, level: 1, cost: x.cost }) };
+  return {
+    plans: concretePlans(s).map((p) => q({ ...p, cost: fundCost(planPrice(s, p, s.simTime)) })),
+    expansion: q({ kind: "build", line: x.line, tier: x.tier, level: 1, cost: x.cost }),
+  };
 }
 
 export interface CityNeeds {
-  /** 必要資源（木材・石材・都市資金は計画列の不足分、食料は24時間分の不足分） */
+  /** 必要な建設資金（計画列の不足分。treasury だけを使う。食料はお金では買わない：GRW-02） */
   needs: Gains;
   /** 在庫が最初に足りなくなる計画。expansion なら拡張計画 */
   next: { kind: Job["kind"]; line: LineId; tier: number; level: number; name: string; expansion: boolean };
@@ -479,55 +568,58 @@ export interface CityNeeds {
  * 最初に足りなくなった計画の不足分を木材・石材・都市資金の必要量とする。街の状態は変えない。
  */
 export function cityNeeds(s: CityState, m: Metrics = computeMetrics(s)): CityNeeds {
-  const food = Math.max(0, m.foodUse * 24 - (s.stock.food + m.production.food * 24));
   const queue = planQueue(s, m);
-  const { coverage, expansion } = firstShort(coverPlans(queue, { wood: s.stock.wood, stone: s.stock.stone, treasury: s.treasury }));
+  const { coverage, expansion } = firstShort(coverPlans(queue, { wood: 0, stone: 0, treasury: s.treasury }));
   const p = coverage.plan;
   return {
-    needs: { wood: coverage.short.wood, stone: coverage.short.stone, food, treasury: coverage.short.treasury },
+    needs: { wood: 0, stone: 0, food: 0, treasury: coverage.short.treasury },
     next: { kind: p.kind, line: p.line, tier: p.tier, level: p.level, name: p.name, expansion },
     queue,
   };
 }
 
 /**
- * 自動開発のジョブを開始する。1ティックに、方針の優先順で、払える限り何件でも始める。
- * 足りないものは工事中の分も終わったものとして判断する（plannedMetrics）。m は待つ時間の見積もりに使う今の指標
+ * 街の工事を開始する。決まった順（NEED_ORDER）の計画列を先頭から建設資金で消化する（GRW-03）。
+ * 先頭の計画が払えなければ、そこで止めて貯める（後ろの安い計画に回さない）。同時に進める工事は発展Lvごとに CONCURRENT_JOBS まで。
+ * 街はこの1つの手順だけで発展する（プレイヤーが建物を建てたり、方針を決めたりはしない）。
+ * 足りないものは工事中の分も終わったものとして判断する（plannedMetrics）
  */
-export function autoDevelop(s: CityState, m: Metrics, now: number): void {
-  const dev = m.devLevel;
-  let cache = siteCache();
+export function develop(s: CityState, now: number): void {
+  // 台風の間は工事を始めない（EVT-03）
+  if ((s.effects?.pauseUntil ?? 0) > now) return;
+  const dev = devLevel(s.devPoints);
+  const limit = CONCURRENT_JOBS[dev - 1] ?? CONCURRENT_JOBS[CONCURRENT_JOBS.length - 1];
+  // 工事の空きがない・建設資金が1円もない（値段は1円以上）なら、計画を立てても何も始められない。
+  // 計画（場所探し）はティックで一番重いので、立てる前に返す
+  // 技術の更新の間は、建設資金がなくても無料の建て替えは始められる
+  if (s.jobs.length >= limit || (s.treasury < 1 && !(renewing(s, now) && renewal.evolveRate === 0))) return;
+  let cache = siteCache(s);
   let pm = plannedMetrics(s);
-  for (const need of s.policy.priorities) {
+  for (const need of needOrder(s, now)) {
     // 始めたジョブの分だけ候補が変わるので、何も始められなくなるまで候補を出し直す
     for (let started = true; started; ) {
       started = false;
       for (const plan of plansFor(need, s, pm, dev, cache)) {
-        if (canAfford(s, plan.cost, true)) {
-          // 景観改善は余剰資金があるときだけ
-          if (need === "beautify" && s.treasury - plan.cost.treasury < 500) return;
-          startJob(s, plan, now, true);
-          // 盤面と完成後の指標が変わったので、場所と指標は出し直す
-          cache = siteCache();
-          pm = plannedMetrics(s);
-          started = true;
-          break;
-        }
-        // 近いうちに払えるなら下位の項目に資金を流さずに貯める
-        if (need !== "beautify" && waitHours(s, m, plan.cost) <= AUTO_MAX_WAIT_HOURS) return;
+        if (s.jobs.length >= limit) return;
+        const price = planPrice(s, plan, now);
+        if (s.treasury < price) return;
+        startJob(s, plan, price, now);
+        // 盤面と完成後の指標が変わったので、場所と指標は出し直す
+        cache = siteCache(s);
+        pm = plannedMetrics(s);
+        started = true;
+        break;
       }
     }
   }
 }
 
-export function startJob(s: CityState, plan: Plan, now: number, auto: boolean): Job {
-  s.stock.wood -= plan.cost.wood;
-  s.stock.stone -= plan.cost.stone;
-  if (auto) s.treasury -= plan.cost.treasury;
+function startJob(s: CityState, plan: Plan, price: number, now: number): Job {
+  const renewalJob = plan.kind === "evolve" && renewing(s, now);
+  s.treasury -= price;
   const job: Job = {
     id: `j${s.nextId++}`,
     kind: plan.kind,
-    auto,
     line: plan.line,
     tier: plan.tier,
     level: plan.level,
@@ -538,6 +630,8 @@ export function startJob(s: CityState, plan: Plan, now: number, auto: boolean): 
     ...(plan.zone ? { zone: plan.zone } : {}),
     startedAt: now,
     finishAt: now + plan.minutes * MINUTE,
+    price,
+    ...(renewalJob ? { renewal: true } : {}),
   };
   s.jobs.push(job);
   return job;
@@ -546,8 +640,17 @@ export function startJob(s: CityState, plan: Plan, now: number, auto: boolean): 
 /** 技術Lvの反映。上昇時のみ解放イベントを出す（発展ポイントは付与しない） */
 export function applyTechLevel(s: CityState, level: number, at: number, events: CityEvent[]): void {
   if (level > s.techLevel) {
+    // 技術の更新（TEC-02）：上がってから renewal.days 日の間、街を一斉に建て替える。続けて上がったら、その時から数え直す
+    const renew = renewal.days > 0 ? { days: renewal.days, free: renewal.evolveRate === 0 } : null;
+    if (renew) s.renewal = { level, from: at, until: at + renew.days * DAY, evolved: s.renewal && !s.renewal.reported ? s.renewal.evolved : 0 };
     for (let lv = s.techLevel + 1; lv <= level; lv++) {
-      events.push({ at, type: "TECH_UNLOCKED", auto: false, important: true, payload: { level: lv, unlocks: unlocksAtTech(lv) } });
+      events.push({
+        at,
+        type: "TECH_UNLOCKED",
+        auto: false,
+        important: true,
+        payload: { level: lv, unlocks: unlocksAtTech(lv), era: TECH_ERAS[lv - 1], ...(renew && lv === level ? { renewalDays: renew.days, renewalFree: renew.free } : {}) },
+      });
     }
   }
   s.techLevel = level;

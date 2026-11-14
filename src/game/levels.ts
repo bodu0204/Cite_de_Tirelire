@@ -27,13 +27,13 @@ export function achievementRate(netSavings: number, goal: number): number {
 export interface SavingsParts {
   /** 債券（マイナス可） */
   bond: number;
-  /** 都市に使った金貨の累計（金貨 → 資源・都市資金。＋差分のおまかせ交換を含む） */
+  /** ゲーム内で使った金貨の累計（金貨 → 資源・都市資金・銀貨。＋差分のおまかせ交換を含む） */
   citySpent: number;
 }
 
 /**
- * 貯金額 ＝ 債券 ＋ 都市に使った金貨（docs/record-input-redesign.md §7.1）。
- * 金貨はゲーム内で使っても現実のお金は出ていかないので、都市に使った金貨はそのまま貯金になる。債券は現実の支払いに使うと減る。
+ * 貯金額 ＝ 債券 ＋ ゲーム内で使った金貨（docs/record-input-redesign.md §7.1）。
+ * 金貨はゲーム内で使っても現実のお金は出ていかないので、ゲーム内で使った金貨はそのまま貯金になる。債券は現実の支払いに使うと減る。
  * 技術Lv（最高到達額）・銀行Lv・目標達成の判定と表示はこの額で行う。債券がマイナスなら減らす。
  */
 export function savingsTotal(p: SavingsParts): number {
@@ -60,9 +60,18 @@ export function bankLevelBand(goal: number, lv: number): { from: number; next: n
   return { from, next: nextPct === undefined ? null : Math.round((goal * nextPct) / 100) };
 }
 
-/** 技術Lv：貯金額の最高到達額で決まる（D-7。債券を使って貯金額が下がっても下がらない） */
-export function techLevel(maxSavings: number): number {
-  return levelFrom(TECH_THRESHOLDS, maxSavings);
+/**
+ * 技術Lv：貯金額の最高到達額で決まる（D-7。債券を使って貯金額が下がっても下がらない）。
+ * 閾値は基準額（月間自由予算と目標額の小さいほう）の倍数（docs/savings-driven-growth.md PRC-03）
+ */
+export function techLevel(maxSavings: number, base: number): number {
+  return levelFrom(TECH_THRESHOLDS, maxSavings / Math.max(1, base));
+}
+
+/** 技術Lvの閾値を円で返す（表示用） */
+export function techThresholdYen(level: number, base: number): number | null {
+  const v = TECH_THRESHOLDS[level - 1];
+  return v === undefined ? null : Math.round(v * base);
 }
 
 export function devLevel(points: number): number {

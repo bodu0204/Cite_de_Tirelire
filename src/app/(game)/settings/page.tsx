@@ -2,10 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { useGame, useSeasonView } from "@/components/GameProvider";
-import { Button, Card, Field, Modal } from "@/components/ui";
-import { NEED_LABELS, POLICY_PRESETS } from "@/game/city/init";
-import type { NeedKey } from "@/game/types";
+import { useGame } from "@/components/GameProvider";
+import { Button, Card, Field, Modal, NumberInput } from "@/components/ui";
 import { api, ApiError, yen } from "@/lib/api";
 
 interface Overrun {
@@ -15,8 +13,7 @@ interface Overrun {
 
 export default function SettingsPage() {
   const router = useRouter();
-  const { view, act, toast, busy, refresh } = useGame();
-  const v = useSeasonView();
+  const { view, toast, busy, refresh } = useGame();
   const [budget, setBudget] = useState("");
   const [tz, setTz] = useState("");
   const [incomeDay, setIncomeDay] = useState("1");
@@ -31,16 +28,6 @@ export default function SettingsPage() {
       setIncomeDay(String(view.user.incomeDay));
     }
   }, [view]);
-
-  const policy = v?.city.policy;
-  const move = (i: number, d: -1 | 1) => {
-    if (!policy) return;
-    const p = [...policy.priorities];
-    const j = i + d;
-    if (j < 0 || j >= p.length) return;
-    [p[i], p[j]] = [p[j], p[i]];
-    act("/api/city", { type: "policy", priorities: p });
-  };
 
   return (
     <div className="mx-auto max-w-2xl space-y-4">
@@ -69,7 +56,7 @@ export default function SettingsPage() {
           }}
         >
           <Field label="月間自由予算（円）" hint="変更は今この時点からの配当額に反映されます。過去の配当分は変わりません。">
-            <input inputMode="numeric" value={budget} onChange={(e) => setBudget(e.target.value.replace(/\D/g, ""))} />
+            <NumberInput value={budget} onValueChange={setBudget} />
           </Field>
           <Field
             label="毎月の収入が入る日"
@@ -105,43 +92,6 @@ export default function SettingsPage() {
         </form>
       </Card>
 
-      {policy && (
-        <Card title="街の自動開発">
-          <label className="mb-3 flex items-center gap-2 text-sm">
-            <input type="checkbox" className="w-auto" checked={policy.autoEnabled} onChange={(e) => act("/api/city", { type: "policy", autoEnabled: e.target.checked })} />
-            自動開発を有効にする（無効にすると建設・アップグレードは手動だけになります）
-          </label>
-          {v?.city.v !== 1 && (
-            <label className="mb-3 flex items-center gap-2 text-sm">
-              <input type="checkbox" className="w-auto" checked={policy.autoExpand !== false} disabled={!policy.autoEnabled} onChange={(e) => act("/api/city", { type: "policy", autoExpand: e.target.checked })} />
-              建てる場所がない時は、自動開発で区画を開拓する（資材と都市資金を使います）
-            </label>
-          )}
-          <div className="mb-3 flex flex-wrap gap-2">
-            {(Object.keys(POLICY_PRESETS) as (keyof typeof POLICY_PRESETS)[]).map((k) => (
-              <Button key={k} variant={policy.preset === k ? "primary" : "secondary"} disabled={busy} onClick={() => act("/api/city", { type: "policy", preset: k })}>
-                {POLICY_PRESETS[k].label}
-              </Button>
-            ))}
-          </div>
-          <p className="mb-2 text-sm text-muted">優先順位（上ほど先に対応します）</p>
-          <ol className="space-y-1">
-            {policy.priorities.map((n: NeedKey, i: number) => (
-              <li key={n} className="flex items-center gap-2 rounded-lg bg-surface-2 px-3 py-1.5 text-sm">
-                <span className="num w-5 text-muted">{i + 1}</span>
-                <span className="flex-1">{NEED_LABELS[n]}</span>
-                <button aria-label="上へ" className="px-2 disabled:opacity-30" disabled={busy || i === 0} onClick={() => move(i, -1)}>
-                  ▲
-                </button>
-                <button aria-label="下へ" className="px-2 disabled:opacity-30" disabled={busy || i === policy.priorities.length - 1} onClick={() => move(i, 1)}>
-                  ▼
-                </button>
-              </li>
-            ))}
-          </ol>
-        </Card>
-      )}
-
       <Card title="データ">
         <div className="flex flex-wrap gap-2">
           <a href="/api/export" className="inline-flex min-h-10 items-center rounded-lg border border-line bg-surface-2 px-3.5 text-sm">
@@ -167,24 +117,31 @@ export default function SettingsPage() {
         <dl className="space-y-3 text-sm">
           <div>
             <dt className="font-semibold">街はどう育つ？</dt>
-            <dd className="text-muted">街は内部経済（人口・生産・都市資金）で自動的に発展します。金貨・銀貨を使わなくても育ち、手動で建てると速くなります。</dd>
+            <dd className="text-muted">街は自分では稼ぎません。使わなかったお金（債券に入れた金貨や、建設資金に替えた金貨）が建設資金になり、その分だけ工事が進みます。貯めた分は放っておいても数時間〜数日かけて形になります。シーズンの最初の2週間は、貯金が最大2倍の建設資金になります。</dd>
           </div>
           <div>
             <dt className="font-semibold">技術Lvの上げ方</dt>
             <dd className="text-muted">
-              貯金額（債券 ＋ 都市に使った金貨）だけで上がります。金貨はゲーム内で使っても現実のお金は出ていかないので、都市に使った分はそのまま貯金になります。このシーズンの貯金額の最高到達額で決まり、債券を使っても下がりません。
+              貯金額（債券 ＋ ゲーム内で使った金貨）だけで上がります。金貨はゲーム内で使っても現実のお金は出ていかないので、ゲーム内で使った分はそのまま貯金になります。このシーズンの貯金額の最高到達額で決まり、債券を使っても下がりません。
+              技術Lvが上がると新しい時代になり、3日間は建て替えが無料になって、街の建物が一斉に新しくなります。
+            </dd>
+          </div>
+          <div>
+            <dt className="font-semibold">街を広げるには</dt>
+            <dd className="text-muted">
+              こまめに貯金するほど街は広くなります。記録して貯金を確定した日（今日は支出なし、も含みます）が「貯金した日」になり、最初の7日は1日ごとに、そのあとは4日ごとに、開拓できる区画が1つ増えます。記録しなかった日も、自動で確定した7日分で1日に数えます。発展Lvが上がっても区画は増えます。
             </dd>
           </div>
           <div>
             <dt className="font-semibold">金貨と銀貨</dt>
             <dd className="text-muted">
-              金貨は自由予算から時間で配当され（1G＝1円相当）、購入はユーザ通貨・金貨の順に精算されます。銀貨は記録の報酬で、手動操作の手数料に使います。どちらもゲーム内の通貨で、換金はできません。
+              金貨は自由予算から時間で配当され（1G＝1円相当）、購入はユーザ通貨・金貨の順に精算されます。銀貨は記録の報酬で、悪い出来事の修繕、建物の装飾・命名（マスを選ぶと出ます）、タイムラプスの花火、手数料などに使います。債券（もしもの備え）を増やすと、備えLvごとに銀行のそばに防災倉庫・消防署・避難公園・銀行の金庫が建ちます。どちらもゲーム内の通貨で、換金はできません。
             </dd>
           </div>
           <div>
             <dt className="font-semibold">債券とユーザ通貨</dt>
             <dd className="text-muted">
-              債券は急な出費に備えるお金です。金貨が足りない購入を肩代わりし（使った額の10%・上限50Sの銀貨の手数料がかかります）、持っているほど街の時間発展が速くなります（最大1.5倍）。
+              債券は急な出費に備えるお金です。金貨が足りない購入を肩代わりし（使った額の10%・上限50Sの銀貨の手数料がかかります）、持っている間は残高の0.3%が毎日、利息として建設資金に入ります（上限は自由予算の3か月分）。
               ユーザ通貨は「食費コイン」のように、自由予算の一部を決まったジャンルの購入用に分けたものです。その分は金貨の配当から差し引かれます。
             </dd>
           </div>

@@ -1,5 +1,7 @@
 // タイムラプス：開始時スナップショット＋イベント履歴から、任意の時刻の街を再構築する。
 import type { Zone } from "./catalog";
+import type { ActiveDisasters } from "./city/disasters";
+import { HOUR } from "./config";
 import type { BuildingSnap, CityEventType } from "./types";
 
 export interface ReplayEvent {
@@ -35,10 +37,21 @@ export function applyEvent(frame: ReplayFrame, e: ReplayEvent) {
     case "PARK_CLOSED":
     case "STATUE_PROGRESS":
     case "STATUE_COMPLETED":
+    case "RESERVE_BUILT":
+    case "RESERVE_CLOSED":
+    case "RESERVE_OPENED":
+    case "DECORATED":
       if (b) frame.buildings.set(b.id, { ...b });
       break;
     case "DEMOLISH":
       frame.buildings.delete(e.payload.buildingId as string);
+      break;
+    case "DISASTER":
+      // 火事で休業した建物（docs/savings-driven-growth.md EVT-03）
+      if (!e.payload.repaired) for (const s of (e.payload.buildings as BuildingSnap[] | undefined) ?? []) frame.buildings.set(s.id, { ...s });
+      break;
+    case "REPAIRED":
+      if (b) frame.buildings.set(b.id, { ...b });
       break;
     case "PLOT_EXPANDED": {
       // 区画を開き、十字の道路を敷く（土地用途は描画に使わないので持たない）
@@ -96,4 +109,37 @@ export function rateAt(savings: { at: number; delta: number }[], goal: number, t
   let net = 0;
   for (const s of savings) if (s.at <= t) net += s.delta;
   return goal > 0 ? (Math.max(0, net) / goal) * 100 : 0;
+}
+
+/** 花火を打ち上げる節目と、1回に打ち上げる数（タイムラプスの演出。docs/savings-driven-growth.md REC-06） */
+export const FIREWORK_EVENTS: Record<string, number> = {
+  DEV_LEVEL: 2,
+  SAVINGS_MILESTONE: 2,
+  TECH_UNLOCKED: 1,
+  RESERVE_BUILT: 1,
+  STATUE_COMPLETED: 1,
+};
+/** 再生が終わった時（街が完成した瞬間）に打ち上げる数 */
+export const FIREWORK_FINALE = 6;
+
+/** 時刻 t までに打ち上げた花火の数（描画側は、この数が増えた分だけ打ち上げる） */
+export function fireworksAt(events: { at: number; type: string }[], t: number, finished = false): number {
+  let n = 0;
+  for (const e of events) if (e.at <= t) n += FIREWORK_EVENTS[e.type] ?? 0;
+  return n + (finished ? FIREWORK_FINALE : 0);
+}
+
+/**
+ * タイムラプスの時刻 t に続いている悪い出来事（街の見た目に使う）。DISASTER の出来事の時刻と続く時間から求める。
+ * 防いだ出来事と火事（休業した建物で見せる）は含めない
+ */
+export function disastersAt(events: { at: number; type: string; payload: Record<string, unknown> }[], t: number): ActiveDisasters {
+  const out: ActiveDisasters = {};
+  for (const e of events) {
+    if (e.type !== "DISASTER" || e.at > t) continue;
+    const p = e.payload as { kind?: string; prevented?: boolean; hours?: number };
+    if (p.prevented || !p.hours || !p.kind || p.kind === "fire") continue;
+    if (t < e.at + p.hours * HOUR) out[p.kind as keyof ActiveDisasters] = true;
+  }
+  return out;
 }

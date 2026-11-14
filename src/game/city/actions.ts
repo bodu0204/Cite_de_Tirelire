@@ -1,205 +1,15 @@
-// プレイヤーの手動操作と、特殊施設（公園・像）の同期。
-import { evolveCost, isTierUnlocked, highestUnlockedTier, LINES, SPECIAL_LABELS, tierDef, upgradeCost, upgradeMinutes, type LineId, type Zone } from "../catalog";
-import { expandMinutes, FEE_MOVE, FEE_RUSH_PER_10MIN, feeBuild, feeUpgrade, MINUTE, PLOT_SIZE } from "../config";
-import { fail } from "../errors";
-import { devLevel, statueRank } from "../levels";
-import { snapBuilding, type Building, type CityEvent, type CityPolicy, type CityState, type NeedKey } from "../types";
-import { buildingSize, canPlace, expansionError, findSpecialSite, forestSite, inBounds, isPlaced, placeCtx, placementError, placementFor, plotOf, removalBreaks, tileKey } from "./layout";
-import { buildingName, canAfford, finishJob, levelCap, newId, nextPlotIndex, plotCost, startJob } from "./sim";
-
-function requireBuilding(s: CityState, id: string): Building {
-  return s.buildings.find((b) => b.id === id) ?? fail("not_found", "建物が見つかりません", 404);
-}
-
-function requireSilver(silver: number, fee: number) {
-  if (silver < fee) fail("silver_short", `銀貨が足りません（必要 ${fee}S）`);
-}
-
-function requireMaterials(s: CityState, cost: { wood: number; stone: number }) {
-  if (!canAfford(s, { ...cost, treasury: 0 }, false)) {
-    fail("materials_short", `資材が足りません（木材 ${cost.wood}・石材 ${cost.stone}）`);
-  }
-}
-
-/** 置けない理由の文から、返すエラーの種類を決める */
-function siteCode(message: string): string {
-  if (message.includes("マップの外")) return "bad_tile";
-  if (message.includes("解放")) return "locked_tile";
-  if (message.includes("使用中")) return "occupied";
-  if (message.includes("空き")) return "no_room";
-  return "no_road";
-}
-
-/**
- * 選んだマス (x, y) を含む占有範囲を決める。開いた区画・空きで、銀行までつながった道路に接すること。
- * ignore は移動する建物自身。大きな建物は、選んだマスを左上にできなければ、選んだマスを含むほかの置き方を探す
- */
-function requireSite(s: CityState, x: number, y: number, b: Pick<Building, "line" | "special" | "tier">, ignore?: string): { x: number; y: number } {
-  if (!inBounds(x, y)) fail("bad_tile", "マップの外です");
-  const c = placeCtx(s, ignore);
-  const at = placementFor(s, b, x, y, c);
-  if (at) return at;
-  const message = placementError(s, b, x, y, c) ?? "そのマスは使用中です";
-  return fail(siteCode(message), message);
-}
-
-/** 道路を外すと銀行とのつながりが切れるなら止める（docs/map-layout-redesign.md §5.2） */
-function requireRoadRemovable(s: CityState, road: Building) {
-  if (road.line !== "road") return;
-  const id = removalBreaks(s, road.id);
-  if (!id) return;
-  const o = s.buildings.find((b) => b.id === id);
-  const job = s.jobs.find((j) => j.buildingId === id);
-  const name = o?.line ? buildingName(o) : o?.special ? SPECIAL_LABELS[o.special] : job ? tierDef(job.line, job.tier).name : "建物";
-  fail("road_needed", `${name}が銀行まで道路でつながらなくなります`);
-}
-
-export interface ManualResult {
-  silverFee: number;
-}
-
-/** 手動建設：資材＋銀貨手数料で支払う（都市資金は使わない） */
-export function manualBuild(s: CityState, input: { line: LineId; tier?: number; x: number; y: number }, now: number, silver: number): ManualResult {
-  if (!LINES[input.line]) fail("bad_line", "建物の種類が不正です");
-  const dev = devLevel(s.devPoints);
-  const tier = input.tier ?? highestUnlockedTier(input.line, s.techLevel, dev);
-  if (tier < 0 || !isTierUnlocked(input.line, tier, s.techLevel, dev)) fail("not_unlocked", "まだ解放されていない建物です");
-  const site = requireSite(s, input.x, input.y, { line: input.line, tier });
-  const t = tierDef(input.line, tier);
-  const fee = feeBuild(tier);
-  requireSilver(silver, fee);
-  requireMaterials(s, t.cost);
-  startJob(s, { kind: "build", line: input.line, tier, level: 1, site, cost: t.cost, minutes: t.buildMinutes }, now, false);
-  return { silverFee: fee };
-}
-
-/** 手動の開拓の銀貨手数料（手動建設と同じ。Q7） */
-export const FEE_EXPAND = feeBuild(0);
-
-/** 次に開拓する区画の費用と工事時間（手動は都市資金を使わず、資材と銀貨で払う） */
-export function expandQuote(s: CityState): { cost: { wood: number; stone: number; treasury: number }; minutes: number; fee: number } {
-  const n = nextPlotIndex(s);
-  return { cost: plotCost(s), minutes: expandMinutes(n), fee: FEE_EXPAND };
-}
-
-/** 手動の開拓：選んだマスの区画を開く（docs/map-layout-redesign.md §7.2） */
-export function manualExpand(s: CityState, x: number, y: number, now: number, silver: number): ManualResult {
-  if (!Number.isInteger(x) || !Number.isInteger(y)) fail("bad_tile", "マップの外です");
-  const { px, py } = plotOf(x, y);
-  const why = expansionError(s, px, py);
-  if (why) fail("bad_plot", why);
-  const q = expandQuote(s);
-  requireSilver(silver, q.fee);
-  requireMaterials(s, q.cost);
-  const tier = Math.max(0, highestUnlockedTier("road", s.techLevel, devLevel(s.devPoints)));
-  startJob(s, { kind: "expand", line: "road", tier, level: 1, site: { x: px * PLOT_SIZE, y: py * PLOT_SIZE }, plot: `${px},${py}`, cost: q.cost, minutes: q.minutes }, now, false);
-  return { silverFee: q.fee };
-}
-
-function requireIdle(s: CityState, b: Building) {
-  if (s.jobs.some((j) => j.buildingId === b.id)) fail("busy", "工事中の建物です");
-}
-
-export function manualUpgrade(s: CityState, id: string, now: number, silver: number): ManualResult {
-  const b = requireBuilding(s, id);
-  if (!b.line) fail("special", "この施設はアップグレードできません");
-  requireIdle(s, b);
-  if (b.level >= levelCap(devLevel(s.devPoints))) fail("level_cap", "建物Lvの上限です。発展Lvを上げると上限が上がります");
-  const cost = upgradeCost(b.line!, b.tier, b.level);
-  const fee = feeUpgrade(b.level);
-  requireSilver(silver, fee);
-  requireMaterials(s, cost);
-  b.manual = true;
-  startJob(s, { kind: "upgrade", line: b.line!, tier: b.tier, level: b.level + 1, building: b, cost, minutes: upgradeMinutes(b.line!, b.tier, b.level) }, now, false);
-  return { silverFee: fee };
-}
-
-export function manualEvolve(s: CityState, id: string, now: number, silver: number): ManualResult {
-  const b = requireBuilding(s, id);
-  if (!b.line) fail("special", "この施設は進化しません");
-  requireIdle(s, b);
-  const to = b.tier + 1;
-  if (!isTierUnlocked(b.line!, to, s.techLevel, devLevel(s.devPoints))) fail("not_unlocked", "次の段階はまだ解放されていません");
-  const cost = evolveCost(b.line!, to);
-  const fee = feeBuild(to);
-  requireSilver(silver, fee);
-  requireMaterials(s, cost);
-  b.manual = true;
-  startJob(s, { kind: "evolve", line: b.line!, tier: to, level: b.level, building: b, cost, minutes: tierDef(b.line!, to).buildMinutes }, now, false);
-  return { silverFee: fee };
-}
-
-export function moveBuilding(s: CityState, id: string, x: number, y: number, now: number, silver: number, events: CityEvent[]): ManualResult {
-  const b = requireBuilding(s, id);
-  if (b.locked && !b.special) fail("locked", "固定された建物は移動できません。固定を解除してください");
-  if (b.special === "bank") fail("special", "銀行は街の中心に固定です");
-  requireIdle(s, b);
-  requireRoadRemovable(s, b);
-  const site = requireSite(s, x, y, b, b.id);
-  requireSilver(silver, FEE_MOVE);
-  const from = { x: b.x, y: b.y };
-  b.x = site.x;
-  b.y = site.y;
-  delete b.placed;
-  b.manual = true;
-  events.push({ at: now, type: "MOVE", auto: false, important: false, payload: { building: snapBuilding(b), from } });
-  return { silverFee: FEE_MOVE };
-}
-
-export function demolish(s: CityState, id: string, now: number, events: CityEvent[]): void {
-  const b = requireBuilding(s, id);
-  if (b.special === "bank") fail("special", "この施設は撤去できません");
-  if (b.special === "statue") fail("special", "像はほしい物リストから管理します");
-  if (b.special === "park" && !b.closed) fail("special", "契約中のサブスクの公園は撤去できません");
-  requireIdle(s, b);
-  requireRoadRemovable(s, b);
-  s.buildings = s.buildings.filter((o) => o.id !== id);
-  events.push({ at: now, type: "DEMOLISH", auto: false, important: true, payload: { buildingId: id, name: b.line ? buildingName(b) : "閉園した公園" } });
-}
-
-export function rushFee(s: CityState, jobId: string, now: number): number {
-  const job = s.jobs.find((j) => j.id === jobId) ?? fail("not_found", "工事が見つかりません", 404);
-  return Math.max(1, Math.ceil(Math.max(0, job.finishAt - now) / (10 * MINUTE))) * FEE_RUSH_PER_10MIN;
-}
-
-/** 即時完了（建築時間の短縮） */
-export function rushJob(s: CityState, jobId: string, now: number, silver: number, events: CityEvent[]): ManualResult {
-  const fee = rushFee(s, jobId, now);
-  requireSilver(silver, fee);
-  const job = s.jobs.find((j) => j.id === jobId)!;
-  finishJob(s, job, now, events);
-  return { silverFee: fee };
-}
-
-export function setLocked(s: CityState, id: string, locked: boolean) {
-  const b = requireBuilding(s, id);
-  if (b.special && b.special !== "park" && b.special !== "statue") fail("special", "この施設は常に固定です");
-  b.locked = locked;
-}
-
-const ZONES: Zone[] = ["residential", "commercial", "industrial", "agricultural", "public", "special", "none"];
-
-export function setZone(s: CityState, x: number, y: number, zone: Zone) {
-  if (!inBounds(x, y)) fail("bad_tile", "マップの外です");
-  if (!ZONES.includes(zone)) fail("bad_zone", "土地用途が不正です");
-  if (zone === "none") delete s.zones[tileKey(x, y)];
-  else s.zones[tileKey(x, y)] = zone;
-}
-
-export function setNoAuto(s: CityState, x: number, y: number, noAuto: boolean) {
-  if (!inBounds(x, y)) fail("bad_tile", "マップの外です");
-  const k = tileKey(x, y);
-  const rest = s.noAuto.filter((o) => o !== k);
-  s.noAuto = noAuto ? [...rest, k] : rest;
-}
-
-/** 林を押しのけて敷く道路1マスの銀貨（手動建設の手数料と同じ） */
-export const FEE_INSTANT_ROAD = feeBuild(0);
+// 特殊施設（公園・像）を家計（サブスク・ほしい物）に合わせる。
+// 街の建物の建設・アップグレード・進化・区画の開拓は、街の発展（sim.ts develop）だけが行う。
+import { LINES } from "../catalog";
+import { statueRank } from "../levels";
+import { snapBuilding, type Building, type CityEvent, type CityState } from "../types";
+import { buildingSize, canPlace, findSpecialSite, forestSite, isPlaced } from "./layout";
+import { buildingName, newId, priceOf } from "./sim";
 
 /**
  * 特殊施設（公園・像）を置く。開いた区画に置けなければ林を押しのけて置き、
- * 銀行の道路網に接していなければ足りない道路をすぐに敷く。道路の木材は備蓄から引き、足りなくてもマイナスにして記録する。
- * 敷いた道路の数を返す（銀貨は呼び出し側が 1マス FEE_INSTANT_ROAD で払い、足りなければマイナスにする）
+ * 銀行の道路網に接していなければ足りない道路をすぐに敷く。道路の値段は建設資金から引き、足りなくてもマイナスにして記録する。
+ * 敷いた道路の数を返す（銀貨は呼び出し側が 1マス FEE_INSTANT_ROAD（config.ts）で払い、足りなければマイナスにする）
  */
 function placeSpecial(s: CityState, b: Building, now: number, events: CityEvent[]): number {
   const site = findSpecialSite(s, b);
@@ -217,11 +27,12 @@ function placeSpecial(s: CityState, b: Building, now: number, events: CityEvent[
   b.x = forest.x;
   b.y = forest.y;
   delete b.placed;
-  const wood = LINES.road.tiers[0].cost.wood;
+  // 林を押しのけて敷く道路は建設資金で払う。足りなければマイナスにし、次の貯金で埋める
+  const price = priceOf(s, LINES.road.tiers[0].cost);
   for (const t of forest.roads) {
-    const road: Building = { id: newId(s), line: "road", tier: 0, level: 1, x: t.x, y: t.y, locked: false, manual: true, builtAt: now };
+    const road: Building = { id: newId(s), line: "road", tier: 0, level: 1, x: t.x, y: t.y, builtAt: now };
     s.buildings.push(road);
-    s.stock.wood -= wood;
+    s.treasury -= price;
     events.push({ at: now, type: "BUILD", auto: false, important: false, payload: { building: snapBuilding(road), name: buildingName(road) } });
   }
   return forest.roads.length;
@@ -232,19 +43,6 @@ export function placeOffMapSpecials(s: CityState, now: number, events: CityEvent
   let roads = 0;
   for (const b of s.buildings) if (!isPlaced(b) && b.special) roads += placeSpecial(s, b, now, events);
   return roads;
-}
-
-const NEEDS: NeedKey[] = ["shortage", "jobs", "housing", "logistics", "efficiency", "industry", "beautify"];
-
-export function setPolicy(s: CityState, policy: Partial<CityPolicy>) {
-  if (policy.priorities) {
-    const p = policy.priorities;
-    if (p.length !== NEEDS.length || NEEDS.some((n) => !p.includes(n))) fail("bad_policy", "優先順位が不正です");
-    s.policy.priorities = [...p];
-  }
-  if (policy.preset) s.policy.preset = policy.preset;
-  if (typeof policy.autoEnabled === "boolean") s.policy.autoEnabled = policy.autoEnabled;
-  if (typeof policy.autoExpand === "boolean") s.policy.autoExpand = policy.autoExpand;
 }
 
 // ---- 公園（サブスク） ----
@@ -276,7 +74,7 @@ export function syncParks(s: CityState, subs: ParkSource[], now: number, events:
     const tier = parkSize(sub.monthly);
     if (!park) {
       if (!sub.active) continue;
-      const b: Building = { id: newId(s), special: "park", refId: sub.id, tier, level: 1, x: 0, y: 0, placed: false, locked: false, manual: false, builtAt: now };
+      const b: Building = { id: newId(s), special: "park", refId: sub.id, tier, level: 1, x: 0, y: 0, placed: false, builtAt: now };
       roads += placeSpecial(s, b, now, events);
       s.buildings.push(b);
       events.push({ at: now, type: "PARK_OPENED", auto: false, important: true, payload: { building: snapBuilding(b), name: sub.name } });
@@ -344,7 +142,7 @@ export function syncStatues(s: CityState, wishes: StatueSource[], now: number, e
     const tier = RANKS.indexOf(statueRank(w.price));
     const stage = statueStage(w);
     if (!statue) {
-      statue = { id: newId(s), special: "statue", refId: w.id, tier, level: 0, x: 0, y: 0, placed: false, locked: false, manual: false, builtAt: now };
+      statue = { id: newId(s), special: "statue", refId: w.id, tier, level: 0, x: 0, y: 0, placed: false, builtAt: now };
       roads += placeSpecial(s, statue, now, events);
       s.buildings.push(statue);
       events.push({ at: now, type: "STATUE_PROGRESS", auto: false, important: false, payload: { building: snapBuilding(statue), name: w.name, progress: 0 } });

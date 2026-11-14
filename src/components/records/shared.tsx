@@ -4,8 +4,6 @@ import { useSeasonView } from "@/components/GameProvider";
 import { BondIcon, Coin, CustomIcon } from "@/components/ui";
 import { fmt } from "@/lib/api";
 
-export const digits = (s: string) => s.replace(/\D/g, "");
-
 export interface Gains {
   wood: number;
   stone: number;
@@ -30,7 +28,7 @@ export const GAIN_LABELS: [keyof Gains, string][] = [
   ["wood", "木材"],
   ["stone", "石材"],
   ["food", "食料"],
-  ["treasury", "都市資金"],
+  ["treasury", "建設資金"],
 ];
 
 export function GainsText({ g }: { g: Gains | null | undefined }) {
@@ -96,4 +94,29 @@ export function CurrencyChip({ currency, currencyId }: { currency: string; curre
   if (currency === "BOND") return <BondIcon size={12} />;
   if (currency === "CUSTOM") return <CustomIcon icon={cur?.icon ?? "🪙"} size={12} />;
   return <span>貯蓄</span>;
+}
+
+/** 記録で確定した貯金の結果（docs/savings-driven-growth.md REC-01） */
+export interface Confirmed {
+  amount: number;
+  toBond: number;
+  fund: number;
+  /** この記録で貯金日が増え、こまめボーナスで増えた区画の上限（docs/saving-habit-balance.md HAB-04） */
+  habitPlots?: number;
+}
+
+/** 記録のトーストに足す「貯金が確定して街に入った」「こまめな貯金で街が広がった」の文言。どちらもなければ空 */
+export function confirmedText(c: Confirmed | null | undefined): string {
+  if (!c) return "";
+  const fund = c.amount > 0 ? `・使わなかった ${fmt(c.amount)}G が貯金として確定し、建設資金 +${fmt(c.fund)}円` : "";
+  const habit = (c.habitPlots ?? 0) > 0 ? `・こまめな貯金で、街が広がりました（区画の上限 +${c.habitPlots}）` : "";
+  return fund + habit;
+}
+
+/** 一括保存の応答から確定の合計を求める */
+export function sumConfirmed(list: (Confirmed | null | undefined)[]): Confirmed {
+  return list.reduce<Confirmed>(
+    (a, c) => (c ? { amount: a.amount + c.amount, toBond: a.toBond + c.toBond, fund: a.fund + c.fund, habitPlots: (a.habitPlots ?? 0) + (c.habitPlots ?? 0) } : a),
+    { amount: 0, toBond: 0, fund: 0, habitPlots: 0 },
+  );
 }

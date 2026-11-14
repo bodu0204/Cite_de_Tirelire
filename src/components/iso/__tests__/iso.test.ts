@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { agentFacing, createAgents, stepAgent } from "../agents";
-import { effectKind, flashAlpha, particles, popScale } from "../effects";
+import { COIN_FLIGHT_MS, coinFlight, effectKind, fireParticles, firework, FIREWORK_MS, flashAlpha, flightMs, lightning, particles, popScale, RAIN_COUNT, rainStreaks } from "../effects";
 import { clampCamera, clampToLand, fitZoom, scaleOf, screenToWorld, snapZoom, stepZoom, viewRect, worldOffset, zoomAt, zoomRange } from "../camera";
 import { CHUNK, chunkKey, chunkRect, visibleChunks } from "../chunks";
 import { BUILDING_LINES, dummyMap, groundKey, isRoad, lockedKey, mapRect, roadMask, tileAt, tileIndex } from "../map";
@@ -293,5 +293,76 @@ describe("OBJ-13 完成・進化の演出", () => {
     expect(popScale(350)).toEqual({ x: 1, y: 1 });
     expect(flashAlpha(80)).toBeCloseTo(0.9);
     expect(flashAlpha(500)).toBe(0);
+  });
+});
+
+describe("FX-02 銀行から工事現場へ飛ぶ金貨", () => {
+  it("金貨は銀行の高さから出て、現場の足元に落ちる。同じ入力なら同じで、終われば消える", () => {
+    const start = coinFlight(0, 100, 40, 30, 3);
+    expect(start).toHaveLength(1);
+    expect(start[0].y).toBeCloseTo(-30, 0);
+    expect(start[0].shape).toBe(3);
+    // 1枚目が着く頃：足元のずれに着き、まだ飛んでいる金貨もある
+    const land = coinFlight(COIN_FLIGHT_MS, 100, 40, 30, 3);
+    expect(land[0].x).toBeCloseTo(100, 0);
+    expect(land[0].y).toBeCloseTo(40, 0);
+    expect(land.length).toBeGreaterThan(1);
+    // 途中は放物線で、出る高さより上を通る
+    expect(coinFlight(COIN_FLIGHT_MS * 0.3, 100, 40, 30, 3)[0].y).toBeLessThan(-30);
+    expect(coinFlight(400, 100, 40, 30, 3)).toEqual(coinFlight(400, 100, 40, 30, 3));
+    expect(coinFlight(flightMs(), 100, 40, 30, 3)).toEqual([]);
+  });
+});
+
+describe("REC-06 タイムラプスの花火", () => {
+  it("上ってから弾け、同じ seed なら同じ花火で、終われば消える", () => {
+    const rising = firework(200, 100, 5);
+    expect(rising.length).toBeGreaterThan(0);
+    expect(Math.min(...rising.map((p) => p.y))).toBeLessThan(0);
+    const burst = firework(700, 100, 5);
+    expect(burst.length).toBeGreaterThan(10);
+    expect(firework(900, 100, 5)).toEqual(firework(900, 100, 5));
+    expect(firework(FIREWORK_MS, 100, 5)).toEqual([]);
+  });
+});
+
+describe("悪い出来事の見た目（docs/savings-driven-growth.md EVT-03）", () => {
+  it("休業・不作で見た目が変わっただけでは完成の演出を出さない（戻った時は小さなきらめき）", () => {
+    expect(effectKind("building/housing/1@lv2", "building/housing/1@burnt")).toBeNull();
+    expect(effectKind("big/building/farm/1", "big/building/farm/1@withered")).toBeNull();
+    expect(effectKind("building/housing/1@burnt", "building/housing/1@lv2")).toBe("level");
+  });
+
+  it("火事の炎は屋根のあたりでゆらぎ、煙は上って薄くなる。同じ入力なら同じで、燃え続ける", () => {
+    const a = fireParticles(300, 60, 2, 9);
+    expect(a).toEqual(fireParticles(300, 60, 2, 9));
+    const flames = a.filter((q) => q.shape !== 4);
+    const smoke = a.filter((q) => q.shape === 4);
+    expect(flames.length).toBeGreaterThan(5);
+    expect(smoke.length).toBeGreaterThan(3);
+    // 炎は建物の幅の中、屋根より上の高さ
+    for (const q of flames) {
+      expect(Math.abs(q.x)).toBeLessThanOrEqual(14 * 2 + 2);
+      expect(q.y).toBeLessThan(0);
+    }
+    for (const q of smoke) expect(q.alpha!).toBeGreaterThan(0);
+    // 休業の間ずっと燃え続ける（いつでも同じ数の炎と煙）
+    expect(fireParticles(300 + 16800, 60, 2, 9)).toHaveLength(a.length);
+  });
+
+  it("雨は画面いっぱいに斜めに降り、時間とともに下へ進む。稲光はおよそ9秒ごと", () => {
+    const r0 = rainStreaks(0, 400, 300);
+    expect(r0).toHaveLength(RAIN_COUNT);
+    for (const s of r0) {
+      expect(s.y2).toBeGreaterThan(s.y1);
+      expect(s.x2).toBeLessThan(s.x1);
+      expect(s.y1).toBeGreaterThanOrEqual(-20);
+      expect(s.y1).toBeLessThanOrEqual(320);
+    }
+    expect(rainStreaks(16, 400, 300)).not.toEqual(r0);
+    expect(rainStreaks(1234, 400, 300)).toEqual(rainStreaks(1234, 400, 300));
+    expect(lightning(30)).toBeGreaterThan(0);
+    expect(lightning(1000)).toBe(0);
+    expect(lightning(9030)).toBe(lightning(30));
   });
 });

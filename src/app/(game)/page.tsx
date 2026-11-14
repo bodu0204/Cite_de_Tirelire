@@ -9,18 +9,20 @@ import { NextGoal } from "@/components/home/NextGoal";
 import { DevGauge, SavingsGauge, TechGauge, WishSavingsGauge } from "@/components/home/Gauges";
 import { Onboarding } from "@/components/home/Onboarding";
 import { TilePanel } from "@/components/home/TilePanel";
+import { useCollect } from "@/components/useCollect";
 import { BondIcon, Button, Card, Coin, CustomIcon, LinkButton, Modal, Stat } from "@/components/ui";
 import { expandablePlots, tileLabel } from "@/game/city/layout";
 import { fmt } from "@/lib/api";
+import { activeDisasters } from "@/game/city/disasters";
 
 /** ホームに最初から出すユーザ通貨の数（残りは折りたたむ） */
 const CUSTOM_SHOWN = 3;
 
 export default function HomePage() {
   const { view, error, act, toast, busy } = useGame();
+  const collector = useCollect();
   const v = useSeasonView();
   const [tile, setTile] = useState<{ x: number; y: number } | null>(null);
-  const [moving, setMoving] = useState<string | null>(null);
   const [showZones, setShowZones] = useState(false);
   // 昼夜を時刻に合わせるか（OBJ-14）。端末ごとに覚える。読めなければ合わせる
   const [dayNight, setDayNight] = useState(true);
@@ -44,7 +46,7 @@ export default function HomePage() {
   const [allCurrencies, setAllCurrencies] = useState(false);
 
   useEffect(() => {
-    if (v?.away && (v.away.built || v.away.upgraded || v.away.evolved || v.away.expanded || v.away.population || v.away.devPoints)) {
+    if (v?.away && (v.away.built || v.away.upgraded || v.away.evolved || v.away.expanded || v.away.population || v.away.devPoints || v.away.saved || v.away.disasters.length)) {
       setAway(v.away);
       setHighlights(new Set(v.away.tiles.map(([x, y]) => `${x},${y}`)));
       const t = setTimeout(() => setHighlights(new Set()), 20_000);
@@ -83,7 +85,6 @@ export default function HomePage() {
             buildings={c.buildings}
             jobs={c.jobs}
             zones={c.zones}
-            noAuto={c.noAuto}
             bankLevel={c.bankLevel}
             selected={tile}
             highlights={highlights}
@@ -96,9 +97,10 @@ export default function HomePage() {
             logistics={m.logistics}
             supply={{ power: m.powerRatio, workers: m.laborRatio, food: m.foodRatio }}
             gold={{ uncollected: v.mine.uncollected, ratePerMinute: v.mine.ratePerMinute }}
+            disasters={activeDisasters(c.effects, v.serverNow)}
           />
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
-            <span>マスを選ぶと建物の操作ができます。街は操作しなくても自動で発展します。</span>
+            <span>マスを選ぶと建物の様子が見られます。</span>
             <span className="flex shrink-0 flex-wrap items-center gap-3">
               <label className="flex items-center gap-1.5 whitespace-nowrap">
                 <input type="checkbox" className="w-auto" checked={showZones} onChange={(e) => setShowZones(e.target.checked)} />
@@ -113,19 +115,20 @@ export default function HomePage() {
         </div>
 
         {tile && (
-          <Card title={tileLabel(tile.x, tile.y)} action={<button className="text-sm text-muted" onClick={() => (setTile(null), setMoving(null))}>閉じる</button>}>
-            <TilePanel v={v} tile={tile} moving={moving} setMoving={setMoving} />
+          <Card title={tileLabel(tile.x, tile.y)} action={<button className="text-sm text-muted" onClick={() => setTile(null)}>閉じる</button>}>
+            <TilePanel v={v} tile={tile} />
           </Card>
         )}
+
+        <Effects v={v} />
 
         <Card title="街の様子">
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             <Stat label="人口" value={`${fmt(Math.floor(m.population))}人`} sub={`住宅 ${fmt(m.housingCap)}人分`} />
             <Stat label="幸福度" value={fmt(c.happiness)} sub={`目標 ${fmt(m.happinessTarget)}`} />
             <Stat label="雇用" value={`${Math.round(m.employment * 100)}%`} sub={`仕事 ${fmt(m.jobSlots)}`} />
-            <Stat label="都市資金" value={fmt(Math.floor(c.treasury))} sub={`+${fmt(m.production.treasury, 1)}/時`} />
-            <Stat label="木材" value={fmt(Math.floor(c.stock.wood))} sub={`+${fmt(m.production.wood, 1)}/時`} />
-            <Stat label="石材" value={fmt(Math.floor(c.stock.stone))} sub={`+${fmt(m.production.stone, 1)}/時`} />
+            <Stat label="建設資金" value={`${fmt(Math.floor(c.treasury))}円`} sub={v.dev.interestPerDay > 0 ? `利息 +${fmt(Math.floor(v.dev.interestPerDay))}円/日` : "貯金で増える"} />
+            <Stat label="建設費の割引" value={`−${Math.round(v.dev.discount * 100)}%`} sub="加工所・工場の数" />
             <Stat label="食料" value={fmt(Math.floor(c.stock.food))} sub={`${m.production.food - m.foodUse >= 0 ? "+" : ""}${fmt(m.production.food - m.foodUse, 1)}/時`} />
             <Stat label="電力" value={m.powerDemand > 0 ? `${Math.round(m.powerRatio * 100)}%` : "—"} sub={`供給 ${fmt(m.powerSupply)} / 需要 ${fmt(m.powerDemand)}`} />
           </div>
@@ -165,7 +168,7 @@ export default function HomePage() {
               <BondIcon />
               <span className="flex-1">
                 債券
-                {v.dev.bondMultiplier > 1 && <span className="ml-1 text-xs text-muted">発展 ×{fmt(v.dev.bondMultiplier, 2)}</span>}
+                {v.dev.interestPerDay > 0 && <span className="ml-1 text-xs text-muted">利息 +{fmt(Math.floor(v.dev.interestPerDay))}円/日</span>}
               </span>
               <span className={v.currencies.bond < 0 ? "font-semibold text-danger" : ""}>{fmt(v.currencies.bond)}</span>
             </li>
@@ -176,7 +179,10 @@ export default function HomePage() {
                   {c.name}
                   {c.nextIssue && <span className="ml-1 text-xs text-muted">次 {c.nextIssue.date.slice(5)} +{fmt(c.nextIssue.amount)}</span>}
                 </span>
-                <span>{fmt(c.balance)}</span>
+                <span>
+                  {fmt(c.balance)}
+                  {c.pending > 0 && <span className="ml-1 text-xs text-muted">（未受取 {fmt(c.pending)}）</span>}
+                </span>
               </li>
             ))}
           </ul>
@@ -191,20 +197,19 @@ export default function HomePage() {
           <LinkButton href="/records" variant="primary" className="min-h-14 text-base">
             <Coin kind="silver" size={18} /> 収支を記録
           </LinkButton>
-          <Button
-            variant="gold"
-            className="min-h-14 text-base"
-            disabled={busy || uncollected < 1}
-            onClick={async () => {
-              const r = await act<{ collected: number }>("/api/mine/collect");
-              if (r) toast(`金貨 ${fmt(r.collected)}G を受け取りました`, "reward");
-            }}
-          >
-            <Coin kind="gold" size={18} /> {fmt(uncollected)}G 受け取る
+          <Button variant="gold" className="min-h-14 text-base" disabled={!collector.can} onClick={collector.collect}>
+            {/* 受け取れる通貨のアイコンを並べる（多いときははみ出た分を隠して1行に収める） */}
+            <span className="flex min-w-0 shrink items-center gap-0.5 overflow-hidden" aria-hidden>
+              {(uncollected >= 1 || collector.custom.length === 0) && <Coin kind="gold" size={18} />}
+              {collector.custom.map((c) => (
+                <CustomIcon key={c.id} icon={c.icon} size={18} />
+              ))}
+            </span>
+            <span className="shrink-0 whitespace-nowrap">受け取る</span>
           </Button>
         </div>
 
-        <Card title="自動発展ログ">
+        <Card title="街のできごと">
           <EventLog events={v.log} tz={view.user.timezone} />
         </Card>
       </div>
@@ -219,13 +224,13 @@ export default function HomePage() {
               {away.evolved > 0 && <li>建物 {away.evolved}棟が進化</li>}
               {away.expanded > 0 && <li>区画を {away.expanded}つ開拓</li>}
               <li>発展ポイント +{fmt(away.devPoints)}</li>
-              <li>都市資金 {away.treasury >= 0 ? "+" : ""}{fmt(away.treasury)}</li>
-              {away.bondResources.wood + away.bondResources.stone + away.bondResources.food + away.bondResources.treasury > 0 && (
-                <li>
-                  債券化で得た資源 木材 +{fmt(away.bondResources.wood)}・石材 +{fmt(away.bondResources.stone)}・食料 +{fmt(away.bondResources.food)}・都市資金 +
-                  {fmt(away.bondResources.treasury)}
-                </li>
-              )}
+              <li>建設資金 {away.treasury >= 0 ? "+" : ""}{fmt(away.treasury)}円（工事に使った分を差し引き）</li>
+              {away.bondResources.treasury > 0 && <li>債券化で入った建設資金 +{fmt(away.bondResources.treasury)}円</li>}
+              {away.saved > 0 && <li>記録のない日の配当が確定し、貯金 +{fmt(away.saved)}円</li>}
+              {away.interest > 0 && <li>債券の利息 +{fmt(away.interest)}円（建設資金）</li>}
+              {away.disasters.map((d, i) => (
+                <li key={i}>{d}</li>
+              ))}
             </ul>
             <p className="text-xs text-muted">変化した場所を地図上で光らせています。金貨・銀貨は使っていません。</p>
             <Button className="w-full" onClick={() => setAway(null)}>
@@ -234,6 +239,31 @@ export default function HomePage() {
           </div>
         )}
       </Modal>
+    </div>
+  );
+}
+
+/** 今続いている悪い出来事の効果（docs/savings-driven-growth.md EVT-03） */
+function Effects({ v }: { v: NonNullable<ReturnType<typeof useSeasonView>> }) {
+  const fx = v.city.effects;
+  const now = v.serverNow;
+  const hours = (until: number) => `あと約${Math.max(1, Math.ceil((until - now) / 3_600_000))}時間`;
+  const items: string[] = [];
+  if (fx?.pauseUntil && fx.pauseUntil > now) items.push(`台風で工事が止まっています（${hours(fx.pauseUntil)}）`);
+  if (fx?.crop && fx.crop.until > now) items.push(`不作で食料の生産が${Math.round(fx.crop.rate * 100)}%減っています（${hours(fx.crop.until)}）`);
+  if (fx?.surge && fx.surge.until > now) items.push(`資材の値上がりで工事の値段が${Math.round(fx.surge.rate * 100)}%上がっています（${hours(fx.surge.until)}）`);
+  if (fx?.blackout && fx.blackout.until > now) items.push(`停電で電力の供給が${Math.round(fx.blackout.rate * 100)}%減っています（${hours(fx.blackout.until)}）`);
+  const closed = Object.keys(v.city.closedUntil ?? {}).length;
+  if (closed > 0) items.push(`火事で${closed}棟が休業しています（地図で建物を選ぶと銀貨で修繕できます）`);
+  if (!items.length) return null;
+  return (
+    <div className="rounded-lg border border-line bg-surface-2 p-3 text-sm">
+      <ul className="space-y-1">
+        {items.map((s) => (
+          <li key={s}>{s}</li>
+        ))}
+      </ul>
+      <p className="mt-1 text-xs text-muted">債券（もしもの備え）を増やすと、被害が軽くなります（備えLv{v.dev.reserveLevel}）。</p>
     </div>
   );
 }
