@@ -129,7 +129,7 @@ describe("予約した振り分け", () => {
   };
   const world = (grants: Grant[], cuts = [] as World["cuts"]): World => ({
     purse: { mine: newMine(START, TZ), gold: 0, silver: 0, bond: 0, bondCap: 180000, moves: [], overspend: 0 },
-    city: createCity(START),
+    city: createCity(START, 60000),
     lots: [],
     accruals: new Map<string, Accrual>([["food", { currencyId: "food", lastAccrualAt: START, fraction: 0n }]]),
     grants,
@@ -162,13 +162,13 @@ describe("予約した振り分け", () => {
 describe("差分の解消", () => {
   const purse = (bond: number, silver = 100): Purse => ({ mine: newMine(at(2026, 10, 1), TZ), gold: 0, silver, bond, bondCap: 180000, moves: [], overspend: 0 });
 
-  it("AT-046 ＋差分：上限まで債券（資源つき）、残りはおまかせ交換へ", () => {
+  it("AT-046 ＋差分：上限まで債券（建設資金つき）、残りは建設資金への交換へ", () => {
     const p = purse(175000);
     expect(absorbSurplus(p, 8000, "x")).toEqual({ toBond: 5000, eligible: 5000, rest: 3000 });
     expect(p.bond).toBe(180000);
   });
 
-  it("＋差分：債券がマイナスなら返済にも充たり、その分は資源をつけない", () => {
+  it("＋差分：債券がマイナスなら返済にも充たり、その分は建設資金をつけない", () => {
     const p = purse(-3000);
     expect(absorbSurplus(p, 5000, "x")).toEqual({ toBond: 5000, eligible: 2000, rest: 0 });
   });

@@ -1,32 +1,33 @@
-// 必要資源の割合による交換と、債券化につく資源（docs/needs-based-exchange.md §11）
+// 建設資金への交換と、債券化につく建設資金（docs/savings-driven-growth.md GRW-02・RSV-01・ERL-01。
+// 以前の「必要資源の割合で木材・石材・食料に振り分ける交換」（docs/needs-based-exchange.md §11）を置き換えた）
 import { describe, expect, it } from "vitest";
 import { bondCap, bondResourceEligible } from "../bond";
 import { createCity } from "../city/init";
 import { computeMetrics } from "../city/economy";
-import { cityNeeds, expansionPlan } from "../city/sim";
-import { DAY, GOLD_RESOURCE_VALUE, HOUR } from "../config";
+import { cityNeeds, expansionPlan, priceOf } from "../city/sim";
+import { DAY, HOUR } from "../config";
 import { BudgetPlan, type CurrencyDefLite } from "../currency";
 import { exchangeRate, needShares, quoteBondGains, quoteNeedsExchange, quoteResourceExchange, splitAmount, ZERO_GAINS } from "../exchange";
+import { creditFund, earlyBonusRate, earlyBonusRoom, fundWithBonus, savingsForFund } from "../fund";
 import { advance, type Accrual, type World } from "../idle";
 import { newMine } from "../mine";
 import { coverPlans, type PlanQueue } from "../planQueue";
 import { pay } from "../settle";
 import { zonedTimeToUtc } from "../time";
-import type { Gains } from "../types";
 
 const TZ = "Asia/Tokyo";
 const MON = zonedTimeToUtc(2026, 10, 19, TZ);
 const START = MON - DAY + 9 * HOUR;
 const LV1 = { bank: 1, goldMine: 1, silverMine: 1 };
-/** 資源・都市資金を金貨換算した額（Lvボーナスなし） */
-const goldOf = (s: Gains) =>
-  s.wood / GOLD_RESOURCE_VALUE.wood + s.stone / GOLD_RESOURCE_VALUE.stone + s.food / GOLD_RESOURCE_VALUE.food + s.treasury / GOLD_RESOURCE_VALUE.treasury;
 
-function world(defs: CurrencyDefLite[], o: { bond?: number } = {}): World {
+/** 開拓期ボーナスの外（シーズン開始から30日後）で確かめる街。early を true にするとシーズンの初日から */
+function world(defs: CurrencyDefLite[], o: { bond?: number; early?: boolean } = {}): World {
   const accruals = new Map<string, Accrual>(defs.map((d) => [d.id, { currencyId: d.id, lastAccrualAt: START, fraction: 0n }]));
+  const city = createCity(START, 60000);
+  if (!o.early) city.startedAt = START - 30 * DAY;
   return {
     purse: { mine: newMine(START, TZ), gold: 0, silver: 0, bond: o.bond ?? 0, bondCap: 0, moves: [], overspend: 0 },
-    city: createCity(START),
+    city,
     lots: [],
     accruals,
   };
@@ -35,28 +36,23 @@ function world(defs: CurrencyDefLite[], o: { bond?: number } = {}): World {
 let seq = 0;
 const newId = () => `l${++seq}`;
 
-describe("おまかせ交換", () => {
+describe("おまかせ交換（全額が建設資金。GRW-02）", () => {
   const needs = { wood: 300, stone: 200, food: 100, treasury: 0 };
-
-  it("必要割合は金貨換算の比", () => {
-    const s = needShares(needs);
-    expect(s.wood).toBeCloseTo(0.375);
-    expect(s.stone).toBeCloseTo(0.5);
-    expect(s.food).toBeCloseTo(0.125);
-    expect(s.treasury).toBe(0);
+  it("必要割合はいつも建設資金が1", () => {
+    expect(needShares(needs)).toEqual({ ...ZERO_GAINS, treasury: 1 });
   });
 
-  it("AT-030 1,000G → 木材 3,750・石材 2,500・食料 1,250、手数料 5S", () => {
+  it("AT-030 1,000G → 建設資金 1,000円、手数料 5S", () => {
     const q = quoteNeedsExchange("gold", 1000, needs, LV1);
-    expect(q.split).toEqual({ wood: 375, stone: 500, food: 125, treasury: 0 });
-    expect(q.gains).toEqual({ wood: 3750, stone: 2500, food: 1250, treasury: 0 });
+    expect(q.split).toEqual({ ...ZERO_GAINS, treasury: 1000 });
+    expect(q.gains).toEqual({ ...ZERO_GAINS, treasury: 1000 });
     expect(q.silverCost).toBe(5);
     expect(q.goldCost).toBe(1000);
   });
 
-  it("AT-031 1,000S → 木材 375・石材 250・食料 125、銀貨 1,005", () => {
+  it("AT-031 1,000S → 建設資金 100円、銀貨 1,005", () => {
     const q = quoteNeedsExchange("silver", 1000, needs, LV1);
-    expect(q.gains).toEqual({ wood: 375, stone: 250, food: 125, treasury: 0 });
+    expect(q.gains).toEqual({ ...ZERO_GAINS, treasury: 100 });
     expect(q.silverCost).toBe(1005);
     expect(q.goldCost).toBe(0);
   });
@@ -65,64 +61,71 @@ describe("おまかせ交換", () => {
     const s = splitAmount(1000, { wood: 1 / 3, stone: 1 / 3, food: 1 / 3, treasury: 0 });
     expect(s).toEqual({ wood: 334, stone: 333, food: 333, treasury: 0 });
     const t = splitAmount(7, needShares({ wood: 10, stone: 30, food: 0, treasury: 50 }));
-    expect(t.wood + t.stone + t.food + t.treasury).toBe(7);
+    expect(t).toEqual({ ...ZERO_GAINS, treasury: 7 });
   });
 
-  it("債券化の資源は手数料なし・小数のまま", () => {
-    const q = quoteNeedsExchange("gold", 3, needs, LV1, { fee: false, floor: false });
+  it("債券化の建設資金は手数料なし・小数のまま", () => {
+    const q = quoteNeedsExchange("gold", 3.5, needs, LV1, { fee: false, floor: false });
     expect(q.silverCost).toBe(0);
-    expect(goldOf(q.gains)).toBeCloseTo(3, 9);
+    expect(q.gains.treasury).toBeCloseTo(3.5, 9);
   });
 });
 
-describe("金貨・銀貨→都市資金（docs/needs-based-exchange.md §13）", () => {
-  it("1G → 都市資金 10（Lvボーナスは資源と同じ）", () => {
-    expect(quoteResourceExchange("gold", "treasury", 100, LV1)).toMatchObject({ gain: 1000, goldCost: 100, silverCost: 5 });
-    expect(exchangeRate("gold", "treasury", { bank: 1, goldMine: 6, silverMine: 1 })).toBeCloseTo(exchangeRate("gold", "wood", { bank: 1, goldMine: 6, silverMine: 1 }));
+describe("種類を選んだ交換も建設資金になる", () => {
+  it("1G → 1円。Lvボーナスは種類によらない", () => {
+    expect(quoteResourceExchange("gold", "wood", 100, LV1)).toMatchObject({ gain: 100, goldCost: 100, silverCost: 5 });
+    const lv = { bank: 1, goldMine: 6, silverMine: 1 };
+    expect(exchangeRate("gold", "treasury", lv)).toBeCloseTo(exchangeRate("gold", "wood", lv));
+    expect(exchangeRate("gold", "treasury", lv)).toBeCloseTo(1.2);
   });
 
-  it("1S → 都市資金 1（銀鉱Lvのボーナスも資源と同じ）。手数料 5S と代金、貯金額には加えない", () => {
-    expect(quoteResourceExchange("silver", "treasury", 100, LV1)).toMatchObject({ gain: 100, goldCost: 0, silverCost: 105 });
-    const lv = { bank: 1, goldMine: 1, silverMine: 6 };
-    expect(exchangeRate("silver", "treasury", lv)).toBeCloseTo(exchangeRate("silver", "wood", lv));
+  it("1S → 0.1円。手数料 5S と代金", () => {
+    expect(quoteResourceExchange("silver", "treasury", 100, LV1)).toMatchObject({ gain: 10, goldCost: 0, silverCost: 105 });
   });
 
-  it("おまかせは都市資金の不足も含めた割合で振り分ける", () => {
-    // 金貨換算 木材 30G・石材 40G・食料 10G・都市資金 20G
-    const needs = { wood: 300, stone: 200, food: 100, treasury: 200 };
-    const q = quoteNeedsExchange("gold", 1000, needs, LV1);
-    expect(q.split).toEqual({ wood: 300, stone: 400, food: 100, treasury: 200 });
-    expect(q.gains.treasury).toBe(2000);
-  });
-
-  it("銀貨のおまかせも都市資金の不足を含めた同じ割合", () => {
-    const needs = { wood: 300, stone: 200, food: 100, treasury: 200 };
-    const q = quoteNeedsExchange("silver", 1000, needs, LV1);
-    expect(q.split).toEqual({ wood: 300, stone: 400, food: 100, treasury: 200 });
-    expect(q.gains).toEqual({ wood: 300, stone: 200, food: 100, treasury: 200 });
-    expect(q.silverCost).toBe(1005);
+  it("債券につく建設資金は、種類を選んでもおまかせでも同じ（手数料なし）", () => {
+    const needs = { wood: 100, stone: 50, food: 0, treasury: 200 };
+    expect(quoteBondGains(300, "stone", needs, LV1)).toEqual({ ...ZERO_GAINS, treasury: 300 });
+    expect(quoteBondGains(300, "auto", needs, LV1)).toEqual(quoteNeedsExchange("gold", 300, needs, LV1, { fee: false }).gains);
   });
 });
 
-describe("計画列と必要資源", () => {
-  it("初期の街でも必要資源がある", () => {
-    const n = cityNeeds(createCity(START)).needs;
-    expect(n.wood + n.stone + n.food + n.treasury).toBeGreaterThan(0);
+describe("計画列と必要な建設資金", () => {
+  it("初期の街でも必要な建設資金がある（木材・石材・食料はお金で買わない）", () => {
+    const n = cityNeeds(createCity(START, 60000)).needs;
+    expect(n.treasury).toBeGreaterThan(0);
+    expect(n.wood + n.stone + n.food).toBe(0);
   });
 
-  it("AT-032/033 在庫が非常に多くても拡張計画で必要資源が正（ループしない）", () => {
-    const city = createCity(START);
-    city.stock = { wood: 1_000_000, stone: 1_000_000, food: 1_000_000 };
+  it("計画列の値段は円で、建設資金だけを使う", () => {
+    const city = createCity(START, 60000);
+    const q = cityNeeds(city).queue;
+    expect(q.plans.length).toBeGreaterThan(0);
+    for (const p of [...q.plans, q.expansion]) {
+      expect(p.cost.wood + p.cost.stone).toBe(0);
+      expect(Number.isInteger(p.cost.treasury) && p.cost.treasury > 0).toBe(true);
+    }
+  });
+
+  it("AT-032/033 建設資金が非常に多くても拡張計画で必要額が正（ループしない）", () => {
+    const city = createCity(START, 60000);
+    city.treasury = 1e9;
     const r = cityNeeds(city);
     expect(r.next.expansion).toBe(true);
-    expect(r.needs.wood + r.needs.stone + r.needs.treasury).toBeGreaterThan(0);
+    expect(r.needs.treasury).toBeGreaterThan(0);
     const x = expansionPlan(city, computeMetrics(city).devLevel);
-    expect(r.needs.wood).toBeLessThanOrEqual(x.cost.wood);
-    expect(r.needs.stone).toBeLessThanOrEqual(x.cost.stone);
+    expect(r.needs.treasury).toBeLessThanOrEqual(x.cost.treasury);
+  });
+
+  it("値段は基準額に比例する（PRC-01）", () => {
+    const a = createCity(START, 50000);
+    const b = createCity(START, 100000);
+    const cost = { wood: 40, stone: 0, treasury: 160 };
+    expect(priceOf(b, cost)).toBeCloseTo(priceOf(a, cost) * 2, -1);
   });
 
   it("街の状態を変えない", () => {
-    const city = createCity(START);
+    const city = createCity(START, 60000);
     const before = JSON.stringify(city);
     cityNeeds(city);
     expect(JSON.stringify(city)).toBe(before);
@@ -152,8 +155,8 @@ describe("交換後の在庫で実施できる計画", () => {
     expect(after.expansion).toMatchObject({ count: 1, next: { covered: { wood: 100, stone: 80 }, short: { wood: 0, stone: 20 } } });
   });
 
-  it("必要資源は最初に足りなくなる計画の不足分と一致する", () => {
-    const city = createCity(START);
+  it("必要な建設資金は最初に足りなくなる計画の不足分と一致する", () => {
+    const city = createCity(START, 60000);
     const r = cityNeeds(city);
     const c = coverPlans(r.queue, { wood: city.stock.wood, stone: city.stock.stone, treasury: city.treasury });
     const first = c.plans.find((p) => !p.ok) ?? c.expansion.next;
@@ -161,7 +164,7 @@ describe("交換後の在庫で実施できる計画", () => {
   });
 });
 
-describe("AT-035 資源つき対象額", () => {
+describe("AT-035 建設資金つき対象額", () => {
   const cap = bondCap(60000);
   it.each([
     [10000, 5000, 5000],
@@ -173,37 +176,37 @@ describe("AT-035 資源つき対象額", () => {
   ])("債券 %i に %i 入る → %i", (bond, amount, expected) => {
     expect(bondResourceEligible(bond, amount, cap)).toBe(expected);
   });
-  it("M ＝ 0 なら資源はつかない", () => {
+  it("M ＝ 0 なら建設資金はつかない", () => {
     expect(bondResourceEligible(0, 5000, bondCap(0))).toBe(0);
   });
 });
 
-describe("AT-036 採掘の債券化につく資源", () => {
+describe("AT-036 採掘の債券化につく建設資金", () => {
   const plan = new BudgetPlan(60000, [], [], TZ);
 
-  it("債券化率 50%・債券 179,990：入った 10 の分だけ資源がつく", () => {
+  it("債券化率 50%・債券 179,990：入った 10 の分だけ建設資金がつく", () => {
     const w = world([], { bond: bondCap(60000) - 10 });
     advance(w, { plan, bondRate: 50, until: START + DAY, newId }, []);
     expect(w.purse.bond).toBe(bondCap(60000));
-    expect(goldOf(w.city.bondResourceTotal!)).toBeCloseTo(10, 6);
+    expect(w.city.bondResourceTotal!.treasury).toBeCloseTo(10, 6);
   });
 
-  it("債券 −3,050・債券化率 0%：0で止まるので資源は一度もつかない", () => {
+  it("債券 −3,050・債券化率 0%：0で止まるので建設資金は一度もつかない", () => {
     const w = world([], { bond: -3050 });
-    // 8日目で 0 に戻る。その先も 0 のままなのを見るため 10 日
-    advance(w, { plan, bondRate: 0, until: START + 10 * DAY, newId }, []);
+    // 8日目で 0 に戻る。その先も 0 のままなのを見るため 10 日（記録のない日の自動の確定は、推定の支出を大きくして止める）
+    advance(w, { plan, bondRate: 0, until: START + 10 * DAY, newId, estimatePerDay: 1e9 }, []);
     expect(w.purse.bond).toBe(0);
-    expect(goldOf(w.city.bondResourceTotal ?? ZERO_GAINS)).toBe(0);
+    expect((w.city.bondResourceTotal ?? ZERO_GAINS).treasury).toBe(0);
   });
 
-  it("債券 −100・債券化率 50%：0に戻るまでの 100 は資源なし", () => {
+  it("債券 −100・債券化率 50%：0に戻るまでの 100 は建設資金なし", () => {
     const w = world([], { bond: -100 });
     advance(w, { plan, bondRate: 50, until: START + DAY, newId }, []);
-    expect(goldOf(w.city.bondResourceTotal!)).toBeCloseTo(w.purse.bond, 6);
+    expect(w.city.bondResourceTotal!.treasury).toBeCloseTo(w.purse.bond, 6);
   });
 });
 
-describe("AT-037 余りの債券化につく資源", () => {
+describe("AT-037 余りの債券化につく建設資金", () => {
   const food: CurrencyDefLite = {
     id: "food",
     name: "food",
@@ -219,45 +222,79 @@ describe("AT-037 余りの債券化につく資源", () => {
   };
   const plan = new BudgetPlan(60000, [{ monthly: 6000, startAt: 0, endAt: null }], [food], TZ);
 
-  it("食費コインの余り 5,000 が債券に入ると、5,000 ぶんの資源がつく", () => {
+  it("食費コインの余り 5,000 が債券に入ると、5,000円の建設資金がつく", () => {
     const w = world([food]);
     advance(w, { plan, bondRate: 0, until: MON + 10 * HOUR, newId }, []);
     pay(w.purse, 2000, w.lots, []);
     advance(w, { plan, bondRate: 0, until: MON + 3 * DAY, newId }, []);
     expect(w.purse.bond).toBe(5000);
-    expect(goldOf(w.city.bondResourceTotal!)).toBeCloseTo(5000, 6);
+    expect(w.city.bondResourceTotal!.treasury).toBeCloseTo(5000, 6);
   });
 
-  it("上限を超えて金貨になった分には資源がつかない", () => {
+  it("上限を超えて金貨になった分には建設資金がつかない", () => {
     const w = world([food], { bond: bondCap(60000) - 1000 });
     advance(w, { plan, bondRate: 0, until: MON + 3 * DAY, newId }, []);
     expect(w.purse.gold).toBe(6000);
-    expect(goldOf(w.city.bondResourceTotal!)).toBeCloseTo(1000, 6);
+    expect(w.city.bondResourceTotal!.treasury).toBeCloseTo(1000, 6);
   });
 
-  it("1回で計算しても1時間ごとに計算しても、債券化で得た資源が一致する", () => {
+  it("1回で計算しても1時間ごとに計算しても、債券化の建設資金・利息・街が一致する", () => {
     const opts = { plan, bondRate: 30, newId };
-    const a = world([food], { bond: 50000 });
-    const b = world([food], { bond: 50000 });
+    const a = world([food], { bond: 50000, early: true });
+    const b = world([food], { bond: 50000, early: true });
     const end = START + 7 * DAY;
     advance(a, { ...opts, until: end }, []);
     for (let t = START + HOUR; t <= end; t += HOUR) advance(b, { ...opts, until: t }, []);
-    for (const k of ["wood", "stone", "food"] as const) {
-      expect(b.city.bondResourceTotal![k]).toBeCloseTo(a.city.bondResourceTotal![k], 6);
-      expect(b.city.stock[k]).toBeCloseTo(a.city.stock[k], 6);
-    }
-    expect(goldOf(a.city.bondResourceTotal!)).toBeGreaterThan(0);
+    expect(b.city.bondResourceTotal!.treasury).toBeCloseTo(a.city.bondResourceTotal!.treasury, 6);
+    expect(b.city.interestTotal!).toBeCloseTo(a.city.interestTotal!, 6);
+    expect(b.city.treasury).toBeCloseTo(a.city.treasury, 6);
+    expect(b.city.completed).toBeCloseTo(a.city.completed, 6);
+    expect(a.city.bondResourceTotal!.treasury).toBeGreaterThan(0);
   });
 });
 
-describe("債券につく資源の種類を選べる", () => {
-  const lv = { bank: 1, goldMine: 1, silverMine: 1 };
-  const needs = { wood: 100, stone: 50, food: 0, treasury: 200 };
-  it("種類を選ぶと、同じ量の金貨をその資源だけに手数料なしで替えた量になる", () => {
-    const g = quoteBondGains(300, "stone", needs, lv);
-    expect(g).toEqual({ ...ZERO_GAINS, stone: quoteResourceExchange("gold", "stone", 300, lv).gain });
+describe("ERL-01・02 開拓期ボーナス", () => {
+  it("シーズン1〜7日目の貯金は ×2、8〜14日目は ×1.5、15日目からは ×1", () => {
+    const c = createCity(START, 100000);
+    expect([0, 6, 7, 13, 14].map((d) => earlyBonusRate(c, c.startedAt + d * DAY + HOUR))).toEqual([2, 2, 1.5, 1.5, 1]);
+    expect(creditFund(c, 1000, c.startedAt + HOUR)).toBe(1000);
+    expect(creditFund(c, 1000, c.startedAt + 8 * DAY)).toBe(500);
+    expect(creditFund(c, 1000, c.startedAt + 20 * DAY)).toBe(0);
+    expect(c.treasury).toBe(2000 + 1500 + 1000);
   });
-  it("おまかせは必要割合での振り分け（手数料なし）", () => {
-    expect(quoteBondGains(300, "auto", needs, lv)).toEqual(quoteNeedsExchange("gold", 300, needs, lv, { fee: false }).gains);
+
+  it("増える分はシーズンで基準額の0.3倍まで", () => {
+    const c = createCity(START, 100000);
+    expect(creditFund(c, 50000, c.startedAt + HOUR)).toBe(30000);
+    expect(creditFund(c, 1000, c.startedAt + 2 * HOUR)).toBe(0);
+    expect(c.earlyBonus).toBe(30000);
+  });
+
+  it("交換画面の見せ方：ボーナスの間は、建設資金の不足に要る金貨が減る（~~92G~~ → 46G）。creditFund と同じ計算", () => {
+    const c = createCity(START, 100000);
+    const room = earlyBonusRoom(c);
+    expect(room).toBe(30000);
+    expect(fundWithBonus(46, 2, room)).toBe(92);
+    expect(savingsForFund(92, 2, room)).toBe(46);
+    expect(savingsForFund(92, 1.5, room)).toBeCloseTo(92 / 1.5, 9);
+    expect(savingsForFund(92, 1, room)).toBe(92);
+    // 残りのボーナスを超える分は1倍
+    expect(savingsForFund(1000, 2, 100)).toBe(900);
+    expect(fundWithBonus(900, 2, 100)).toBe(1000);
+    // 求めた額を実際に入れると、ちょうどその建設資金になる
+    const at = c.startedAt + HOUR;
+    for (const fund of [92, 5000, 70000]) {
+      const before = c.treasury;
+      creditFund(c, savingsForFund(fund, 2, earlyBonusRoom(c)), at);
+      expect(c.treasury - before).toBeCloseTo(fund, 6);
+    }
+  });
+
+  it("採掘の債券化でも開拓期ボーナスがつく", () => {
+    const plan = new BudgetPlan(60000, [], [], TZ);
+    const w = world([], { early: true });
+    advance(w, { plan, bondRate: 50, until: START + DAY, newId }, []);
+    expect(w.purse.bond).toBeGreaterThan(0);
+    expect(w.city.bondResourceTotal!.treasury).toBeCloseTo(w.purse.bond * 2, 0);
   });
 });

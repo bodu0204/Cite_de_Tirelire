@@ -1,6 +1,6 @@
 "use client";
 
-import { DEV_THRESHOLDS, MAX_DEV, MAX_TECH, TECH_THRESHOLDS } from "@/game/config";
+import { DEV_NAMES, DEV_THRESHOLDS, MAX_DEV, MAX_TECH } from "@/game/config";
 import { bankLevelBand } from "@/game/levels";
 import { fmt, yen } from "@/lib/api";
 import type { ActiveView } from "@/server/view";
@@ -59,7 +59,7 @@ export function WishSavingsGauge({ v }: { v: ActiveView }) {
 
 export function TechGauge({ v }: { v: ActiveView }) {
   const t = v.tech;
-  const prev = TECH_THRESHOLDS[t.level - 1];
+  const prev = t.prev;
   return (
     <div>
       <div className="flex items-baseline justify-between">
@@ -98,10 +98,18 @@ export function DevGauge({ v }: { v: ActiveView }) {
       </div>
       <Gauge value={d.next === null ? 1 : d.points - prev} max={d.next === null ? 1 : d.next - prev} color="var(--dev)" label="次の発展Lvまで" />
       <p className="mt-1 text-xs text-muted">
-        {d.next === null ? "最大の都市規模です。建物の高層化で成長を続けます" : <>あと {fmt(d.next - d.points)}pt</>}
+        {d.nextAt === null ? "最大の都市規模です。建物の高層化で成長を続けます" : <>あと {yen(Math.max(0, d.nextAt - d.completed))}分の工事</>}
+        {d.forecastDays !== null && (
+          <span className="font-semibold text-ink">
+            {" "}
+            ・ このペースなら{d.forecastDays === 0 ? "まもなく" : `約${d.forecastDays}日後に`}「{DEV_NAMES[d.level]}」
+          </span>
+        )}
         <span>
           {" "}
-          ・ 発展速度 {fmt(d.ratePerHour, 1)}pt/時（稼働 {Math.round(d.operation * 100)}%{d.bondMultiplier > 1 && ` ・ 債券 ×${fmt(d.bondMultiplier, 2)}`}）
+          ・ 建設資金 {yen(Math.floor(d.fund))}
+          {d.interestPerDay > 0 && `（債券の利息 +${yen(Math.floor(d.interestPerDay))}/日）`}
+          {d.earlyBonusRate > 1 && ` ・ 開拓期ボーナス ×${fmt(d.earlyBonusRate, 1)}`}
         </span>
         <span>
           {" "}

@@ -30,10 +30,10 @@ export const BIG_PARK_TIER = 3;
 
 /**
  * 建物の一辺のマス数（docs/map-layout-redesign.md §4.1）。
- * 道路・像が 1×1、銀行と高額なサブスクの公園が 3×3、それ以外（鉄道・ほかの公園を含む）が 2×2
+ * 道路・像・備えの施設が 1×1、銀行と高額なサブスクの公園が 3×3、それ以外（鉄道・ほかの公園を含む）が 2×2
  */
 export function buildingSize(b: Pick<Building, "line" | "special" | "tier">): number {
-  if (b.line === "road" || b.special === "statue") return 1;
+  if (b.line === "road" || b.special === "statue" || b.special === "reserve") return 1;
   if (b.special === "bank") return 3;
   if (b.special === "park") return b.tier >= BIG_PARK_TIER ? 3 : 2;
   return 2;

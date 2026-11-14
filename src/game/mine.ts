@@ -36,6 +36,12 @@ export interface MineState {
   cut?: bigint;
   /** 当期の配当で所持通貨に入った額（µG。手元のお金の推測 E3a。docs/record-input-redesign.md §8.4） */
   dividend?: bigint;
+  /** 最後に記録で貯金を確定した時刻（docs/savings-driven-growth.md REC-01）。確定していなければ undefined */
+  confirmedAt?: number;
+  /** まだ確定していない日ごとの配当（日の始まりの時刻 → µG。未回収に入った分。confirm.ts） */
+  unconfirmed?: Record<string, number>;
+  /** 当期に確定で債券に入れた額のうち、手数料なしで取り崩せる残り（期間が替わると0。REC-01） */
+  freeBond?: number;
 }
 
 export interface SubWindow {
@@ -173,6 +179,8 @@ export function accrue(
 function closeMonth(m: MineState, next: string) {
   m.monthKey = next;
   m.minedThisMonth = 0n;
+  // 前の期間に確定した債券は、もう手数料なしでは取り崩せない
+  m.freeBond = 0;
   // 減らしきれなかった−差分は持ち越さない（記録の時点で残りの採掘を上限にしている）
   m.cut = 0n;
   m.dividend = 0n;

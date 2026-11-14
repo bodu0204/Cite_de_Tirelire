@@ -51,6 +51,17 @@ export interface IsoOverlay {
    * dark は電気が足りない建物で、夜も窓を灯さない
    */
   troubles?: { x: number; y: number; kind: string; dark?: boolean }[];
+  /**
+   * タイムラプスの花火（docs/savings-driven-growth.md REC-06）の通し番号。増えた分だけ打ち上げる
+   * （最初に渡した数は打ち上げない）
+   */
+  fireworks?: number;
+  /** 火事で休業した建物（占有範囲の左上のマスと一辺）。炎と煙を重ねる（docs/savings-driven-growth.md EVT-03） */
+  fires?: { x: number; y: number; size: number }[];
+  /** 台風：雨を降らせ、空を暗くし、工事のバーを止まった色にする */
+  storm?: boolean;
+  /** 資材の値上がり：工事のバーに値上がりの矢印を出す */
+  surge?: boolean;
 }
 
 /**

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { confirmedText, sumConfirmed, type Confirmed } from "./shared";
 import { useGame, useSeasonView } from "@/components/GameProvider";
 import { BondIcon, Button, Card, Coin, CustomIcon, Empty, Field, NumberInput } from "@/components/ui";
 import { REWARD_PURCHASE } from "@/game/config";
@@ -9,7 +10,8 @@ import { useList } from "@/lib/useList";
 
 export interface PaymentRow {
   currency: "GOLD" | "SILVER" | "BOND" | "CUSTOM" | "RESERVED";
-  kind: "pay" | "fee";
+  /** draw：同じ期間に確定した債券の取り崩し（手数料なし） */
+  kind: "pay" | "fee" | "draw";
   currencyId: string | null;
   amount: number;
 }
@@ -96,7 +98,7 @@ function QuoteView({ q }: { q: Quote }) {
       {q.after && p.bond > 0 && (
         <p className="mt-1 text-xs">
           記録後の債券は <span className={`num font-semibold ${q.after.bond < 0 ? "text-danger" : ""}`}>{fmt(q.after.bond)}</span>
-          {q.after.bond < 0 && "。0に戻るまで配当の20%以上が債券に回ります（発展速度は変わりません）"}
+          {q.after.bond < 0 && "。0に戻るまで配当の20%以上が債券に回ります（その間は債券の利息がつきません）"}
         </p>
       )}
     </div>
@@ -146,10 +148,18 @@ function PurchaseForm({ onDone, tz }: { onDone: () => void; tz: string }) {
       className="space-y-3"
       onSubmit={async (e) => {
         e.preventDefault();
-        const r = await act<{ reward: number; payment?: Quote["payment"] }>("/api/purchases", { ...f, amount: Number(f.amount), categoryId: f.categoryId || null });
+        const r = await act<{ reward: number; payment?: Quote["payment"] & { draw?: number }; confirmed?: Confirmed | null }>("/api/purchases", { ...f, amount: Number(f.amount), categoryId: f.categoryId || null });
         if (!r) return;
-        const bond = r.payment && r.payment.bond > 0 ? `（債券から ${fmt(r.payment.bond)} を支払いました）` : "";
-        toast(r.reward > 0 ? `記録しました！ 銀貨 +${r.reward}S${bond}` : `記録しました（今日の記録報酬は上限に達しています）${bond}`, r.reward > 0 ? "reward" : "info");
+        // 債券の肩代わり（docs/savings-driven-growth.md RSV-05）。同じ期間に確定した分の取り崩しは手数料なし
+        const draw = r.payment?.draw ?? 0;
+        const bond =
+          r.payment && r.payment.bond > 0
+            ? `（債券から ${fmt(r.payment.bond + draw)} を支払いました。債券のおかげで、街の工事は止まりませんでした）`
+            : draw > 0
+              ? `（今月貯めた債券から ${fmt(draw)} を取り崩しました。手数料はかかりません）`
+              : "";
+        const done = confirmedText(r.confirmed);
+        toast(r.reward > 0 ? `記録しました！ 銀貨 +${r.reward}S${done}${bond}` : `記録しました（今日の記録報酬は上限に達しています）${done}${bond}`, r.reward > 0 ? "reward" : "info");
         setF((p) => ({ ...p, amount: "", name: "", memo: "" }));
         onDone();
       }}
@@ -250,8 +260,9 @@ function BaseRows({ onDone, tz }: { onDone: () => void; tz: string }) {
   if (!base) return <p className="text-sm text-muted">読み込み中…</p>;
   const subBody = (s: SubRow) => ({ subscriptionId: s.subscriptionId, periodKey: s.periodKey, date: s.date, amount: Number(amounts[`s:${s.subscriptionId}:${s.periodKey}`] || 0) });
   const wishBody = (w: WishRow) => ({ wishItemId: w.id, date: todayIn(tz), amount: Number(amounts[`w:${w.id}`] || 0) });
-  const finish = async (n: number, reward: number) => {
-    toast(reward > 0 ? `${n}件記録しました！ 銀貨 +${reward}S` : `${n}件記録しました`, reward > 0 ? "reward" : "info");
+  const finish = async (n: number, reward: number, confirmed?: Confirmed | null) => {
+    const done = confirmedText(confirmed);
+    toast(reward > 0 ? `${n}件記録しました！ 銀貨 +${reward}S${done}` : `${n}件記録しました${done}`, reward > 0 ? "reward" : "info");
     await load();
     onDone();
   };
@@ -271,8 +282,8 @@ function BaseRows({ onDone, tz }: { onDone: () => void; tz: string }) {
           <Button
             disabled={busy || amounts[key] === "" || amount <= 0}
             onClick={async () => {
-              const r = await act<{ reward: number }>("/api/purchases", body());
-              if (r) await finish(1, r.reward);
+              const r = await act<{ reward: number; confirmed?: Confirmed | null }>("/api/purchases", body());
+              if (r) await finish(1, r.reward, r.confirmed);
             }}
           >
             保存
@@ -296,8 +307,8 @@ function BaseRows({ onDone, tz }: { onDone: () => void; tz: string }) {
           className="w-full"
           disabled={busy || all.some((b) => !b.amount)}
           onClick={async () => {
-            const r = await act<{ items: { reward: number }[] }>("/api/purchases", { items: all });
-            if (r) await finish(r.items.length, r.items.reduce((a, x) => a + x.reward, 0));
+            const r = await act<{ items: { reward: number; confirmed?: Confirmed | null }[] }>("/api/purchases", { items: all });
+            if (r) await finish(r.items.length, r.items.reduce((a, x) => a + x.reward, 0), sumConfirmed(r.items.map((x) => x.confirmed)));
           }}
         >
           一括保存（{all.length}件）

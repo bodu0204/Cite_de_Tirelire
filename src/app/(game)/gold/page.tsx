@@ -64,6 +64,11 @@ export default function DividendPage() {
           {v.currencies.custom.length > 0 && (
             <p className="text-center text-xs text-muted">金貨と一緒に、発生したユーザ通貨も受け取ります。未受取のユーザ通貨も購入の精算には使われます（交換は受け取ってから）。</p>
           )}
+          <p className="text-center text-xs text-muted">
+            収支を記録すると、未受取の金貨（使わなかった配当）が貯金として確定し、債券と建設資金になって街に入ります。記録しない日の分は7日後に、推定の支出を引いて確定します
+            {mine.unconfirmed > 0 && `（まだ確定していない配当 ${fmt(mine.unconfirmed)}G）`}。
+            {mine.freeBond > 0 && ` 今月確定した債券のうち ${fmt(mine.freeBond)} は、あとの支払いに手数料なしで取り崩せます。`}
+          </p>
         </div>
       </Card>
 
@@ -91,7 +96,7 @@ export default function DividendPage() {
           <span className={`num font-pixel text-2xl ${v.currencies.bond < 0 ? "text-danger" : ""}`}>{fmt(v.currencies.bond)}</span>
         </div>
         <p className="mt-1 text-xs text-muted">
-          配当の一部を債券に回します。債券は急な出費（金貨が足りない購入）を肩代わりし、持っているほど街の時間発展が速くなります（今 ×{fmt(v.dev.bondMultiplier, 2)}）。上限 {fmt(bond.cap)}（自由予算の3か月分）に達したら自動で止まります。
+          配当の一部を債券に回します。債券に入った分は同じ額の建設資金になり、債券は急な出費（金貨が足りない購入）を肩代わりします。持っている間は毎日利息が建設資金として街に入ります（今 +{yen(Math.floor(v.dev.interestPerDay))}/日・備えLv{v.dev.reserveLevel}）。上限 {fmt(bond.cap)}（自由予算の3か月分）に達したら自動で止まります。
         </p>
         <label className="mt-3 block text-sm">
           <span className="mb-1 block font-medium">債券化率</span>

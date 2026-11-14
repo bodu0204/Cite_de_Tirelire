@@ -1,9 +1,11 @@
 // ゲームの盤面を、アイソメトリック描画（src/components/iso）の形に変える。
 // 描画側はマップの大きさやゲームの規則を知らないので（RND-10）、ここで絵のキーと重ね描きの情報に置き換える。
-import { LINES, type LineId, type SpecialKind, type Zone } from "@/game/catalog";
+import { LINES, type DecorKind, type LineId, type SpecialKind, type Zone } from "@/game/catalog";
+import type { ActiveDisasters } from "@/game/city/disasters";
 import { LOGISTICS_FLOOR, PLOT_SIZE } from "@/game/config";
 import { buildingSize, isLegacyMine, isPlannedRoad, landBounds, plotKey, plotOf, tileKey, type Rect } from "@/game/city/layout";
 import { MIN_ROAD } from "@/components/iso/agents";
+import decorSpotsJson from "../../../art/sprites/64/decor-spots.json";
 import { hash2, type IsoMap, type IsoObject, type IsoOverlay, lockedKey, tileIndex } from "@/components/iso/map";
 
 export interface CityBuilding {
@@ -16,6 +18,8 @@ export interface CityBuilding {
   y: number;
   closed?: boolean;
   placed?: false;
+  /** 銀貨で添えた装飾（REC-06）。建物の手前の角に小物を置く */
+  decor?: DecorKind;
 }
 
 export interface CityJob {
@@ -54,6 +58,11 @@ export interface CityInput {
   supply?: { power: number; workers: number; food: number };
   /** 未受取の配当（金貨）と、1分あたりの配当量。銀行の前に金貨の山を出す（A4） */
   gold?: { uncollected: number; ratePerMinute: number };
+  /**
+   * 続いている悪い出来事（docs/savings-driven-growth.md EVT-03）。台風は雨と暗い空、不作は枯れた畑、
+   * 資材の値上がりは工事現場の矢印、停電は灯らない窓で見せる。火事は休業した建物（closed）で見せる
+   */
+  disasters?: ActiveDisasters;
 }
 
 /** 人と車の上限（NF-01 は合わせて 300 で確かめる）。道路の長さでも抑え（人は1マスに1人、車は3マスに1台）、短い道に詰め込まない */
@@ -69,6 +78,47 @@ export function agentCounts(population: number, logistics: number, roadTiles: nu
   return {
     people: Math.min(MAX_PEOPLE, roadTiles, Math.round(Math.max(0, population) * 0.4)),
     cars: Math.min(MAX_CARS, Math.floor(paved / 3), Math.round(Math.max(0, population) * 0.12 * (0.3 + 0.7 * flow))),
+  };
+}
+
+/** 装飾を置く位置（建物の基準点からのずれ。64px タイル基準のドット。敷地の外でもよい）と、建物より手前に描くか */
+export interface DecorSpot {
+  ox: number;
+  oy: number;
+  front: boolean;
+}
+
+/** 装飾の位置の台帳（art/sprites/64/decor-spots.json。/dev/decor で編集する） */
+export interface DecorSpots {
+  /** 大きさ（一辺のマス数）ごとの既定 */
+  default: Record<string, DecorSpot>;
+  /** 建物の絵のキー（@ より前）ごと */
+  spots: Record<string, DecorSpot>;
+}
+
+export const DECOR_SPOTS = decorSpotsJson as DecorSpots;
+
+/** その建物の絵の装飾の位置。台帳になければ大きさごとの既定 */
+export function decorSpot(key: string, size: number, data: DecorSpots = DECOR_SPOTS): DecorSpot | null {
+  return data.spots[key.split("@")[0]] ?? data.default[String(size)] ?? null;
+}
+
+/**
+ * 装飾の小物。手前に描くなら占有範囲の手前の角のマス、奥なら奥の角のマスに置き（重なり順が建物の前か後ろになる）、
+ * 建物の基準点からのずれを、そのマスの中心からのずれに直す（手前の角は基準点より (大きさ − 1) × 16 ドット下）
+ */
+export function decorObject(b: CityBuilding, size: number, key: string, data: DecorSpots = DECOR_SPOTS): IsoObject | null {
+  const spot = b.decor ? decorSpot(key, size, data) : null;
+  if (!spot) return null;
+  const k = size - 1;
+  return {
+    id: `decor:${b.id}`,
+    x: spot.front ? b.x + k : b.x,
+    y: spot.front ? b.y + k : b.y,
+    key: `props/decor/${b.decor}`,
+    ox: spot.ox,
+    oy: spot.oy + (spot.front ? -k : k) * 16,
+    dz: spot.front ? 0.35 : -0.35,
   };
 }
 
@@ -99,6 +149,18 @@ export function troubleIcons(buildings: Iterable<CityBuilding>, supply: { power:
   return out;
 }
 
+/** 不作の間は、すべての畑に食料のアイコンを出す（ほかの困りごとアイコンがある畑はそのまま） */
+function withCropIcons(list: IsoOverlay["troubles"], buildings: CityBuilding[], crop: boolean): IsoOverlay["troubles"] {
+  if (!crop) return list;
+  const out = [...(list ?? [])];
+  const has = new Set(out.map((t) => `${t.x},${t.y}`));
+  for (const b of buildings) if (b.line === "farm" && b.placed !== false && !has.has(`${b.x},${b.y}`)) out.push({ x: b.x, y: b.y, kind: "food" });
+  return out;
+}
+
+/** 停電の間に灯る窓の割合（ふだんの割合に掛ける） */
+export const BLACKOUT_LIGHTS = 0.15;
+
 /**
  * 夜の暗さ（0 = 昼、1 = 夜）。夕方 17〜19 時に暗くなり、明け方 5〜7 時に明るくなる。
  */
@@ -128,14 +190,17 @@ const STATUE_DONE = 5;
 
 /**
  * 建物1棟の絵のキー。建物Lv は @lv で小物を重ねる（OBJ-05）。
- * 2×2・3×3 の建物は big/ の付いた大きな絵を使う（docs/map-layout-redesign.md §4.5。なければ描画側が1マスの絵で代える）
+ * 2×2・3×3 の建物は big/ の付いた大きな絵を使う（docs/map-layout-redesign.md §4.5。なければ描画側が1マスの絵で代える）。
+ * 悪い出来事（EVT-03）：火事で休業した建物（系統の建物の closed）は @burnt、不作の間の畑は @withered（建物Lvの小物より優先）
  */
-export function buildingKey(b: CityBuilding, bankLevel: number, size = 1): string {
-  const key = smallKey(b, bankLevel);
+export function buildingKey(b: CityBuilding, bankLevel: number, size = 1, disasters?: ActiveDisasters): string {
+  const key = smallKey(b, bankLevel, disasters);
   return size > 1 ? `big/${key}` : key;
 }
 
-function smallKey(b: CityBuilding, bankLevel: number): string {
+function smallKey(b: CityBuilding, bankLevel: number, disasters?: ActiveDisasters): string {
+  if (b.line && b.line !== "road" && b.closed) return `building/${b.line}/${b.tier}@burnt`;
+  if (b.line === "farm" && disasters?.crop) return `building/farm/${b.tier}@withered`;
   const lv = b.level > 1 ? `@lv${Math.min(6, b.level)}` : "";
   switch (b.special) {
     case "bank":
@@ -146,6 +211,9 @@ function smallKey(b: CityBuilding, bankLevel: number): string {
       const rank = STATUE_RANKS[b.tier] ?? "bronze";
       return b.level >= STATUE_DONE ? `special/statue/${rank}` : `special/statue/${rank}@stage${Math.max(0, b.level)}`;
     }
+    case "reserve":
+      // 備えの施設（RSV-03）。備えLvが下がって閉まった施設は暗く描く
+      return `special/reserve/${Math.min(4, Math.max(1, b.tier + 1))}${b.closed ? "@closed" : ""}`;
   }
   return `building/${b.line}/${b.tier}${lv}`;
 }
@@ -219,10 +287,14 @@ export function cityToIso(input: CityInput): { map: IsoMap; overlay: IsoOverlay 
     }
     const size = buildingSize(b);
     markLot(b.x, b.y, size);
-    objects.push({ id: b.id, x: b.x, y: b.y, key: buildingKey(b, input.bankLevel, size), ...(size > 1 ? { size } : {}) });
+    const key = buildingKey(b, input.bankLevel, size, input.disasters);
+    objects.push({ id: b.id, x: b.x, y: b.y, key, ...(size > 1 ? { size } : {}) });
     // 銀行の前（手前の角のマス）に、未受取の配当の量に応じた金貨の山（A4）
     const stage = b.special === "bank" && input.gold ? goldStage(input.gold.uncollected, input.gold.ratePerMinute) : 0;
     if (stage) objects.push({ id: "gold", x: b.x + size - 1, y: b.y + size - 1, key: `props/gold/${stage}`, dz: 0.3 });
+    // 銀貨で添えた装飾（REC-06）：建物の絵ごとに決めた位置（decor-spots.json）。1×1 の建物には置かない
+    const decor = size >= 2 ? decorObject(b, size, key) : null;
+    if (decor) objects.push(decor);
   }
 
   // 未開放の区画（OBJ-02）：林か岩で覆い、開拓できる区画の真ん中に看板を立てる。開拓中の区画は林を切り開いた地面にする
@@ -273,6 +345,9 @@ export function cityToIso(input: CityInput): { map: IsoMap; overlay: IsoOverlay 
   const roadTiles = road.reduce((n, r) => n + (r ? 1 : 0), 0);
   const paved = road.reduce((n, r) => n + (r >= MIN_ROAD.car ? 1 : 0), 0);
   const agents = input.population === undefined ? undefined : agentCounts(input.population, input.logistics ?? 1, roadTiles, paved);
+  const d = input.disasters ?? {};
+  // 火事で休業した建物（炎と煙を重ねる）
+  const fires = buildings.filter((b) => b.placed !== false && b.line && b.line !== "road" && b.closed).map((b) => ({ x: b.x, y: b.y, size: buildingSize(b) }));
   return {
     map: { ...shape, road, locked, lot, objects, home: { x: 0, y: 0 }, outside: "locked" },
     overlay: {
@@ -282,10 +357,14 @@ export function cityToIso(input: CityInput): { map: IsoMap; overlay: IsoOverlay 
       jobs: input.jobs?.map((j) => ({ x: j.x, y: j.y, size: jobSize(j), startedAt: j.startedAt, finishAt: j.finishAt })),
       highlights: input.highlights ? [...input.highlights] : undefined,
       night: input.hour === undefined ? 0 : nightLevel(input.hour),
-      lights: lightRatio(input.occupancy),
+      // 停電の間は、夜も窓がほとんど灯らない
+      lights: lightRatio(input.occupancy) * (d.blackout ? BLACKOUT_LIGHTS : 1),
       people: agents?.people,
       cars: agents?.cars,
-      troubles: input.supply ? troubleIcons(buildings, input.supply) : undefined,
+      troubles: withCropIcons(input.supply ? troubleIcons(buildings, input.supply) : undefined, buildings, !!d.crop),
+      fires: fires.length ? fires : undefined,
+      storm: d.typhoon || undefined,
+      surge: d.surge || undefined,
     },
   };
 }

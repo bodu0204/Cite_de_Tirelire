@@ -2,9 +2,10 @@
 // 実行: npx tsx scripts/seed-demo.ts   （ログイン: demo@example.com / password123）
 import { PrismaClient, type Prisma } from "@prisma/client";
 import { syncParks, syncStatues } from "../src/game/city/actions";
-import { createCity } from "../src/game/city/init";
+import { createCity, seasonBase } from "../src/game/city/init";
 import { applyTechLevel, simulate } from "../src/game/city/sim";
 import { DAY, HOUR } from "../src/game/config";
+import { creditFund } from "../src/game/fund";
 import { achievementRate, bankLevel, savingsProgress, techLevel } from "../src/game/levels";
 import { newMine } from "../src/game/mine";
 import { dayKey } from "../src/game/time";
@@ -27,7 +28,7 @@ async function main() {
   });
   const wish = await prisma.wishItem.create({ data: { userId: user.id, name: "ロードバイク", price: 45000, priority: 1 } });
 
-  const city = createCity(start);
+  const city = createCity(start, seasonBase(60000, 100000));
   const events: CityEvent[] = [{ at: start, type: "SEASON_STARTED", auto: false, important: true, payload: { goal: 100000, number: 1 } }];
   syncParks(city, [{ id: sub.id, name: sub.name, monthly: sub.amount, active: true }], start, events);
   syncStatues(city, [{ id: wish.id, name: wish.name, price: wish.price, progress: 0, purchased: false }], start, events);
@@ -45,8 +46,10 @@ async function main() {
     const at = start + day * DAY + 3 * HOUR;
     simulate(city, at, events);
     records.push({ kind, amount, at });
+    // 都市に使った金貨はそのまま建設資金になる（docs/savings-driven-growth.md GRW-01。開拓期ボーナスつき）
+    if (kind === "DEPOSIT") creditFund(city, amount, at);
     const { net, max } = savingsProgress(records);
-    applyTechLevel(city, techLevel(max), at, events);
+    applyTechLevel(city, techLevel(max, city.base), at, events);
     const lv = bankLevel(achievementRate(net, 100000));
     if (lv !== city.bankLevel) {
       events.push({ at, type: "BANK_LEVEL", auto: false, important: lv > city.bankLevel, payload: { level: lv } });

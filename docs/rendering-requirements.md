@@ -227,6 +227,8 @@ PR ごとに GitHub Actions（`.github/workflows/ci.yml`）で、この LINT（`
 | 仮の絵（PixelLab の絵が揃うまで同じキーで出す） | 済み | `placeholder.ts`・`textures.ts` |
 | 生成スクリプトと台帳（代表5枚） | 済み。実際の生成はまだ | `scripts/sprites/`（`npm run sprites`） |
 | 確認ページ（全段階の並び、候補から選ぶ） | 済み | `/dev/sprites`（開発環境だけ） |
+| 装飾の位置の編集（銀貨で添える装飾を、建物の絵ごとにドラッグで合わせる。敷地の外にはみ出してもよい） | 済み | `/dev/decor`（開発環境だけ）。`art/sprites/64/decor-spots.json` に保存し、`src/components/city/toIso.ts` が使う |
+| 悪い出来事の見た目（台風の雨と暗い空、不作の枯れた畑、火事の焦げた建物と炎・煙、値上がりの矢印、停電の灯らない窓。docs/savings-driven-growth.md §16.5） | 済み | `src/components/iso/effects.ts`・`compose.ts`・`IsoStage.ts`、`src/components/city/toIso.ts`。`/dev/city` の「災害」で確かめる |
 | 代表5枚の生成と、64×32 と 32×16 の比較 | 済み。64×32 に決定 | `art/candidates/`（Git に入れない） |
 | 見本の街（§5.2） | 済み。建物3種・草4種・舗装道路13通りで、草のつなぎ目に隙間や段差はない | `art/sprites/64/`、`/dev/iso` の「見本」 |
 | 画風の決定 | 人が見本の街を見て決める。残る差は M1 で直す（下記） | |

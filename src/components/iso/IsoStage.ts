@@ -19,7 +19,26 @@ import {
 } from "./camera";
 import { type ChunkId, type Rect, CHUNK, chunkKey, chunkOf, chunkRect, visibleChunks } from "./chunks";
 import { nightColor } from "./compose";
-import { type EffectKind, EFFECT_MS, MAX_EFFECTS, effectKind, flashAlpha, particles, popScale } from "./effects";
+import {
+  type EffectKind,
+  type Particle,
+  EFFECT_MS,
+  FIREWORK_MS,
+  MAX_EFFECTS,
+  MAX_FIREWORKS,
+  MAX_FLIGHTS,
+  SITE_GAP_MS,
+  coinFlight,
+  effectKind,
+  fireParticles,
+  firework,
+  flashAlpha,
+  flightMs,
+  lightning,
+  particles,
+  popScale,
+  rainStreaks,
+} from "./effects";
 import { type IsoMap, type IsoObject, type IsoOverlay, groundKey, hash2, lockedKey, mapRect, objectCenter, tileAt, tileIndex } from "./map";
 import { type Iso, depth, iso, mapBounds, toScreen, toTile, toTileF } from "./projection";
 import { type ArtSource, type Entry, TextureBook } from "./textures";
@@ -83,6 +102,32 @@ interface Effect {
   t0: number;
 }
 
+/** 銀行から工事現場へ飛ぶ金貨（FX-02）。sx・sy は銀行の足元（ワールド座標）、dx・dy・lift は 64px タイル基準のドット */
+interface Flight {
+  sx: number;
+  sy: number;
+  dx: number;
+  dy: number;
+  lift: number;
+  seed: number;
+  t0: number;
+}
+
+/** タイムラプスの花火（REC-06）。sx・sy は打ち上げる地面（ワールド座標） */
+interface Firework {
+  sx: number;
+  sy: number;
+  rise: number;
+  seed: number;
+  t0: number;
+}
+
+/** 台風の間に街に掛ける色（青みがかった灰色。夜の色と掛け合わせる） */
+const STORM_RGB: [number, number, number] = [0x9c, 0xa8, 0xba];
+
+/** 銀行の絵のキー（大きな絵の big/ を含む） */
+const BANK_KEY = /^(big\/)?special\/bank\//;
+
 /** 背の高い建物が上のチャンクへはみ出す分（ドット、64px タイル基準） */
 const TALL = 160;
 /** 焼き付けた地面を残しておく数（これを超えたら見えていないものから捨てる） */
@@ -102,6 +147,9 @@ export class IsoStage {
   private objLayer = new Container();
   private fxLayer = new Container();
   private fxGfx = new Graphics();
+  /** 台風の雨と稲光（画面に重ねる。カメラに合わせて動かさない） */
+  private weatherGfx = new Graphics();
+  private weatherDrawn = false;
   private highlightSprites: Sprite[] = [];
   private overlay: IsoOverlay = {};
   private groundKeys: string[] = [];
@@ -126,6 +174,10 @@ export class IsoStage {
   /** 前の盤面の絵のキー（id → キー）。演出を決めるのに使う。最初の読み込みの前は null */
   private objKeys: Map<string, string> | null = null;
   private effects: Effect[] = [];
+  private flights: Flight[] = [];
+  private fireworks: Firework[] = [];
+  /** 打ち上げた花火の数（overlay.fireworks との差だけ打ち上げる） */
+  private fireworkCount: number | null = null;
   private placedById = new Map<string, Placed>();
   /** マス（"x,y"）→ そのマスを占める建物（大きな建物は占有範囲のすべてのマス） */
   private cover = new Map<string, Placed>();
@@ -209,7 +261,7 @@ export class IsoStage {
     canvas.addEventListener("webglcontextlost", this.onContextLost);
     this.world.addChild(this.groundLayer, this.markLayer, this.objLayer, this.fxLayer, this.troubleLayer, this.selectLayer);
     this.objLayer.sortableChildren = true;
-    this.app.stage.addChild(this.world);
+    this.app.stage.addChild(this.world, this.weatherGfx);
 
     const sel = this.book.get("ui/select");
     this.select.texture = sel.texture;
@@ -337,6 +389,8 @@ export class IsoStage {
       const c = objectCenter(o);
       this.effects.push({ kind, id: o.id, x: c.x, y: c.y, height: pl ? (this.artHeight(o.key) * 64) / this.p.tw : 32, seed: hash2(o.x, o.y, 5), t0: now });
     }
+    // 工事が始まったら、銀行から現場へ金貨を飛ばす（FX-02）。最初の読み込みと大きさが変わった時は出さない
+    if (prevKeys && !resized && !this.opts.reducedMotion) this.launchCoins(map, prevKeys, now);
     // 道路が変わったら人と車を置き直す（道路の上にしかいられないため）
     const roadSig = map.road.join("");
     if (resized || roadSig !== this.roadSig) {
@@ -344,6 +398,47 @@ export class IsoStage {
       this.resetAgents();
     }
     if (dirty.size || resized) this.camDirty = true;
+  }
+
+  /** 新しく始まった工事（job: の絵）へ、銀行から金貨を飛ばす。近い現場から順に飛ばす */
+  private launchCoins(map: IsoMap, prevKeys: Map<string, string>, now: number) {
+    const bank = map.objects.find((o) => BANK_KEY.test(o.key));
+    if (!bank) return;
+    const sites = map.objects.filter((o) => o.id.startsWith("job:") && !prevKeys.has(o.id));
+    if (!sites.length) return;
+    const u = this.p.tw / 64;
+    const bc = objectCenter(bank);
+    const from = toScreen(this.p, bc.x, bc.y);
+    // 金貨は銀行の壁の中ほど（絵の高さの半分）から出る
+    const lift = (this.artHeight(bank.key) * 64) / this.p.tw / 2;
+    const busy = this.flights.length;
+    const list = sites
+      .map((o) => {
+        const c = objectCenter(o);
+        const to = toScreen(this.p, c.x, c.y);
+        return { o, dx: (to.sx - from.sx) / u, dy: (to.sy - from.sy) / u };
+      })
+      .sort((a, b) => Math.hypot(a.dx, a.dy) - Math.hypot(b.dx, b.dy))
+      .slice(0, Math.max(0, MAX_FLIGHTS - busy));
+    list.forEach(({ o, dx, dy }, i) => this.flights.push({ sx: from.sx, sy: from.sy, dx, dy, lift, seed: hash2(o.x, o.y, 9), t0: now + i * SITE_GAP_MS }));
+  }
+
+  /** 花火を n 発打ち上げる（開いている土地の上のどこか。少しずつずらして打ち上げる） */
+  private launchFireworks(n: number, now: number) {
+    const land = this.land;
+    const u = this.p.tw / 64;
+    for (let i = 0; i < n && this.fireworks.length < MAX_FIREWORKS; i++) {
+      const seed = hash2(Math.floor(now), i, 71);
+      const fx = (hash2(seed, 1, 73) % 1000) / 1000;
+      const fy = (hash2(seed, 2, 79) % 1000) / 1000;
+      this.fireworks.push({
+        sx: land.minX + (land.maxX - land.minX) * (0.15 + 0.7 * fx),
+        sy: land.minY + (land.maxY - land.minY) * (0.35 + 0.4 * fy),
+        rise: (130 + (hash2(seed, 3, 83) % 60)) * Math.max(1, (land.maxY - land.minY) / u / 400),
+        seed,
+        t0: now + i * 260,
+      });
+    }
   }
 
   /**
@@ -461,7 +556,8 @@ export class IsoStage {
     const dark = this.darkTiles.has(`${o.x},${o.y}`);
     // 動く絵は、今のコマで窓の前を部品が通る画素を灯さない（コマが変わるたびに灯りも替える）
     const anim = o.sprite instanceof AnimatedSprite && this.book.hasGlowFrames(o.key) ? o.sprite : null;
-    const g = night > 0 && !dark ? this.book.getGlow(o.key, this.overlay.lights ?? 1, anim?.currentFrame) : null;
+    // 火事で休業した建物（@burnt）は窓を灯さない
+    const g = night > 0 && !dark && !o.key.includes("@burnt") ? this.book.getGlow(o.key, this.overlay.lights ?? 1, anim?.currentFrame) : null;
     if (anim) anim.onFrameChange = g ? () => this.updateGlow(o) : undefined;
     if (!g) {
       if (o.glow) {
@@ -483,7 +579,9 @@ export class IsoStage {
   /** 昼夜の色（OBJ-14）：夜ほど暗い青を掛ける。窓の灯りには掛けない */
   private get nightTint(): number {
     const [r, g, b] = nightColor(this.overlay.night ?? 0);
-    return (r << 16) | (g << 8) | b;
+    // 台風の間は空が暗い（青みがかった灰色を掛ける）
+    const [sr, sg, sb] = this.overlay.storm ? STORM_RGB : [255, 255, 255];
+    return (Math.round((r * sr) / 255) << 16) | (Math.round((g * sg) / 255) << 8) | Math.round((b * sb) / 255);
   }
 
   private applyNight() {
@@ -503,11 +601,16 @@ export class IsoStage {
 
   /** 用途・対象外の印・工事のバー・強調（盤面とは別に描き直す） */
   setOverlay(o: IsoOverlay) {
-    const nightChanged = (o.night ?? 0) !== (this.overlay.night ?? 0) || (o.lights ?? 1) !== (this.overlay.lights ?? 1);
+    const nightChanged =
+      (o.night ?? 0) !== (this.overlay.night ?? 0) || (o.lights ?? 1) !== (this.overlay.lights ?? 1) || !!o.storm !== !!this.overlay.storm;
     const agentsChanged = o.people !== this.overlay.people || o.cars !== this.overlay.cars;
     const dark = new Set((o.troubles ?? []).filter((t) => t.dark).map((t) => `${t.x},${t.y}`));
     const darkChanged = [...dark].join() !== [...this.darkTiles].join();
     this.darkTiles = dark;
+    // 花火（タイムラプスの演出）：数が増えた分だけ打ち上げる。最初に渡された数は、もう打ち上げたものとする
+    const fw = o.fireworks ?? 0;
+    if (this.fireworkCount !== null && fw > this.fireworkCount && !this.opts.reducedMotion && this.map) this.launchFireworks(fw - this.fireworkCount, performance.now());
+    this.fireworkCount = fw;
     this.overlay = o;
     if ((nightChanged || darkChanged) && this.map) this.applyNight();
     if (this.map) this.drawTroubles();
@@ -617,7 +720,7 @@ export class IsoStage {
     const g = this.fxGfx;
     g.clear();
     const u = this.p.tw / 64;
-    const { jobs } = this.overlay;
+    const { jobs, storm, surge } = this.overlay;
     for (const j of jobs ?? []) {
       const ratio = Math.max(0, Math.min(1, (now - j.startedAt) / Math.max(1, j.finishAt - j.startedAt)));
       const jc = objectCenter(j);
@@ -626,14 +729,42 @@ export class IsoStage {
       const x = Math.round(c.sx - w / 2);
       const y = Math.round(c.sy + 6 * u);
       g.rect(x - u, y - u, w + 2 * u, 5 * u).fill(0x3e2723);
-      g.rect(x, y, Math.max(u, Math.round(w * ratio)), 3 * u).fill(0xffca28);
+      // 台風の間は工事が止まる：バーを灰色にし、右に一時停止の印（‖）を出す
+      g.rect(x, y, Math.max(u, Math.round(w * ratio)), 3 * u).fill(storm ? 0x90a4ae : 0xffca28);
+      if (storm) g.rect(x + w + 3 * u, y - u, u, 5 * u).rect(x + w + 5 * u, y - u, u, 5 * u).fill(0xeceff1);
+      // 資材の値上がりの間は、バーの左に赤い上向きの矢印（暗い縁どり）
+      if (surge) {
+        const cx = x - 7 * u;
+        const top = y - 6 * u;
+        // 矢じり（上から幅1・3・5・7ドット）と軸（幅3ドット・3段）
+        const rows: [number, number][] = [[0, 1], [1, 3], [2, 5], [3, 7], [4, 3], [5, 3], [6, 3]];
+        const arrow = (d: number, color: number) => {
+          for (const [r, w] of rows) g.rect(cx - ((w - 1) / 2) * u - d * u, top + r * u - d * u, (w + 2 * d) * u, (1 + 2 * d) * u);
+          g.fill(color);
+        };
+        arrow(1, 0x3e2723);
+        arrow(0, 0xff5252);
+      }
     }
+  }
+
+  /** 台風の雨と稲光（画面の座標で毎フレーム。動きを減らす設定の時は止めた雨だけ） */
+  private drawWeather(now: number) {
+    const g = this.weatherGfx;
+    g.clear();
+    this.weatherDrawn = false;
+    if (!this.overlay.storm) return;
+    const { width: w, height: h } = this.app.screen;
+    const t = this.opts.reducedMotion ? 0 : now;
+    for (const r of rainStreaks(t, w, h)) g.moveTo(r.x1, r.y1).lineTo(r.x2, r.y2);
+    g.stroke({ color: 0xd6e2ef, width: 1, alpha: 0.55 });
+    const flash = this.opts.reducedMotion ? 0 : lightning(now);
+    if (flash > 0) g.rect(0, 0, w, h).fill({ color: 0xffffff, alpha: flash });
+    this.weatherDrawn = true;
   }
 
   /** 完成・進化の演出を進める（建物の伸び縮み・光と、粒）。終わったものは消す */
   private drawEffects(now: number) {
-    const g = this.fxGfx;
-    const u = this.p.tw / 64;
     this.effects = this.effects.filter((e) => {
       const t = now - e.t0;
       const done = t >= EFFECT_MS[e.kind];
@@ -657,15 +788,60 @@ export class IsoStage {
       }
       if (done) return false;
       const c = toScreen(this.p, e.x, e.y);
-      for (const q of particles(e.kind, t, e.height, e.seed)) {
-        const x = Math.round(c.sx + q.x * u);
-        const y = Math.round(c.sy + q.y * u);
-        if (q.shape === 2) g.rect(x - u, y, 3 * u, u).rect(x, y - u, u, 3 * u);
-        else g.rect(x, y, 2 * u, 2 * u);
-        g.fill(q.color);
-      }
+      this.drawParticles(c.sx, c.sy, particles(e.kind, t, e.height, e.seed));
       return true;
     });
+    // 火事で休業した建物の炎と煙（休業の間ずっと）
+    const fireT = this.opts.reducedMotion ? 0 : now;
+    for (const f of this.overlay.fires ?? []) {
+      const pl = this.cover.get(`${f.x},${f.y}`);
+      const height = pl ? (this.artHeight(pl.key) * 64) / this.p.tw : 32;
+      const c = objectCenter(f);
+      const sc = toScreen(this.p, c.x, c.y);
+      this.drawParticles(sc.sx, sc.sy, fireParticles(fireT, height, f.size, hash2(f.x, f.y, 13)));
+    }
+    // 銀行から現場へ飛ぶ金貨（FX-02）と、タイムラプスの花火
+    const fl = flightMs();
+    this.flights = this.flights.filter((f) => {
+      const t = now - f.t0;
+      if (t >= fl) return false;
+      if (t >= 0) this.drawParticles(f.sx, f.sy, coinFlight(t, f.dx, f.dy, f.lift, f.seed));
+      return true;
+    });
+    // 花火は街全体を見せる引いたカメラでも見えるよう、画面で3px より小さくならない大きさで描く（広がりも同じ倍率）
+    const k = Math.max(1, 3 / Math.max(0.01, scaleOf(this.cam.zoom, this.viewport.dpr) * (this.p.tw / 64)));
+    this.fireworks = this.fireworks.filter((f) => {
+      const t = now - f.t0;
+      if (t >= FIREWORK_MS) return false;
+      if (t >= 0) this.drawParticles(f.sx, f.sy, firework(t, f.rise / k, f.seed), k);
+      return true;
+    });
+  }
+
+  /** 粒を描く。基準点（ワールド座標）からのずれは 64px タイル基準のドット。k は粒の大きさとずれの倍率 */
+  private drawParticles(sx: number, sy: number, list: Particle[], k = 1) {
+    const g = this.fxGfx;
+    const u = (this.p.tw / 64) * k;
+    for (const q of list) {
+      const x = Math.round(sx + q.x * u);
+      const y = Math.round(sy + q.y * u);
+      if (q.shape === 4) {
+        // 煙の塊：半径 r の四角（ドット絵に合わせて角は丸めない）
+        const r = Math.max(1, Math.round((q.r ?? 2) * u));
+        g.rect(x - r, y - r, 2 * r, 2 * r).fill({ color: q.color, alpha: q.alpha ?? 1 });
+        continue;
+      }
+      if (q.shape === 3) {
+        // 金貨：縁の暗い3ドット四方に、光る点を1つ
+        g.rect(x - u, y - u, 3 * u, 3 * u).fill(0xc79100);
+        g.rect(x - u, y - u, 2 * u, 2 * u).fill(q.color);
+        g.rect(x - u, y - u, u, u).fill(0xffffff);
+        continue;
+      }
+      if (q.shape === 2) g.rect(x - u, y, 3 * u, u).rect(x, y - u, u, 3 * u);
+      else g.rect(x, y, 2 * u, 2 * u);
+      g.fill(q.color);
+    }
   }
 
   setSelected(tile: { x: number; y: number } | null) {
@@ -920,11 +1096,16 @@ export class IsoStage {
       const want = this.overlay.highlights ?? [];
       this.highlightSprites.forEach((sp, i) => (sp.visible = !!want[i] && on));
     }
-    if (this.overlay.jobs?.length || this.effects.length || this.fxDrawn) {
+    const moving = this.effects.length + this.flights.length + this.fireworks.length;
+    const fires = this.overlay.fires?.length ?? 0;
+    if (this.overlay.jobs?.length || moving || fires || this.fxDrawn) {
       this.drawFx(Date.now() + (this.opts.serverOffset ?? 0));
       this.drawEffects(now);
-      this.fxDrawn = !!(this.overlay.jobs?.length || this.effects.length);
+      this.fxDrawn = !!(this.overlay.jobs?.length || fires || this.effects.length || this.flights.length || this.fireworks.length);
     }
+    if (this.overlay.storm || this.weatherDrawn) this.drawWeather(now);
+    // 悪い出来事の動き（雨・炎と煙）は 30fps で足りる
+    const disaster = !this.opts.reducedMotion && (!!this.overlay.storm || fires > 0);
 
     if (this.camDirty) {
       this.camDirty = false;
@@ -934,9 +1115,9 @@ export class IsoStage {
 
     // 動きがない時は描画回数を下げる（NF-02）
     const busy =
-      this.pointers.size > 0 || !!this.focus || Math.abs(this.vel.x) > 0.01 || Math.abs(this.vel.y) > 0.01 || now < this.highlightUntil || this.effects.length > 0;
+      this.pointers.size > 0 || !!this.focus || Math.abs(this.vel.x) > 0.01 || Math.abs(this.vel.y) > 0.01 || now < this.highlightUntil || moving > 0;
     // 動く絵のコマ送り（6〜12fps）が飛ばないよう、動きがある時は 12fps より下げない
-    this.app.ticker.maxFPS = busy ? 0 : this.agents.length && !this.opts.reducedMotion ? 30 : this.animCount > 0 ? 12 : 10;
+    this.app.ticker.maxFPS = busy ? 0 : disaster || (this.agents.length && !this.opts.reducedMotion) ? 30 : this.animCount > 0 ? 12 : 10;
 
     this.stats(now, busy, dt);
   };

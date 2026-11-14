@@ -6,8 +6,9 @@ import { bondCap, bondFee, bondResourceEligible } from "@/game/bond";
 import { cityNeeds } from "@/game/city/sim";
 import { FEE_EXCHANGE } from "@/game/config";
 import { GAIN_KEYS, quoteNeedsExchange, ZERO_GAINS } from "@/game/exchange";
+import { creditGains } from "@/game/fund";
 import { absorbShortfall, absorbSurplus, type Payment } from "@/game/settle";
-import type { Gains, StockKey } from "@/game/types";
+import type { Gains } from "@/game/types";
 import { facilityLevels, requireSeason, tagLedger, withPurse, type GameCtx } from "./game";
 
 export type RefType = "income" | "purchase" | "adjustment";
@@ -23,11 +24,10 @@ export interface ResolutionView {
   feeBond: number;
 }
 
-const RESOURCES: StockKey[] = ["wood", "stone", "food"];
-
-function addGains(ctx: GameCtx, gains: Gains) {
-  for (const k of RESOURCES) ctx.city!.stock[k] += gains[k];
-  ctx.city!.treasury += gains.treasury;
+/** 建設資金を街に入れる（開拓期ボーナスつき。docs/savings-driven-growth.md ERL-01）。ボーナスも含めた獲得量を返す */
+function addGains(ctx: GameCtx, gains: Gains): Gains {
+  const bonus = creditGains(ctx.city!, gains, ctx.now);
+  return { ...gains, treasury: gains.treasury + bonus };
 }
 
 const sumGains = (a: Gains, b: Gains): Gains => Object.fromEntries(GAIN_KEYS.map((k) => [k, a[k] + b[k]])) as unknown as Gains;
@@ -91,8 +91,7 @@ export async function resolveSurplus(ctx: GameCtx, d: number, ref: { type: RefTy
   const from = ctx.ledger.length;
   const r = withPurse(ctx, (p) => absorbSurplus(p, d, `${ref.type}_surplus`));
   const a = quoteNeedsExchange("gold", r.eligible, cityNeeds(ctx.city).needs, facilityLevels(ctx), { fee: false });
-  addGains(ctx, a.gains);
-  let gains = a.gains;
+  let gains = addGains(ctx, a.gains);
   let feeSilver = 0;
   if (r.rest > 0) {
     // 入りきらない分はおまかせ交換。金貨としては残らないが、ゲーム内で使った金貨（貯金額）に数える
@@ -102,8 +101,7 @@ export async function resolveSurplus(ctx: GameCtx, d: number, ref: { type: RefTy
       ctx.balances.silver -= feeSilver;
       ctx.ledger.push({ currency: "SILVER", delta: -feeSilver, reason: "exchange_resource" });
     }
-    addGains(ctx, b.gains);
-    gains = sumGains(gains, b.gains);
+    gains = sumGains(gains, addGains(ctx, b.gains));
     ctx.citySpent += r.rest;
   }
   tagLedger(ctx, from, ref.id);

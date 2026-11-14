@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useGame, useSeasonView } from "@/components/GameProvider";
 import { Button, Card, Empty, Field, NumberInput } from "@/components/ui";
 import { api, fmt, yen } from "@/lib/api";
-import { ResolutionPreview, type Resolution } from "./shared";
+import { confirmedText, ResolutionPreview, type Confirmed, type Resolution } from "./shared";
 
 type Key = "E1" | "E2" | "E3a" | "E3b" | "E6a" | "E6b" | "E4a" | "E4b" | "E5";
 type Checks = Record<Key, boolean>;
@@ -279,9 +279,9 @@ export function AdjustTab({ onDone }: { onDone: () => void }) {
             e.preventDefault();
             if (diff === null || diff === 0) return;
             if (!confirm(`誤差 ${diff > 0 ? "+" : "−"}${yen(Math.abs(diff))} を解消しますか？（あとから編集できません）`)) return;
-            const r = await act<{ diff: number }>("/api/adjustments", { checks, actual: actualNum });
+            const r = await act<{ diff: number; confirmed?: Confirmed | null }>("/api/adjustments", { checks, actual: actualNum });
             if (!r) return;
-            toast(`誤差 ${r.diff > 0 ? "+" : "−"}${yen(Math.abs(r.diff))} を解消しました`);
+            toast(`誤差 ${r.diff > 0 ? "+" : "−"}${yen(Math.abs(r.diff))} を解消しました${confirmedText(r.confirmed)}`);
             setActual("");
             await load();
             onDone();
