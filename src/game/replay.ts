@@ -1,5 +1,7 @@
 // タイムラプス：開始時スナップショット＋イベント履歴から、任意の時刻の街を再構築する。
 import type { Zone } from "./catalog";
+import type { ActiveDisasters } from "./city/disasters";
+import { HOUR } from "./config";
 import type { BuildingSnap, CityEventType } from "./types";
 
 export interface ReplayEvent {
@@ -125,4 +127,19 @@ export function fireworksAt(events: { at: number; type: string }[], t: number, f
   let n = 0;
   for (const e of events) if (e.at <= t) n += FIREWORK_EVENTS[e.type] ?? 0;
   return n + (finished ? FIREWORK_FINALE : 0);
+}
+
+/**
+ * タイムラプスの時刻 t に続いている悪い出来事（街の見た目に使う）。DISASTER の出来事の時刻と続く時間から求める。
+ * 防いだ出来事と火事（休業した建物で見せる）は含めない
+ */
+export function disastersAt(events: { at: number; type: string; payload: Record<string, unknown> }[], t: number): ActiveDisasters {
+  const out: ActiveDisasters = {};
+  for (const e of events) {
+    if (e.type !== "DISASTER" || e.at > t) continue;
+    const p = e.payload as { kind?: string; prevented?: boolean; hours?: number };
+    if (p.prevented || !p.hours || !p.kind || p.kind === "fire") continue;
+    if (t < e.at + p.hours * HOUR) out[p.kind as keyof ActiveDisasters] = true;
+  }
+  return out;
 }

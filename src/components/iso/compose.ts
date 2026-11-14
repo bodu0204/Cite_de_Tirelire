@@ -1,6 +1,8 @@
 // 絵を組み合わせて別の見た目を作る（キーの @ 以降で指定する）。生成した絵の枚数を増やさずに状態を描き分ける。
 //   building/housing/2@lv4   建物Lv：Lv2〜6 で1つずつ小物が増える（OBJ-05）
 //   special/park/2@closed    閉園：色を抜いて暗くする
+//   building/housing/2@burnt 火事で休業（悪い出来事 EVT-03）：焦げたように暗くする。炎と煙は IsoStage が重ねる
+//   building/farm/1@withered 不作（EVT-03）：緑の画素を枯れた茶色に寄せる
 //   special/statue/gold@stage3  像の建設途中：下から少しずつ姿を見せ、足場をかける（OBJ-06）
 //   ground/locked            未開放の地面：草を暗くする
 import type { Art } from "./placeholder";
@@ -58,6 +60,24 @@ export function dimmed(base: Art, gray: number, dark: number): Art {
   for (let i = 0; i < d.length; i += 4) {
     const l = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
     for (let k = 0; k < 3; k++) d[i + k] = Math.round((d[i + k] * (1 - gray) + l * gray) * dark);
+  }
+  ctx.putImageData(img, 0, 0);
+  return { canvas: c, ax: base.ax, ay: base.ay };
+}
+
+/** 不作の畑：緑がかった画素（作物・草）を枯れた茶色に寄せ、絵全体も少し乾いた色にする（畑の少ない段階の絵でも分かるように） */
+export function withered(base: Art): Art {
+  const [c, ctx] = copy(base);
+  const img = ctx.getImageData(0, 0, c.width, c.height);
+  const d = img.data;
+  const DRY: [number, number, number] = [0xa6, 0x86, 0x4a];
+  for (let i = 0; i < d.length; i += 4) {
+    const [r, g, b] = [d[i], d[i + 1], d[i + 2]];
+    if (d[i + 3] === 0) continue;
+    // 緑の強い画素ほど強く寄せ、それ以外も少しだけ寄せる。明るさは元の画素に合わせる
+    const k = g > r && g > b ? Math.min(0.85, 0.4 + (g - Math.max(r, b)) / 120) : 0.35;
+    const l = (0.299 * r + 0.587 * g + 0.114 * b) / 140;
+    for (let j = 0; j < 3; j++) d[i + j] = Math.round(d[i + j] * (1 - k) + Math.min(255, DRY[j] * l) * k);
   }
   ctx.putImageData(img, 0, 0);
   return { canvas: c, ax: base.ax, ay: base.ay };

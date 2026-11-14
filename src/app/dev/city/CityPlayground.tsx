@@ -22,11 +22,24 @@ const techAt = (d: number) => (d >= 21 ? 5 : d >= 14 ? 4 : d >= 7 ? 3 : d >= 1 ?
 const BASE = 100_000;
 const savedOn = (d: number) => (d === 0 ? 5_000 : 667);
 
-/** 確認用の追加：備えの施設（Lv4 まで建てて Lv3 に下げ、金庫を閉める）・装飾、入金の回数（工事が始まり金貨が飛ぶ。FX-02） */
+/** 確認用の追加：備えの施設（Lv4 まで建てて Lv3 に下げ、金庫を閉める）・装飾、入金の回数（工事が始まり金貨が飛ぶ。FX-02）、火事で休業させる棟数 */
 interface Extras {
   reserve: boolean;
   deposits: number;
+  fires?: number;
 }
+
+/** 悪い出来事の見た目の確認（docs/savings-driven-growth.md EVT-03）。火事は建物を休業させて見せる */
+const DISASTER_OPTIONS = [
+  { value: "", label: "なし" },
+  { value: "typhoon", label: "台風" },
+  { value: "crop", label: "不作" },
+  { value: "fire", label: "火事" },
+  { value: "surge", label: "資材の値上がり" },
+  { value: "blackout", label: "停電" },
+  { value: "all", label: "すべて" },
+] as const;
+type DisasterOption = (typeof DISASTER_OPTIONS)[number]["value"];
 
 function cityAfter(days: number, specials: boolean, extras: Extras = { reserve: false, deposits: 0 }): CityState {
   const s = createCity(T0, BASE);
@@ -51,6 +64,12 @@ function cityAfter(days: number, specials: boolean, extras: Extras = { reserve: 
     creditFund(s, 3_000, s.simTime);
     simulate(s, s.simTime + TICK_MS, []);
   }
+  // 火事：銀行に近い建物から休業させる（見た目の確認だけなので、再開の時刻は持たない）
+  s.buildings
+    .filter((b) => b.line && b.line !== "road" && b.line !== "farm")
+    .sort((a, b) => Math.abs(a.x) + Math.abs(a.y) - (Math.abs(b.x) + Math.abs(b.y)))
+    .slice(0, extras.fires ?? 0)
+    .forEach((b) => (b.closed = true));
   return s;
 }
 
@@ -63,7 +82,10 @@ export function CityPlayground() {
   const [reserve, setReserve] = useState(false);
   const [deposits, setDeposits] = useState(0);
   const [fireworks, setFireworks] = useState(0);
-  const city = useMemo(() => cityAfter(days, specials, { reserve, deposits }), [days, specials, reserve, deposits]);
+  const [disaster, setDisaster] = useState<DisasterOption>("");
+  const on = (k: DisasterOption) => disaster === k || disaster === "all";
+  const fires = on("fire") ? 2 : 0;
+  const city = useMemo(() => cityAfter(days, specials, { reserve, deposits, fires }), [days, specials, reserve, deposits, fires]);
   const m = computeMetrics(city);
   return (
     <div className="space-y-3 p-4">
@@ -100,6 +122,16 @@ export function CityPlayground() {
         <button type="button" className="w-auto rounded border px-2" onClick={() => setFireworks((n) => n + 3)}>
           花火
         </button>
+        <label className="flex items-center gap-1">
+          災害
+          <select className="w-auto" value={disaster} onChange={(e) => setDisaster(e.target.value as DisasterOption)}>
+            {DISASTER_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
         <span data-testid="stats">
           発展Lv{devLevel(city.devPoints)} ・ 人口{Math.floor(city.population)} ・ 建物{city.buildings.length}棟 ・ 区画{city.plots.length} ・ 工事{city.jobs.length}
         </span>
@@ -121,6 +153,7 @@ export function CityPlayground() {
         population={m.population}
         logistics={m.logistics}
         fireworks={fireworks}
+        disasters={{ typhoon: on("typhoon"), crop: on("crop"), surge: on("surge"), blackout: on("blackout") }}
         className="h-[80vh] w-full rounded-md"
       />
     </div>

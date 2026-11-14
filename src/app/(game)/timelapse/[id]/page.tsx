@@ -7,7 +7,7 @@ import { Button, Card, Gauge, LinkButton } from "@/components/ui";
 import { TIMELAPSE_FX_LABELS } from "@/game/catalog";
 import { DEV_NAMES, TIMELAPSE_FX_SILVER } from "@/game/config";
 import { describeEvent } from "@/game/describe";
-import { createReplay, fireworksAt, rateAt, type ReplayEvent, type ReplayStart } from "@/game/replay";
+import { createReplay, disastersAt, fireworksAt, rateAt, type ReplayEvent, type ReplayStart } from "@/game/replay";
 import type { CityState } from "@/game/types";
 import { api, fmt, formatDate, yen } from "@/lib/api";
 
@@ -105,6 +105,7 @@ export default function TimelapsePlayer({ params }: { params: Promise<{ id: stri
           zones={frame.zones}
           bankLevel={frame.bankLevel}
           fireworks={fireworks}
+          disasters={disastersAt(data.events, t)}
         />
         {finished && (
           <div className="rise pointer-events-none absolute inset-0 flex flex-col items-center justify-center rounded-xl bg-black/40 text-center text-white">

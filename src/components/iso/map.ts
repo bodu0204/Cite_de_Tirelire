@@ -56,6 +56,12 @@ export interface IsoOverlay {
    * （最初に渡した数は打ち上げない）
    */
   fireworks?: number;
+  /** 火事で休業した建物（占有範囲の左上のマスと一辺）。炎と煙を重ねる（docs/savings-driven-growth.md EVT-03） */
+  fires?: { x: number; y: number; size: number }[];
+  /** 台風：雨を降らせ、空を暗くし、工事のバーを止まった色にする */
+  storm?: boolean;
+  /** 資材の値上がり：工事のバーに値上がりの矢印を出す */
+  surge?: boolean;
 }
 
 /**

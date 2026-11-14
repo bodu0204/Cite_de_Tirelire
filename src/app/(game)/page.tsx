@@ -13,6 +13,7 @@ import { useCollect } from "@/components/useCollect";
 import { BondIcon, Button, Card, Coin, CustomIcon, LinkButton, Modal, Stat } from "@/components/ui";
 import { expandablePlots, tileLabel } from "@/game/city/layout";
 import { fmt } from "@/lib/api";
+import { activeDisasters } from "@/game/city/disasters";
 
 /** ホームに最初から出すユーザ通貨の数（残りは折りたたむ） */
 const CUSTOM_SHOWN = 3;
@@ -96,6 +97,7 @@ export default function HomePage() {
             logistics={m.logistics}
             supply={{ power: m.powerRatio, workers: m.laborRatio, food: m.foodRatio }}
             gold={{ uncollected: v.mine.uncollected, ratePerMinute: v.mine.ratePerMinute }}
+            disasters={activeDisasters(c.effects, v.serverNow)}
           />
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
             <span>マスを選ぶと建物の様子が見られます。</span>

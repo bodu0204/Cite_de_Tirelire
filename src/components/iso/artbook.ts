@@ -2,7 +2,7 @@
 // 先に引き、組み合わせの絵（compose.ts）を作り、なければ仮の絵を描いて返す。
 import { LINES, type LineId } from "@/game/catalog";
 import { type AnimIndex, loadAtlas, loadImage } from "./atlas";
-import { blended, dimmed, statueInProgress, withLevel } from "./compose";
+import { blended, dimmed, statueInProgress, withered, withLevel } from "./compose";
 import { type Art, drawAgentArt, drawBuildingArt, drawGroundArt, drawSelectArt } from "./placeholder";
 
 function drawArt(key: string, tw: number): Art | null {
@@ -205,6 +205,9 @@ export class ArtBook {
       return withLevel(base, Number(mod.slice(2)), props, this.tw);
     }
     if (mod === "closed") return dimmed(base, 0.7, 0.8);
+    // 悪い出来事（EVT-03）：火事で休業した建物は焦げたように暗く、不作の畑は枯れた色にする
+    if (mod === "burnt") return dimmed(base, 0.55, 0.5);
+    if (mod === "withered") return withered(base);
     // 左右反転（人と車の左向き）
     if (mod === "flip") return mirror(base);
     if (mod.startsWith("stage")) return statueInProgress(base, Number(mod.slice(5)), this.loaded.get("fx/cover") ?? null);

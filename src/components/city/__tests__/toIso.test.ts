@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { INITIAL_PLOTS } from "@/game/config";
 import { tileIndex } from "@/components/iso/map";
-import { decorObject, decorSpot, LOCKED_BAND, MAX_CARS, MAX_PEOPLE, agentCounts, buildingKey, cityToIso, goldStage, hourIn, lightRatio, nightLevel, troubleIcons, type CityBuilding } from "../toIso";
+import { BLACKOUT_LIGHTS, decorObject, decorSpot, LOCKED_BAND, MAX_CARS, MAX_PEOPLE, agentCounts, buildingKey, cityToIso, goldStage, hourIn, lightRatio, nightLevel, troubleIcons, type CityBuilding } from "../toIso";
 import { depth, iso, toScreen } from "@/components/iso/projection";
 
 const b = (over: Partial<Parameters<typeof buildingKey>[0]>) => ({ id: "b", tier: 0, level: 1, x: 4, y: 4, ...over });
@@ -25,6 +25,34 @@ describe("建物の絵のキー", () => {
     expect(buildingKey(b({ special: "reserve", tier: 0 }), 1)).toBe("special/reserve/1");
     expect(buildingKey(b({ special: "reserve", tier: 3 }), 1)).toBe("special/reserve/4");
     expect(buildingKey(b({ special: "reserve", tier: 2, closed: true }), 1)).toBe("special/reserve/3@closed");
+  });
+});
+
+describe("悪い出来事の見た目（docs/savings-driven-growth.md EVT-03）", () => {
+  const farm = { id: "f1", line: "farm" as const, tier: 1, level: 3, x: -5, y: 0 };
+  const house = { id: "h1", line: "housing" as const, tier: 1, level: 2, x: 3, y: -5 };
+
+  it("火事で休業した建物は @burnt、不作の間の畑は @withered（建物Lvの小物より優先）", () => {
+    expect(buildingKey({ ...house, closed: true }, 1, 2)).toBe("big/building/housing/1@burnt");
+    expect(buildingKey(farm, 1, 2, { crop: true })).toBe("big/building/farm/1@withered");
+    expect(buildingKey({ ...farm, closed: true }, 1, 2, { crop: true })).toBe("big/building/farm/1@burnt");
+    expect(buildingKey(farm, 1, 2)).toBe("big/building/farm/1@lv3");
+    // 閉園した公園は今までどおり @closed
+    expect(buildingKey({ id: "p", special: "park", tier: 1, level: 1, x: 0, y: 0, closed: true }, 1)).toBe("special/park/1@closed");
+  });
+
+  it("火事は炎と煙、台風は雨、値上がりは工事の矢印、停電は灯らない窓、不作は畑の食料アイコンを重ね書きに出す", () => {
+    const base = { plots: INITIAL_PLOTS, zones: {}, bankLevel: 1, occupancy: 1 };
+    const calm = cityToIso({ ...base, buildings: [farm, house] }).overlay;
+    expect(calm.fires).toBeUndefined();
+    expect(calm.storm).toBeUndefined();
+    expect(calm.surge).toBeUndefined();
+    const o = cityToIso({ ...base, buildings: [farm, { ...house, closed: true }], disasters: { typhoon: true, crop: true, surge: true, blackout: true } }).overlay;
+    expect(o.fires).toEqual([{ x: 3, y: -5, size: 2 }]);
+    expect(o.storm).toBe(true);
+    expect(o.surge).toBe(true);
+    expect(o.lights).toBeCloseTo(calm.lights! * BLACKOUT_LIGHTS, 9);
+    expect(o.troubles).toContainEqual({ x: -5, y: 0, kind: "food" });
   });
 });
 

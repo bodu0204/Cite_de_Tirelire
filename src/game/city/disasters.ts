@@ -16,7 +16,7 @@ import {
   TYPHOON_HOURS,
 } from "../config";
 import { devLevel } from "../levels";
-import { snapBuilding, type Building, type CityEvent, type CityState } from "../types";
+import { snapBuilding, type Building, type CityEffects, type CityEvent, type CityState } from "../types";
 
 export type DisasterKind = "typhoon" | "crop" | "fire" | "surge" | "blackout";
 
@@ -58,6 +58,14 @@ export const moodFactor = (happiness: number) => (happiness >= 70 ? 0.75 : happi
 
 /** 効果が今も続いているか */
 export const active = (e: { until: number } | undefined, at: number) => !!e && e.until > at;
+
+/** 街の見た目に出す、続いている悪い出来事（火事は休業した建物そのもので見せる） */
+export type ActiveDisasters = Partial<Record<Exclude<DisasterKind, "fire">, boolean>>;
+
+/** 時刻 at に続いている悪い出来事（街の見た目に使う） */
+export function activeDisasters(fx: CityEffects | undefined, at: number): ActiveDisasters {
+  return { typhoon: (fx?.pauseUntil ?? 0) > at, crop: active(fx?.crop, at), surge: active(fx?.surge, at), blackout: active(fx?.blackout, at) };
+}
 
 /** 休業させる建物の候補：道路以外の通常の建物で、休業していないもの */
 const fireCandidates = (s: CityState) => s.buildings.filter((b) => b.line && b.line !== "road" && !b.closed && b.placed !== false);

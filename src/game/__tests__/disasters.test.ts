@@ -1,11 +1,12 @@
 // 悪い出来事（docs/savings-driven-growth.md §10）
 import { describe, expect, it } from "vitest";
 import { tierDef } from "../catalog";
-import { disasterOn, maybeDisaster, moodFactor, reopenDue, type DisasterKind } from "../city/disasters";
+import { activeDisasters, disasterOn, maybeDisaster, moodFactor, reopenDue, type DisasterKind } from "../city/disasters";
 import { computeMetrics } from "../city/economy";
 import { createCity } from "../city/init";
 import { applyTechLevel, priceOf, simulate } from "../city/sim";
 import { CROP_FAILURE, DAY, DEV_THRESHOLDS, FIRE_REOPEN_HOURS, HOUR, TICK_MS, TYPHOON_HOURS } from "../config";
+import { disastersAt } from "../replay";
 import type { CityEvent, CityState } from "../types";
 
 const T0 = Date.UTC(2026, 9, 1);
@@ -127,5 +128,27 @@ describe("EVT-03・04 被害と備え", () => {
       maybeDisaster(s, firstOf(s, kind).end, ev, price);
       expect(ev[0].payload).toMatchObject({ kind, prevented: true });
     }
+  });
+});
+
+describe("EVT-03 街の見た目に出す、続いている悪い出来事", () => {
+  it("今の効果から求める（終わった効果は出さない）", () => {
+    const at = T0 + DAY;
+    expect(activeDisasters(undefined, at)).toEqual({ typhoon: false, crop: false, surge: false, blackout: false });
+    const fx = { pauseUntil: at + HOUR, crop: { until: at + HOUR, rate: 0.5 }, surge: { until: at - 1, rate: 0.3 } };
+    expect(activeDisasters(fx, at)).toEqual({ typhoon: true, crop: true, surge: false, blackout: false });
+  });
+
+  it("タイムラプスでは出来事の時刻と続く時間から求める。防いだ出来事と火事は出さない", () => {
+    const events = [
+      { at: 100, type: "DISASTER", payload: { kind: "typhoon", prevented: false, hours: 12 } },
+      { at: 200, type: "DISASTER", payload: { kind: "surge", prevented: true } },
+      { at: 300, type: "DISASTER", payload: { kind: "fire", prevented: false, repaired: false } },
+      { at: 400, type: "DISASTER", payload: { kind: "crop", prevented: false, hours: 24, percent: 25 } },
+    ];
+    expect(disastersAt(events, 50)).toEqual({});
+    expect(disastersAt(events, 500)).toEqual({ typhoon: true, crop: true });
+    expect(disastersAt(events, 100 + 12 * HOUR)).toEqual({ crop: true });
+    expect(disastersAt(events, 400 + 24 * HOUR)).toEqual({});
   });
 });

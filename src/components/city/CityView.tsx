@@ -24,6 +24,9 @@ type Props = CityInput & {
 
 export function CityView({ label, selected, onSelect, serverOffset = 0, fixed = false, timezone, fixedHour, fireworks, className, ...input }: Props) {
   const { plots, expandable, buildings, jobs, zones, bankLevel, highlights, showZones, occupancy, population, logistics } = input;
+  // 悪い出来事は毎回作り直される入れ物なので、中の値で見比べる
+  const dz = input.disasters;
+  const disasterKey = [dz?.typhoon, dz?.crop, dz?.surge, dz?.blackout].map(Number).join("");
   // 毎回作り直される入れ物は、中の値で見比べる
   const [power, workers, food] = [input.supply?.power, input.supply?.workers, input.supply?.food];
   const [uncollected, ratePerMinute] = [input.gold?.uncollected, input.gold?.ratePerMinute];
@@ -59,8 +62,9 @@ export function CityView({ label, selected, onSelect, serverOffset = 0, fixed = 
         logistics,
         supply: power === undefined ? undefined : { power, workers: workers ?? 1, food: food ?? 1 },
         gold: uncollected === undefined ? undefined : { uncollected, ratePerMinute: ratePerMinute ?? 0 },
+        disasters: { typhoon: disasterKey[0] === "1", crop: disasterKey[1] === "1", surge: disasterKey[2] === "1", blackout: disasterKey[3] === "1" },
       }),
-    [plots, expandableKey, buildings, jobs, zones, bankLevel, highlights, showZones, hour, occupancy, population, logistics, power, workers, food, uncollected, ratePerMinute],
+    [plots, expandableKey, buildings, jobs, zones, bankLevel, highlights, showZones, hour, occupancy, population, logistics, power, workers, food, uncollected, ratePerMinute, disasterKey],
   );
   const overlay = useMemo(() => (fireworks === undefined ? base : { ...base, fireworks }), [base, fireworks]);
   return (
