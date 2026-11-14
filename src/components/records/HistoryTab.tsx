@@ -5,6 +5,7 @@ import { useGame } from "@/components/GameProvider";
 import { Button, Card, Empty, Field, Modal, NumberInput } from "@/components/ui";
 import { api, fmt, yen } from "@/lib/api";
 import { PaymentLine, type PaymentRow } from "./ExpenseTab";
+import { methodLabel, PaymentPicker, paymentRewardText, usePaymentMethods, type PaymentMethod } from "./payment";
 import { CurrencyChip, ResolutionLine, ResolutionPreview, type Resolution } from "./shared";
 
 interface Purchase {
@@ -17,6 +18,8 @@ interface Purchase {
   subscriptionId: string | null;
   wishItemId: string | null;
   baseAmount: number | null;
+  seasonId: string | null;
+  paymentMethodId: string | null;
   payments?: PaymentRow[];
   resolutions: Resolution[];
 }
@@ -90,11 +93,46 @@ function AmountEditor({ row, onDone }: { row: Row; onDone: () => void }) {
   );
 }
 
+/** 支払い方法の記入・変更（docs/payment-method-sync.md PM-13〜15）。ゲームの判定は変わらない。初めての記入は銀貨の報酬つき */
+function PaymentEditor({ item, methods, onDone }: { item: Purchase; methods: PaymentMethod[]; onDone: () => void }) {
+  const { act, toast, busy, view } = useGame();
+  const [id, setId] = useState(item.paymentMethodId ?? "");
+  const first = !item.paymentMethodId;
+  const rewardable = first && view?.season?.id === item.seasonId;
+  return (
+    <form
+      className="space-y-3"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        const r = await act<{ paymentReward: number }>(`/api/purchases/${item.id}`, { paymentMethodId: id }, "PATCH");
+        if (!r) return;
+        toast(first ? paymentRewardText(r.paymentReward) : "支払い方法を変更しました", r.paymentReward > 0 ? "reward" : "info");
+        onDone();
+      }}
+    >
+      <p className="text-sm">
+        {item.name}（{item.date}・{yen(item.amount)}）
+      </p>
+      <PaymentPicker methods={methods} value={id} onChange={setId} allowUnset={false} reward={rewardable} />
+      <p className="text-xs text-muted">
+        支払い方法は精算・手数料・貯金額に影響しません。カードを選ぶと、引き落とされるまでの額が手元のお金の推測（カードの未払い）に入ります。記入したあと未記入には戻せません。
+        {first && !rewardable && " 前のシーズンの記録なので、記入の報酬はありません。"}
+      </p>
+      <Button type="submit" className="w-full" disabled={busy || !id || id === item.paymentMethodId}>
+        {first ? "記入する" : "変更する"}
+      </Button>
+    </form>
+  );
+}
+
 /** 収入・支出の履歴。取り消した記録（金額0）は取り消し線で表示する */
 export function HistoryTab({ reloadKey }: { reloadKey: number }) {
   const { act, toast } = useGame();
   const [rows, setRows] = useState<Row[] | null>(null);
   const [edit, setEdit] = useState<Row | null>(null);
+  const [payEdit, setPayEdit] = useState<Purchase | null>(null);
+  const { items: methods, active, reload: reloadMethods } = usePaymentMethods();
+  const showMethods = (methods?.length ?? 0) > 1;
   const load = useCallback(async () => {
     const [inc, pur] = await Promise.all([api<{ items: Income[] }>("/api/incomes"), api<{ items: Purchase[] }>("/api/purchases")]);
     setRows(
@@ -128,6 +166,11 @@ export function HistoryTab({ reloadKey }: { reloadKey: number }) {
                     {r.item.name}
                     <span className="ml-1 text-xs text-muted">{label}</span>
                     {!income && r.item.category && <span className="ml-1 text-xs text-muted">#{r.item.category}</span>}
+                    {!income && showMethods && (
+                      <span className={`ml-1 text-xs ${methodLabel(methods, r.item.paymentMethodId).unset ? "text-muted/70" : "text-muted"}`}>
+                        {methodLabel(methods, r.item.paymentMethodId).text}
+                      </span>
+                    )}
                   </span>
                   {canceled && <span className="text-xs text-muted">取り消し</span>}
                   <span className={`num shrink-0 font-medium ${canceled ? "text-muted line-through" : income ? "text-dev" : ""}`}>
@@ -137,6 +180,11 @@ export function HistoryTab({ reloadKey }: { reloadKey: number }) {
                 </div>
                 <div className="space-y-0.5 pl-[5.75rem]">
                   <div className="flex justify-end gap-3">
+                    {r.type === "purchase" && showMethods && !canceled && (
+                      <button className="text-xs underline" onClick={() => (setPayEdit(r.item), reloadMethods())}>
+                        {r.item.paymentMethodId ? "支払い方法を変更" : "支払い方法を記入"}
+                      </button>
+                    )}
                     <button className="text-xs underline" onClick={() => setEdit(r)}>
                       金額を変更
                     </button>
@@ -180,6 +228,9 @@ export function HistoryTab({ reloadKey }: { reloadKey: number }) {
           })}
         </ul>
       )}
+      <Modal open={!!payEdit} onClose={() => setPayEdit(null)} title="支払い方法">
+        {payEdit && <PaymentEditor key={payEdit.id} item={payEdit} methods={active} onDone={() => (setPayEdit(null), load())} />}
+      </Modal>
       <Modal open={!!edit} onClose={() => setEdit(null)} title="金額を変更">
         {edit && <AmountEditor key={`${edit.type}${edit.item.id}`} row={edit} onDone={() => (setEdit(null), load())} />}
       </Modal>

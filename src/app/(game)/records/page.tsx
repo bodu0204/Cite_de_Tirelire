@@ -9,7 +9,7 @@ import { IncomeTab } from "@/components/records/IncomeTab";
 import { SavingsTab } from "@/components/records/SavingsTab";
 import { Button, Coin, Tabs } from "@/components/ui";
 import { confirmedText, type Confirmed } from "@/components/records/shared";
-import { AUTO_CONFIRM_DAYS, REWARD_PURCHASE, REWARD_SAVINGS } from "@/game/config";
+import { AUTO_CONFIRM_DAYS, REWARD_PAYMENT, REWARD_PAYMENT_DAILY_CAP, REWARD_PURCHASE, REWARD_SAVINGS } from "@/game/config";
 import { fmt } from "@/lib/api";
 
 type Tab = "income" | "expense" | "adjust" | "savings" | "history";
@@ -31,12 +31,12 @@ export default function RecordsPage() {
           収支記録
         </h1>
         <p className="mt-1 text-sm text-muted">
-          現実の収入と支出を記録すると銀貨がもらえます（収入・支出 {REWARD_PURCHASE}S・貯金管理 {REWARD_SAVINGS}S、1日 {v?.silverMine.dailyCap ?? 300}S まで）。金額の大小で報酬は変わりません。
+          現実の収入と支出を記録すると銀貨がもらえます（収入・支出 {REWARD_PURCHASE}S・貯金管理 {REWARD_SAVINGS}S、1日 {v?.silverMine.dailyCap ?? 300}S まで）。支出に支払い方法を記入すると、別に {REWARD_PAYMENT}S（1日 {REWARD_PAYMENT_DAILY_CAP}S まで）。金額の大小で報酬は変わりません。
         </p>
         {v && (
           <p className="mt-1 text-xs text-muted">
             記録 Lv{v.silverMine.level}（有効な記録 {v.silverMine.records}件{v.silverMine.nextLevelAt !== null && ` ・ 次のLvまで ${v.silverMine.nextLevelAt - v.silverMine.records}件`}） ・ 今日の報酬 {v.silverMine.todayRewarded}/
-            {v.silverMine.dailyCap}S ・ 当期 {v.income.periodKey}（毎月{v.income.day}日から）
+            {v.silverMine.dailyCap}S ・ 支払い方法の記入 {v.silverMine.payment.todayRewarded}/{v.silverMine.payment.dailyCap}S ・ 当期 {v.income.periodKey}（毎月{v.income.day}日から）
           </p>
         )}
         {view && !v && <p className="mt-2 text-sm">進行中のシーズンがないため、記録は家計履歴にのみ残り、銀貨は付与されません。</p>}
@@ -78,7 +78,7 @@ export default function RecordsPage() {
         />
       </div>
       {tab === "income" && <IncomeTab onDone={done} />}
-      {tab === "expense" && <ExpenseTab tz={tz} onDone={done} />}
+      {tab === "expense" && <ExpenseTab tz={tz} onDone={done} reloadKey={reloadKey} />}
       {tab === "adjust" && <AdjustTab onDone={done} />}
       {tab === "savings" && <SavingsTab tz={tz} />}
       {tab === "history" && <HistoryTab reloadKey={reloadKey} />}

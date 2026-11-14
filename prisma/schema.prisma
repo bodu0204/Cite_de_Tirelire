@@ -38,6 +38,7 @@ model User {
   currencyDefs    CurrencyDef[]
   incomes         Income[]
   adjustments     CashAdjustment[]
+  paymentMethods  PaymentMethod[]
 }
 
 model Session {
@@ -225,15 +226,21 @@ model Purchase {
   periodKey       String?
   /// ベース（サブスクの登録額・ほしい物の価格）。金額との差は差分として解消する
   baseAmount      Int?
+  /// 支払い方法（null は未記入＝現金として扱う。docs/payment-method-sync.md G3）
+  paymentMethodId   String?
+  /// 支払い方法を初めて記入した時刻
+  paymentRecordedAt DateTime?
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
   deletedAt       DateTime?
   user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   categoryRef     Category?         @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  paymentMethod   PaymentMethod?    @relation(fields: [paymentMethodId], references: [id], onDelete: SetNull)
   payments        PurchasePayment[]
 
   @@unique([subscriptionId, periodKey])
   @@index([userId, date])
+  @@index([paymentMethodId, date])
 }
 
 /// 購入の支払い内訳（払い戻しを逆順に行うため）
@@ -250,6 +257,33 @@ model PurchasePayment {
   purchase   Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
 
   @@index([purchaseId])
+}
+
+enum PaymentKind {
+  CASH
+  CARD
+  OTHER
+}
+
+/// 支出の支払い方法（docs/payment-method-sync.md §4.1）。現金はユーザーごとに1件、消せない
+model PaymentMethod {
+  id            String         @id @default(cuid())
+  userId        String
+  name          String
+  kind          PaymentKind
+  /// クレカの締め日・引き落とし日（1〜31。その月にない日は末日）と、何か月後に引き落とすか（1 = 翌月、2 = 翌々月）
+  closingDay    Int?
+  paymentDay    Int?
+  paymentMonths Int?
+  sortOrder     Int            @default(0)
+  /// 使わないにした時刻（一覧から外す。記入済みの支出の名前とカードの未払いの計算には残す）
+  archivedAt    DateTime?
+  createdAt     DateTime       @default(now())
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  purchases     Purchase[]
+  subscriptions Subscription[]
+
+  @@index([userId])
 }
 
 /// ジャンル（購入のカテゴリ）のマスタ
@@ -355,8 +389,11 @@ model Subscription {
   startDate String
   endDate   String?
   memo      String?
+  /// 支払い方法（支出タブのサブスクの行の初期値。docs/payment-method-sync.md PM-11）
+  paymentMethodId String?
   createdAt DateTime     @default(now())
   user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  paymentMethod PaymentMethod? @relation(fields: [paymentMethodId], references: [id], onDelete: SetNull)
 
   @@index([userId])
 }

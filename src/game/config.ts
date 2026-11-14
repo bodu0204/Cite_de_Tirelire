@@ -47,6 +47,9 @@ export const expandMinutes = (n: number) => Math.min(360, 60 + 15 * n);
 export const REWARD_PURCHASE = 50;
 export const REWARD_SAVINGS = 100;
 export const REWARD_DAILY_CAP = 300;
+/** 支出に支払い方法を初めて記入した報酬（1件1回）と、その1日の上限（記録の報酬とは別枠。docs/payment-method-sync.md §4.3） */
+export const REWARD_PAYMENT = 10;
+export const REWARD_PAYMENT_DAILY_CAP = 100;
 /** 貯金管理の登録は1日3回まで（docs/record-input-redesign.md SV-13） */
 export const SAVINGS_DAILY_LIMIT = 3;
 

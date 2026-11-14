@@ -38,6 +38,7 @@ npm run dev                   # http://localhost:3000
 | `npm run build`                                    | 本番ビルド                                      |
 | `npx tsx scripts/balance.ts`                       | 貯金だけで育つ街（[To-Be](docs/savings-driven-growth.md)）の推移を表示。`MODE=compare` で貯め方ごとの比較、`MODE=kappa` で値段の係数の比較、`MODE=habit` で貯める額×記録の間隔ごとの1日の工事数・広さ・技術の追いつきの比較（`PROPOSAL=1` で [貯め方で街の形が変わる](docs/saving-habit-balance.md) の案）（バランス調整用） |
 | `BASE=http://localhost:3000 bash scripts/smoke.sh` | APIの通しテスト（登録→シーズン→記録→交換→建設→目標達成→タイムラプス→削除） |
+| `BASE=http://localhost:3000 bash scripts/smoke-payments.sh` | 支払い方法とカードの未払いのAPIテスト（docs/payment-method-sync.md の AT-083〜093） |
 | `node scripts/make-icons.mjs`                      | PWAアイコンの再生成                                |
 
 

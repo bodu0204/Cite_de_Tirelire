@@ -8,6 +8,7 @@ import { tileLabel } from "@/game/city/layout";
 import { PARK_DESCRIPTION, PARK_SIZE_LABELS as SIZE } from "@/game/describe";
 import { todayIn, yen } from "@/lib/api";
 import { useList } from "@/lib/useList";
+import { usePaymentMethods } from "@/components/records/payment";
 
 interface Sub {
   id: string;
@@ -17,6 +18,7 @@ interface Sub {
   startDate: string;
   endDate: string | null;
   memo: string | null;
+  paymentMethodId: string | null;
 }
 
 const monthly = (s: Pick<Sub, "amount" | "cycle">) => (s.cycle === "YEARLY" ? Math.round(s.amount / 12) : s.amount);
@@ -29,7 +31,9 @@ function nextSize(m: number): string {
 
 function SubForm({ initial, onDone, tz }: { initial?: Sub; onDone: () => void; tz: string }) {
   const { act, busy, toast } = useGame();
+  const { items: methods, active } = usePaymentMethods();
   const [f, setF] = useState({
+    paymentMethodId: initial?.paymentMethodId ?? "",
     name: initial?.name ?? "",
     amount: initial ? String(initial.amount) : "",
     cycle: initial?.cycle ?? ("MONTHLY" as Sub["cycle"]),
@@ -42,7 +46,7 @@ function SubForm({ initial, onDone, tz }: { initial?: Sub; onDone: () => void; t
       className="space-y-3"
       onSubmit={async (e) => {
         e.preventDefault();
-        const body = { ...f, amount: Number(f.amount), endDate: f.endDate || null };
+        const body = { ...f, amount: Number(f.amount), endDate: f.endDate || null, paymentMethodId: f.paymentMethodId || null };
         const r = initial
           ? await act<{ warning: string | null }>(`/api/subscriptions/${initial.id}`, body, "PATCH")
           : await act<{ warning: string | null }>("/api/subscriptions", body);
@@ -77,6 +81,21 @@ function SubForm({ initial, onDone, tz }: { initial?: Sub; onDone: () => void; t
       <Field label="メモ（任意）">
         <input maxLength={500} value={f.memo} onChange={(e) => setF({ ...f, memo: e.target.value })} />
       </Field>
+      {active.length > 1 && (
+        <Field label="支払い方法（任意）" hint="支出タブのサブスクの行に初期値として入ります。そのまま保存すると記入の報酬ももらえます。">
+          <select value={f.paymentMethodId} onChange={(e) => setF({ ...f, paymentMethodId: e.target.value })}>
+            <option value="">未記入（現金として扱う）</option>
+            {/* 使わないにした支払い方法も、今の設定なら残して見せる */}
+            {(methods ?? [])
+              .filter((m) => !m.archivedAt || m.id === initial?.paymentMethodId)
+              .map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+          </select>
+        </Field>
+      )}
       <Button type="submit" className="w-full" disabled={busy}>
         {initial ? "保存" : "サブスクを登録"}
       </Button>

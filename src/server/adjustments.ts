@@ -7,17 +7,19 @@ import { remainingMining } from "@/game/mine";
 import { dayKey, parseDateInTz, periodKey, periodRange } from "@/game/time";
 import { budgetPlan, confirmRecords, requireSeason, type GameCtx } from "./game";
 import { seasonPeriods } from "./incomes";
+import { cardsUnpaid, type CardUnpaidRow } from "./payments";
 import { previewDiff, resolveDiff } from "./resolve";
 import { int } from "./validate";
 
 type Body = Record<string, unknown>;
 
-export const ESTIMATE_KEYS = ["E1", "E2", "E3a", "E3b", "E6a", "E6b", "E4a", "E4b", "E5"] as const;
+/** E7：カードの未払い（docs/payment-method-sync.md §5.2）。引き落とされるまで口座に残っている分 */
+export const ESTIMATE_KEYS = ["E1", "E2", "E3a", "E3b", "E6a", "E6b", "E7", "E4a", "E4b", "E5"] as const;
 export type EstimateKey = (typeof ESTIMATE_KEYS)[number];
 export type EstimateChecks = Record<EstimateKey, boolean>;
 
-/** 初回のチェック：貯金管理の増減（E5）だけ外す（Q9） */
-export const DEFAULT_CHECKS: EstimateChecks = { E1: true, E2: true, E3a: true, E3b: true, E6a: true, E6b: true, E4a: true, E4b: true, E5: false };
+/** 初回のチェック：貯金管理の増減（E5）だけ外す（Q9）。E7 のない以前のチェックからも、E7 はありで始まる（CE-03） */
+export const DEFAULT_CHECKS: EstimateChecks = { E1: true, E2: true, E3a: true, E3b: true, E6a: true, E6b: true, E7: true, E4a: true, E4b: true, E5: false };
 
 export function checksOf(v: unknown): EstimateChecks {
   const raw = (v ?? {}) as Record<string, unknown>;
@@ -26,8 +28,8 @@ export function checksOf(v: unknown): EstimateChecks {
 
 const toGold = (v: bigint) => Number(v / MICRO_PER_GOLD);
 
-/** §8.2 の項目の額（チェックによらず全部） */
-export async function estimateItems(ctx: GameCtx): Promise<Record<EstimateKey, number>> {
+/** §8.2 の項目の額（チェックによらず全部）。cards を渡すと E7 の計算に使う（同じ取得で内訳も返すため） */
+export async function estimateItems(ctx: GameCtx, cards?: CardUnpaidRow[]): Promise<Record<EstimateKey, number>> {
   requireSeason(ctx);
   const { mine, season } = ctx;
   const tz = ctx.user.timezone;
@@ -68,7 +70,9 @@ export async function estimateItems(ctx: GameCtx): Promise<Record<EstimateKey, n
   // E6：支出として記録していないお金。ほしい物貯金（未購入のほしい物への積立金貨）と、まだ記録していないサブスクの支払い
   const E6a = ctx.balances.reserved;
   const E6b = (await purchaseBase(ctx)).subscriptions.reduce((a, s) => a + s.amount, 0);
-  return { E1, E2, E3a, E3b: E3 - E3a, E6a, E6b, E4a: ctx.balances.bond, E4b: ctx.citySpent, E5 };
+  // E7：カードで払って、まだ引き落とされていない支出（未記入・現金・その他は数えない）
+  const E7 = (cards ?? (await cardsUnpaid(ctx))).reduce((a, c) => a + c.amount, 0);
+  return { E1, E2, E3a, E3b: E3 - E3a, E6a, E6b, E7, E4a: ctx.balances.bond, E4b: ctx.citySpent, E5 };
 }
 
 export const estimateOf = (items: Record<EstimateKey, number>, checks: EstimateChecks) => ESTIMATE_KEYS.reduce((a, k) => a + (checks[k] ? items[k] : 0), 0);
@@ -77,9 +81,10 @@ export const estimateOf = (items: Record<EstimateKey, number>, checks: EstimateC
 export async function estimate(ctx: GameCtx) {
   const checks = checksOf(ctx.user.estimateChecks);
   const history = await ctx.tx.cashAdjustment.findMany({ where: { userId: ctx.user.id }, orderBy: { createdAt: "desc" }, take: 50 });
-  if (!ctx.season) return { items: null, checks, estimated: 0, history };
-  const items = await estimateItems(ctx);
-  return { items, checks, estimated: estimateOf(items, checks), periodKey: ctx.mine!.monthKey, history };
+  if (!ctx.season) return { items: null, checks, estimated: 0, history, cards: [] };
+  const cards = await cardsUnpaid(ctx);
+  const items = await estimateItems(ctx, cards);
+  return { items, checks, estimated: estimateOf(items, checks), periodKey: ctx.mine!.monthKey, history, cards };
 }
 
 function adjustmentInput(ctx: GameCtx, body: Body, estimated: number) {
@@ -144,7 +149,7 @@ export async function purchaseBase(ctx: GameCtx) {
       (p) => `${p.subscriptionId}:${p.periodKey}`,
     ),
   );
-  const rows: { subscriptionId: string; name: string; amount: number; cycle: string; periodKey: string; date: string }[] = [];
+  const rows: { subscriptionId: string; name: string; amount: number; cycle: string; periodKey: string; date: string; paymentMethodId: string | null }[] = [];
   for (const s of subs) {
     const startAt = parseDateInTz(s.startDate, tz) ?? 0;
     const endAt = s.endDate ? parseDateInTz(s.endDate, tz) : null;
@@ -159,7 +164,7 @@ export async function purchaseBase(ctx: GameCtx) {
       }
       if (paid.has(`${s.id}:${p.key}`)) continue;
       const due = Math.max(p.start, startAt);
-      rows.push({ subscriptionId: s.id, name: s.name, amount: s.amount, cycle: s.cycle, periodKey: p.key, date: dayKey(Math.min(due, ctx.now), tz) });
+      rows.push({ subscriptionId: s.id, name: s.name, amount: s.amount, cycle: s.cycle, periodKey: p.key, date: dayKey(Math.min(due, ctx.now), tz), paymentMethodId: s.paymentMethodId });
     }
   }
   return { subscriptions: rows, wishes: wishRows, currentPeriod: periodKey(ctx.now, ctx.cal) };

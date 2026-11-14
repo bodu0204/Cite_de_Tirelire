@@ -20,6 +20,7 @@ export async function GET(req: NextRequest) {
         savings: true,
         subscriptions: true,
         categories: true,
+        paymentMethods: true,
         currencyDefs: true,
         wishItems: { include: { contributions: true } },
         seasons: { include: { events: true, ledger: true, overspends: true, currencyLots: true, accruals: true, grants: true, resolutions: true } },

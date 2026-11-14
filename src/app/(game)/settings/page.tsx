@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useGame } from "@/components/GameProvider";
+import { PaymentMethodsCard } from "@/components/PaymentMethodsCard";
 import { Button, Card, Field, Modal, NumberInput } from "@/components/ui";
 import { api, ApiError, yen } from "@/lib/api";
 
@@ -91,6 +92,8 @@ export default function SettingsPage() {
           </Button>
         </form>
       </Card>
+
+      <PaymentMethodsCard />
 
       <Card title="データ">
         <div className="flex flex-wrap gap-2">

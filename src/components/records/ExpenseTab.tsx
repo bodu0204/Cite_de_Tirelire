@@ -7,6 +7,7 @@ import { BondIcon, Button, Card, Coin, CustomIcon, Empty, Field, NumberInput } f
 import { REWARD_PURCHASE } from "@/game/config";
 import { api, fmt, todayIn, yen } from "@/lib/api";
 import { useList } from "@/lib/useList";
+import { doubleCountWarning, PaymentPicker, UnfilledPayments, usePaymentMethods, type PaymentMethod } from "./payment";
 
 export interface PaymentRow {
   currency: "GOLD" | "SILVER" | "BOND" | "CUSTOM" | "RESERVED";
@@ -105,12 +106,20 @@ function QuoteView({ q }: { q: Quote }) {
   );
 }
 
+/** 記録の報酬と支払い方法の記入の報酬を合わせたトーストの文言 */
+function rewardText(reward: number, paymentReward: number) {
+  if (reward + paymentReward <= 0) return null;
+  return paymentReward > 0 ? `銀貨 +${reward + paymentReward}S（支払い方法の記入 +${paymentReward}S を含む）` : `銀貨 +${reward}S`;
+}
+
 /** 普通の支出 */
-function PurchaseForm({ onDone, tz }: { onDone: () => void; tz: string }) {
+function PurchaseForm({ onDone, tz, methods }: { onDone: () => void; tz: string; methods: PaymentMethod[] }) {
   const { act, toast, busy } = useGame();
   const v = useSeasonView();
   const categories = useList<Category>("/api/categories");
-  const [f, setF] = useState({ amount: "", date: todayIn(tz), name: "", categoryId: "", memo: "" });
+  // 支払い方法は続けて記録するあいだ直前に選んだものを引き継ぐ（PM-12）
+  const [f, setF] = useState({ amount: "", date: todayIn(tz), name: "", categoryId: "", memo: "", paymentMethodId: "" });
+  const warning = doubleCountWarning(f.name);
   const [adding, setAdding] = useState(false);
   const [newCategory, setNewCategory] = useState("");
   const [quote, setQuote] = useState<Quote | null>(null);
@@ -148,7 +157,12 @@ function PurchaseForm({ onDone, tz }: { onDone: () => void; tz: string }) {
       className="space-y-3"
       onSubmit={async (e) => {
         e.preventDefault();
-        const r = await act<{ reward: number; payment?: Quote["payment"] & { draw?: number }; confirmed?: Confirmed | null }>("/api/purchases", { ...f, amount: Number(f.amount), categoryId: f.categoryId || null });
+        const r = await act<{ reward: number; paymentReward: number; payment?: Quote["payment"] & { draw?: number }; confirmed?: Confirmed | null }>("/api/purchases", {
+          ...f,
+          amount: Number(f.amount),
+          categoryId: f.categoryId || null,
+          paymentMethodId: f.paymentMethodId || null,
+        });
         if (!r) return;
         // 債券の肩代わり（docs/savings-driven-growth.md RSV-05）。同じ期間に確定した分の取り崩しは手数料なし
         const draw = r.payment?.draw ?? 0;
@@ -159,7 +173,8 @@ function PurchaseForm({ onDone, tz }: { onDone: () => void; tz: string }) {
               ? `（今月貯めた債券から ${fmt(draw)} を取り崩しました。手数料はかかりません）`
               : "";
         const done = confirmedText(r.confirmed);
-        toast(r.reward > 0 ? `記録しました！ 銀貨 +${r.reward}S${done}${bond}` : `記録しました（今日の記録報酬は上限に達しています）${done}${bond}`, r.reward > 0 ? "reward" : "info");
+        const got = rewardText(r.reward, r.paymentReward);
+        toast(got ? `記録しました！ ${got}${done}${bond}` : `記録しました（今日の記録報酬は上限に達しています）${done}${bond}`, got ? "reward" : "info");
         setF((p) => ({ ...p, amount: "", name: "", memo: "" }));
         onDone();
       }}
@@ -175,6 +190,8 @@ function PurchaseForm({ onDone, tz }: { onDone: () => void; tz: string }) {
       <Field label="内容">
         <input required maxLength={100} value={f.name} onChange={(e) => set("name", e.target.value)} placeholder="例：ランチ" />
       </Field>
+      {warning && <p className="rounded-lg bg-danger/10 px-3 py-2 text-xs">{warning}</p>}
+      {methods.length > 0 && <PaymentPicker methods={methods} value={f.paymentMethodId} onChange={(id) => set("paymentMethodId", id)} reward={!!v} />}
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label="ジャンル（任意）" hint={usable.length ? `使える通貨：${usable.map((c) => `${c.icon}${c.name}（${fmt(c.balance)}）`).join("・")}` : undefined}>
           <select
@@ -206,7 +223,9 @@ function PurchaseForm({ onDone, tz }: { onDone: () => void; tz: string }) {
         </div>
       )}
       {quote && <QuoteView q={quote} />}
-      <p className="text-xs text-muted">登録したあとは金額だけ変更できます（減額は＋差分、増額は−差分として解消します）。</p>
+      <p className="text-xs text-muted">
+        登録したあとは金額だけ変更できます（減額は＋差分、増額は−差分として解消します）。支払い方法はあとからでも記入できます。カードでも現金でも、使った日に記録してください。
+      </p>
       <Button type="submit" className="w-full" disabled={busy || Number(f.amount) <= 0 || !f.date || !f.name.trim()}>
         支出を記録（+{REWARD_PURCHASE}S）
       </Button>
@@ -221,6 +240,7 @@ interface SubRow {
   cycle: string;
   periodKey: string;
   date: string;
+  paymentMethodId: string | null;
 }
 interface WishRow {
   id: string;
@@ -241,10 +261,13 @@ function DiffNote({ base, amount }: { base: number; amount: number }) {
 }
 
 /** サブスク・ほしい物：設定から作ったベースを保存ボタンひとつで記録する（docs/record-input-redesign.md §6.2・§6.3） */
-function BaseRows({ onDone, tz }: { onDone: () => void; tz: string }) {
+function BaseRows({ onDone, tz, methods }: { onDone: () => void; tz: string; methods: PaymentMethod[] }) {
   const { act, toast, busy } = useGame();
   const [base, setBase] = useState<{ subscriptions: SubRow[]; wishes: WishRow[] } | null>(null);
   const [amounts, setAmounts] = useState<Record<string, string>>({});
+  // 行ごとの支払い方法。サブスクは登録した支払い方法が初期値（PM-11）
+  const [pays, setPays] = useState<Record<string, string>>({});
+  const [openPay, setOpenPay] = useState<string | null>(null);
   const load = useCallback(async () => {
     const r = await api<{ subscriptions: SubRow[]; wishes: WishRow[] }>("/api/purchases/base");
     setBase(r);
@@ -253,16 +276,22 @@ function BaseRows({ onDone, tz }: { onDone: () => void; tz: string }) {
       ...Object.fromEntries(r.wishes.map((w) => [`w:${w.id}`, String(w.price)])),
       ...prev,
     }));
+    setPays((prev) => ({ ...Object.fromEntries(r.subscriptions.map((s) => [`s:${s.subscriptionId}:${s.periodKey}`, s.paymentMethodId ?? ""])), ...prev }));
   }, []);
   useEffect(() => {
     load().catch(() => setBase({ subscriptions: [], wishes: [] }));
   }, [load]);
   if (!base) return <p className="text-sm text-muted">読み込み中…</p>;
-  const subBody = (s: SubRow) => ({ subscriptionId: s.subscriptionId, periodKey: s.periodKey, date: s.date, amount: Number(amounts[`s:${s.subscriptionId}:${s.periodKey}`] || 0) });
-  const wishBody = (w: WishRow) => ({ wishItemId: w.id, date: todayIn(tz), amount: Number(amounts[`w:${w.id}`] || 0) });
-  const finish = async (n: number, reward: number, confirmed?: Confirmed | null) => {
+  const payOf = (key: string) => pays[key] || null;
+  const subBody = (s: SubRow) => {
+    const key = `s:${s.subscriptionId}:${s.periodKey}`;
+    return { subscriptionId: s.subscriptionId, periodKey: s.periodKey, date: s.date, amount: Number(amounts[key] || 0), paymentMethodId: payOf(key) };
+  };
+  const wishBody = (w: WishRow) => ({ wishItemId: w.id, date: todayIn(tz), amount: Number(amounts[`w:${w.id}`] || 0), paymentMethodId: payOf(`w:${w.id}`) });
+  const finish = async (n: number, reward: number, paymentReward: number, confirmed?: Confirmed | null) => {
     const done = confirmedText(confirmed);
-    toast(reward > 0 ? `${n}件記録しました！ 銀貨 +${reward}S${done}` : `${n}件記録しました${done}`, reward > 0 ? "reward" : "info");
+    const got = rewardText(reward, paymentReward);
+    toast(got ? `${n}件記録しました！ ${got}${done}` : `${n}件記録しました${done}`, got ? "reward" : "info");
     await load();
     onDone();
   };
@@ -270,6 +299,7 @@ function BaseRows({ onDone, tz }: { onDone: () => void; tz: string }) {
   if (!all.length) return <Empty>未記録のサブスクの支払い・全額貯まったほしい物はありません</Empty>;
   const row = (key: string, label: ReactNode, sub: ReactNode, baseAmount: number, body: () => Record<string, unknown>) => {
     const amount = Number(amounts[key] || 0);
+    const method = methods.find((m) => m.id === pays[key]);
     return (
       <li key={key} className="rounded-lg border border-line p-3">
         <div className="flex flex-wrap items-center gap-2">
@@ -282,14 +312,26 @@ function BaseRows({ onDone, tz }: { onDone: () => void; tz: string }) {
           <Button
             disabled={busy || amounts[key] === "" || amount <= 0}
             onClick={async () => {
-              const r = await act<{ reward: number; confirmed?: Confirmed | null }>("/api/purchases", body());
-              if (r) await finish(1, r.reward, r.confirmed);
+              const r = await act<{ reward: number; paymentReward: number; confirmed?: Confirmed | null }>("/api/purchases", body());
+              if (r) await finish(1, r.reward, r.paymentReward, r.confirmed);
             }}
           >
             保存
           </Button>
         </div>
         <DiffNote base={baseAmount} amount={amount} />
+        {methods.length > 0 && (
+          <div className="mt-1 text-xs">
+            <button type="button" className="text-muted underline" aria-expanded={openPay === key} onClick={() => setOpenPay(openPay === key ? null : key)}>
+              支払い方法：{method ? method.name : "未記入（現金として扱う）"}
+            </button>
+            {openPay === key && (
+              <div className="mt-1.5">
+                <PaymentPicker methods={methods} value={pays[key] ?? ""} onChange={(id) => setPays((p) => ({ ...p, [key]: id }))} reward />
+              </div>
+            )}
+          </div>
+        )}
       </li>
     );
   };
@@ -307,8 +349,14 @@ function BaseRows({ onDone, tz }: { onDone: () => void; tz: string }) {
           className="w-full"
           disabled={busy || all.some((b) => !b.amount)}
           onClick={async () => {
-            const r = await act<{ items: { reward: number; confirmed?: Confirmed | null }[] }>("/api/purchases", { items: all });
-            if (r) await finish(r.items.length, r.items.reduce((a, x) => a + x.reward, 0), sumConfirmed(r.items.map((x) => x.confirmed)));
+            const r = await act<{ items: { reward: number; paymentReward: number; confirmed?: Confirmed | null }[] }>("/api/purchases", { items: all });
+            if (r)
+              await finish(
+                r.items.length,
+                r.items.reduce((a, x) => a + x.reward, 0),
+                r.items.reduce((a, x) => a + x.paymentReward, 0),
+                sumConfirmed(r.items.map((x) => x.confirmed)),
+              );
           }}
         >
           一括保存（{all.length}件）
@@ -321,18 +369,23 @@ function BaseRows({ onDone, tz }: { onDone: () => void; tz: string }) {
   );
 }
 
-export function ExpenseTab({ onDone, tz }: { onDone: () => void; tz: string }) {
+export function ExpenseTab({ onDone, tz, reloadKey }: { onDone: () => void; tz: string; reloadKey: number }) {
   const v = useSeasonView();
+  const { active } = usePaymentMethods();
+  // 支払い方法が現金だけ（未登録）のときは選ぶ欄を出さない（PM-01）
+  const methods = active.length > 1 ? active : [];
   return (
     <div className="space-y-4">
+      {v && <UnfilledPayments reloadKey={reloadKey} onDone={onDone} />}
       {v && (
         <Card title="サブスク・ほしい物">
-          <BaseRows onDone={onDone} tz={tz} />
+          <BaseRows onDone={onDone} tz={tz} methods={methods} />
         </Card>
       )}
       <Card title="普通の支出">
-        <PurchaseForm tz={tz} onDone={onDone} />
+        <PurchaseForm tz={tz} onDone={onDone} methods={methods} />
       </Card>
+      <p className="text-xs text-muted">カードの引き落とし・電子マネーのチャージは支出として記録しません（お金の置き場所が変わるだけです）。</p>
     </div>
   );
 }

@@ -13,6 +13,8 @@ import {
   DEV_THRESHOLDS,
   GOLD_MINE_LEVEL_THRESHOLDS,
   REWARD_DAILY_CAP,
+  REWARD_PAYMENT,
+  REWARD_PAYMENT_DAILY_CAP,
   SILVER_MINE_LEVEL_THRESHOLDS,
   TECH_ERAS,
 } from "@/game/config";
@@ -26,7 +28,7 @@ import { dayKey, periodRange } from "@/game/time";
 import type { CityState, Gains } from "@/game/types";
 import { currencySummaries } from "./currencies";
 import { budgetPlan, monthlyEquivalent, savingsOf, type GameCtx } from "./game";
-import { facilityLevels } from "./ops";
+import { facilityLevels, PAYMENT_REWARD_PREFIX } from "./ops";
 
 export interface AwayStats {
   population: number;
@@ -126,7 +128,15 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
   const levels = facilityLevels(ctx);
   const tz = user.timezone;
   const rewardedRecords = (ctx.seasonPatch.rewardedRecords as number | undefined) ?? season.rewardedRecords;
-  const today = await tx.rewardClaim.aggregate({ where: { userId: user.id, dayKey: dayKey(ctx.now, tz) }, _sum: { amount: true } });
+  // 記録の報酬の今日の合計（支払い方法の記入の報酬は別枠なので数えない。docs/payment-method-sync.md RW-04）
+  const today = await tx.rewardClaim.aggregate({
+    where: { userId: user.id, dayKey: dayKey(ctx.now, tz), NOT: { recordKey: { startsWith: PAYMENT_REWARD_PREFIX } } },
+    _sum: { amount: true },
+  });
+  const todayPayment = await tx.rewardClaim.aggregate({
+    where: { userId: user.id, dayKey: dayKey(ctx.now, tz), recordKey: { startsWith: PAYMENT_REWARD_PREFIX } },
+    _sum: { amount: true },
+  });
   const log = await tx.cityEvent.findMany({
     where: { seasonId: season.id, important: true },
     orderBy: [{ at: "desc" }, { id: "desc" }],
@@ -228,6 +238,8 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
       nextLevelAt: nextThreshold(SILVER_MINE_LEVEL_THRESHOLDS, silverMineLevel(rewardedRecords)),
       todayRewarded: today._sum.amount ?? 0,
       dailyCap: REWARD_DAILY_CAP,
+      /** 支払い方法の記入の報酬（別枠） */
+      payment: { amount: REWARD_PAYMENT, dailyCap: REWARD_PAYMENT_DAILY_CAP, todayRewarded: todayPayment._sum.amount ?? 0 },
     },
     exchange: {
       levels,

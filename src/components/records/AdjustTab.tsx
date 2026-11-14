@@ -6,11 +6,11 @@ import { Button, Card, Empty, Field, NumberInput } from "@/components/ui";
 import { api, fmt, yen } from "@/lib/api";
 import { confirmedText, ResolutionPreview, type Confirmed, type Resolution } from "./shared";
 
-type Key = "E1" | "E2" | "E3a" | "E3b" | "E6a" | "E6b" | "E4a" | "E4b" | "E5";
+type Key = "E1" | "E2" | "E3a" | "E3b" | "E6a" | "E6b" | "E7" | "E4a" | "E4b" | "E5";
 type Checks = Record<Key, boolean>;
 type Items = Record<Key, number>;
 
-const KEYS: Key[] = ["E1", "E2", "E3a", "E3b", "E6a", "E6b", "E4a", "E4b", "E5"];
+const KEYS: Key[] = ["E1", "E2", "E3a", "E3b", "E6a", "E6b", "E7", "E4a", "E4b", "E5"];
 
 /** 項目の表示名。親（E3・E4）は子をまとめてチェックする */
 const LABELS: Record<Key, string> = {
@@ -20,6 +20,7 @@ const LABELS: Record<Key, string> = {
   E3b: "その月の配当分以外",
   E6a: "ほしい物貯金（像の積立金貨）",
   E6b: "サブスク（まだ記録していない支払い）",
+  E7: "カードの未払い（引き落とし前）",
   E4a: "債券",
   E4b: "債券以外（ゲーム内で使った金貨）",
   E5: "貯金管理で生まれた（±）",
@@ -29,6 +30,7 @@ const GROUPS: { label: string; keys: Key[] }[] = [
   { label: LABELS.E2, keys: ["E2"] },
   { label: "債券・銀貨を除く所持通貨", keys: ["E3a", "E3b"] },
   { label: "支出として記録していないほしい物貯金・サブスク", keys: ["E6a", "E6b"] },
+  { label: LABELS.E7, keys: ["E7"] },
   { label: "貯金額", keys: ["E4a", "E4b"] },
   { label: "貯金額に対する貯金管理で生まれた（±）", keys: ["E5"] },
 ];
@@ -39,6 +41,8 @@ interface Estimate {
   estimated: number;
   periodKey?: string;
   history: { id: string; date: string; estimated: number; actual: number; diff: number }[];
+  /** カードごとの未払い（E7 の内訳。docs/payment-method-sync.md CE-04） */
+  cards: { id: string; name: string; amount: number; next: { date: string; amount: number } | null }[];
 }
 
 /** 項目の色（カテゴリの固定順。docs/record-input-redesign.md §8.3。明るい面では文字ラベルと表を必ず添える） */
@@ -48,8 +52,8 @@ const VIZ_STYLE = `
 :root[data-theme="dark"] .est-viz { --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767; }
 `;
 /** 色は項目に固定（増やした項目で既存の色を塗り替えない）。8色を超える分は同じ色に斜線を重ねて見分ける */
-const SLOT: Record<Key, number> = { E1: 1, E2: 2, E3a: 3, E3b: 4, E6a: 8, E6b: 8, E4a: 5, E4b: 6, E5: 7 };
-const HATCHED: Key[] = ["E6b"];
+const SLOT: Record<Key, number> = { E1: 1, E2: 2, E3a: 3, E3b: 4, E6a: 8, E6b: 8, E7: 1, E4a: 5, E4b: 6, E5: 7 };
+const HATCHED: Key[] = ["E6b", "E7"];
 const COLOR = (k: Key) => `var(--s${SLOT[k]})`;
 /** 凡例の色見本・棒の塗り（斜線つきは背景に斜線） */
 const swatch = (k: Key) => (HATCHED.includes(k) ? `repeating-linear-gradient(135deg, ${COLOR(k)} 0 2px, transparent 2px 4px)` : COLOR(k));
@@ -93,10 +97,12 @@ function Waterfall({ items, checks, actual }: { items: Items; checks: Checks; ac
     <figure>
       <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full" role="img" aria-label={`手元のお金の推測 ${yen(total)} の積み上げ`}>
         <defs>
-          <pattern id="est-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-            <rect width="6" height="6" fill="var(--surface)" />
-            <rect width="3" height="6" fill={COLOR("E6b")} />
-          </pattern>
+          {HATCHED.map((k) => (
+            <pattern key={k} id={`est-hatch-${k}`} width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+              <rect width="6" height="6" fill="var(--surface)" />
+              <rect width="3" height="6" fill={COLOR(k)} />
+            </pattern>
+          ))}
         </defs>
         {/* 0 の基準線 */}
         <line x1={x(0)} x2={x(0)} y1={0} y2={H - 20} stroke="var(--line)" />
@@ -114,7 +120,7 @@ function Waterfall({ items, checks, actual }: { items: Items; checks: Checks; ac
                   width={b.w}
                   height={ROW - 6}
                   rx={4}
-                  fill={HATCHED.includes(r.key) ? "url(#est-hatch)" : COLOR(r.key)}
+                  fill={HATCHED.includes(r.key) ? `url(#est-hatch-${r.key})` : COLOR(r.key)}
                   stroke={HATCHED.includes(r.key) ? COLOR(r.key) : undefined}
                   strokeWidth={HATCHED.includes(r.key) ? 1.5 : undefined}
                   opacity={hover && hover !== r.key ? 0.45 : 1}
@@ -242,6 +248,21 @@ export function AdjustTab({ onDone }: { onDone: () => void }) {
                     {yen(Math.abs(sum))}
                   </span>
                 </label>
+                {g.keys[0] === "E7" && (
+                  <div className="ml-7 space-y-0.5 text-xs text-muted">
+                    {est.cards.length === 0 ? (
+                      <p className="px-2">設定でクレカを登録し、支出に支払い方法を記入すると、引き落とされるまでの額をここで足します。</p>
+                    ) : (
+                      est.cards.map((c) => (
+                        <p key={c.id} className="num flex gap-2 px-2">
+                          <span className="flex-1">└ {c.name}</span>
+                          <span>{c.next ? `次回 ${Number(c.next.date.slice(5, 7))}/${Number(c.next.date.slice(8))} 引き落とし ${yen(c.next.amount)}` : "引き落とし前の分なし"}</span>
+                          <span>{yen(c.amount)}</span>
+                        </p>
+                      ))
+                    )}
+                  </div>
+                )}
                 {g.keys.length > 1 && (
                   <ul className="ml-7 space-y-0.5">
                     {g.keys.map((k) => (
@@ -287,7 +308,10 @@ export function AdjustTab({ onDone }: { onDone: () => void }) {
             onDone();
           }}
         >
-          <Field label="実際の手元の額（円）" hint="財布や口座で確かめた、自由予算の手元のお金を入れてください。">
+          <Field
+            label="実際の手元の額（円）"
+            hint="財布・口座・電子マネーの残高で確かめた、自由予算の手元のお金を入れてください。カードの未払いは引かずに入れます（推測の「カードの未払い」で足しています）。"
+          >
             <NumberInput allowNegative value={actual} onValueChange={setActual} />
           </Field>
           {diff !== null && (
@@ -303,6 +327,7 @@ export function AdjustTab({ onDone }: { onDone: () => void }) {
             誤差を調整する
           </Button>
           <p className="text-xs text-muted">誤差調整に銀貨の報酬はありません。保存したあとは編集できません（直すときは新しく誤差調整を記録してください）。</p>
+          <p className="text-xs text-muted">カードの引き落とし・電子マネーのチャージは支出として記録しないでください（お金の置き場所が変わるだけです）。</p>
         </form>
       </Card>
 
