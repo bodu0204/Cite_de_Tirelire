@@ -18,10 +18,10 @@ export const INITIAL_PLOTS = ["-1,-1", "0,-1", "-1,0", "0,0"];
 /**
  * 開拓できる区画数の上限（初期の4区画を含む。発展Lv別。docs/map-layout-redesign.md §7.2、Q8）。
  * 発展Lv6 からは発展pt が PLOT_STEP_POINTS 増えるごとに PLOT_STEP ずつ増え、MAX_PLOTS で止まる（Q5）。
- * こまめボーナス（HABIT_PLOTS）はこの上に足す。発展Lv1 は 6：1件が安くなったので（docs/saving-habit-balance.md PAC-01）、
- * 初期の4区画だけでは発展Lv2 に要る工事（基準額の0.03倍）を建てきれず、記録しない人の街が止まるため（同 §12）
+ * こまめボーナス（HABIT_PLOTS）はこの上に足す。1件が安くなったので（docs/saving-habit-balance.md PAC-01）、以前の 4 / 8 / 14 / 22 / 30 / 40 では
+ * その発展Lvの区画に建てられる工事が次の発展Lvの閾値に届かず、記録の少ない人の街が長く止まるため、少し広げた（同 §12.4）
  */
-export const PLOT_LIMIT = [6, 8, 14, 22, 30, 40];
+export const PLOT_LIMIT = [6, 10, 20, 28, 36, 46];
 export const PLOT_STEP_POINTS = 150;
 export const PLOT_STEP = 4;
 export const MAX_PLOTS = 400;

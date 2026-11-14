@@ -33,6 +33,7 @@ import {
   FUND_PRICE_KAPPA,
   HABIT_PLOTS,
   PLOT_COST_GROWTH,
+  PLOT_LIMIT,
   RENEWAL_DAYS,
   RENEWAL_EVOLVE_RATE,
   REPAIR_SILVER,
@@ -259,6 +260,8 @@ function applyRules(legacy: boolean) {
   plotRule.habit = legacy && process.env.HABIT_FIRST === undefined ? null : { first: env("HABIT_FIRST", HABIT_PLOTS.first), every: env("HABIT_EVERY", HABIT_PLOTS.every) };
   renewal.days = env("RENEW_DAYS", legacy ? LEGACY_RULES.renewDays : RENEWAL_DAYS);
   renewal.evolveRate = env("RENEW_RATE", legacy ? LEGACY_RULES.renewRate : RENEWAL_EVOLVE_RATE);
+  // 発展Lvごとの区画の上限（PLOT_LIMIT）を試すとき：PLOT_LIMIT=6,8,14,22,30,40
+  if (process.env.PLOT_LIMIT) process.env.PLOT_LIMIT.split(",").forEach((v, i) => (PLOT_LIMIT[i] = Number(v)));
 }
 
 // ---- 表示 ----
@@ -401,6 +404,12 @@ function catchUp(w: World, k: number): string {
   return v.length ? `${Math.round((v.reduce((a, b) => a + b, 0) / v.length) * 100)}%` : "—";
 }
 
+/** 技術の更新（TEC-02）1回あたりの建て替えの数（道路の舗装を含む。RENEWED の知らせから） */
+function renewed(w: World): string {
+  const v = w.events.filter((e) => e.type === "RENEWED").map((e) => e.payload.evolved as number);
+  return v.length ? `${Math.round(v.reduce((a, b) => a + b, 0) / v.length)}件` : "—";
+}
+
 function habit() {
   const rows: [string, Partial<Params>][] = [
     ["控えめ0.1M・毎日", { rate: 0.1, initial: 0, every: 1 }],
@@ -430,6 +439,7 @@ function habit() {
       "発展Lv4/5/6",
       "技術Lv4/5/6",
       "更新の3日後/7日後",
+      "更新の建て替え（平均）",
       "人口",
       "建設資金の残り",
       "計算 ms/日",
@@ -453,6 +463,7 @@ function habit() {
         dv,
         tc,
         `${catchUp(w, 3)}/${catchUp(w, 7)}`,
+        renewed(w),
         Math.round(s.population),
         yen(s.treasury),
         Math.round(ms),

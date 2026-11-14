@@ -464,8 +464,8 @@ describe("開拓（docs/map-layout-redesign.md §7）", () => {
   };
 
   it("開拓できる区画の数は発展Lvで決まる。Lv6 からは発展ptで増え、400 で止まる", () => {
-    expect([1, 2, 3, 4, 5, 6].map((lv) => plotLimit(DEV_THRESHOLDS[lv - 1]))).toEqual([6, 8, 14, 22, 30, 40]);
-    expect(plotLimit(DEV_THRESHOLDS[5] + 150 * 10)).toBe(80);
+    expect([1, 2, 3, 4, 5, 6].map((lv) => plotLimit(DEV_THRESHOLDS[lv - 1]))).toEqual([6, 10, 20, 28, 36, 46]);
+    expect(plotLimit(DEV_THRESHOLDS[5] + 150 * 10)).toBe(86);
     expect(plotLimit(1e9)).toBe(400);
   });
 

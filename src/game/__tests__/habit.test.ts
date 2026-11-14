@@ -58,7 +58,7 @@ describe("AT-079 こまめボーナス（HAB-02）", () => {
   it("区画の上限は、発展Lvの上限 ＋ 貯金日の最初の7日は1日1区画、そのあとは4日ごとに1区画", () => {
     expect([0, 1, 6, 7, 8, 10, 11, 15, 180].map(habitPlots)).toEqual([0, 1, 6, 7, 7, 7, 8, 9, 50]);
     expect(plotLimit(0, 0)).toBe(basePlotLimit(0));
-    expect(plotLimit(DEV_THRESHOLDS[3], 11)).toBe(22 + 8);
+    expect(plotLimit(DEV_THRESHOLDS[3], 11)).toBe(28 + 8);
     // 次の区画まで：最初の7日は毎日、そのあとは4日ごと
     expect([0, 6, 7, 8, 10, 11].map((d) => nextHabitPlotIn(d))).toEqual([1, 1, 4, 3, 1, 4]);
   });
@@ -66,11 +66,12 @@ describe("AT-079 こまめボーナス（HAB-02）", () => {
   it("毎日記録する街は、記録しない街より広くなる", () => {
     const daily = createCity(T0, BASE);
     const none = createCity(T0, BASE);
-    daily.treasury = none.treasury = 30_000;
+    // 土地が先に足りなくなるよう、建設資金を多めに入れる
+    daily.treasury = none.treasury = 100_000;
     applyTechLevel(daily, 3, T0, []);
     applyTechLevel(none, 3, T0, []);
-    for (let d = 1; d <= 5; d++) {
-      countRecordDay(daily, `2026-10-0${d}`, 0, daily.simTime, []);
+    for (let d = 1; d <= 10; d++) {
+      countRecordDay(daily, `2026-10-${String(d).padStart(2, "0")}`, 0, daily.simTime, []);
       run(daily, DAY);
       run(none, DAY);
     }

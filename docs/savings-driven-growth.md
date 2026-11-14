@@ -4,6 +4,7 @@
 改訂：2026-11-07（Q7 を決定。[balance.ts](../scripts/balance.ts) を To-Be のモデルで書き直し、§12 を実際の計画列での試算に差し替えた。κ（PRC-01）を決め、計画の優先順と不足解消（GRW-07）、人口の移り住み（GRW-09）を見直した。技術Lv7 の閾値は 1.5M を推奨（Q8））
 改訂：2026-11-07（Q8 を決定。§16 の手順2（エンジンへの組み込み）を実装し、§16.1 に実装の対応と、まだ入っていない部分をまとめた。§12 をエンジンでの試算に差し替えた）
 改訂：2026-11-07（§16 の手順3〜6を実装。実装で決めた細部を §16.2、受入テストを §17 にまとめた。備えの施設・金貨の演出・銀貨の使い道を §16.3 で実装した。計画をすべて払える時と開拓期ボーナスの見せ方を §16.4 にまとめた。2026-11-14：悪い出来事の見た目を §16.5 で実装した）
+改訂：2026-11-14（[saving-habit-balance.md](saving-habit-balance.md) で値段に指数をつけ（PRC-01：相対コスト^0.5、κ 0.00025）、開拓費の伸びを 1.03^n にし（PRC-04）、区画の上限にこまめボーナスを足した。§12 の数値はそれより前の規則での試算）
 関係：[game-balance-review.md](game-balance-review.md) B-01〜B-15、[requirements.md](requirements.md) 1.1・2.2・3.1〜3.3・4.2〜4.6・4.8、[needs-based-exchange.md](needs-based-exchange.md) NX-01〜NX-04、[bond-and-custom-currency.md](bond-and-custom-currency.md) §4、[record-input-redesign.md](record-input-redesign.md)、[config.ts](../src/game/config.ts)、[catalog.ts](../src/game/catalog.ts)、[economy.ts](../src/game/city/economy.ts)、[sim.ts](../src/game/city/sim.ts) `develop` / `tick`、[idle.ts](../src/game/idle.ts) `advance`、[bond.ts](../src/game/bond.ts)、[mine.ts](../src/game/mine.ts)、[exchange.ts](../src/game/exchange.ts)、[levels.ts](../src/game/levels.ts)、[ops.ts](../src/server/ops.ts) `exchange`
 
 ## 1. 目的
@@ -77,10 +78,10 @@
 
 | ID | 要件 |
 |---|---|
-| PRC-01 | 計画の値段（G）＝ カタログの相対コスト × 基準額 × κ × （1 − 割引（GRW-05））。カタログの相対コストは、今の木材・石材・都市資金を金貨に換えた額（木材 ÷10 ＋ 石材 ÷5 ＋ 都市資金 ÷10）。κ ＝ 0.0002（§12）。基準額10万円なら、木造住宅 約400円、工場 約1,800円、百貨店 約6,200円、未来都市センター 約22,600円 |
+| PRC-01 | （2026-11-14 改訂：相対コスト^0.5 × 基準額 × 0.00025 に変えた。[saving-habit-balance.md](saving-habit-balance.md) PAC-01）計画の値段（G）＝ カタログの相対コスト × 基準額 × κ × （1 − 割引（GRW-05））。カタログの相対コストは、今の木材・石材・都市資金を金貨に換えた額（木材 ÷10 ＋ 石材 ÷5 ＋ 都市資金 ÷10）。κ ＝ 0.0002（§12）。基準額10万円なら、木造住宅 約400円、工場 約1,800円、百貨店 約6,200円、未来都市センター 約22,600円 |
 | PRC-02 | 発展Lvの閾値（完成した計画の累計額）は下の表のとおり（基準額の倍数）。最初が安く、だんだん高くなる |
 | PRC-03 | 技術Lvの閾値（貯金額の最高到達額）も基準額の倍数にする。基準額＝10万円のとき現行と同じ額になる |
-| PRC-04 | 区画の開拓費も基準額に比例させ、指数の伸びを緩める（B-10。例：1.1^n） |
+| PRC-04 | 区画の開拓費も基準額に比例させ、指数の伸びを緩める（B-10。例：1.1^n。2026-11-14 に 1.03^n にした：[saving-habit-balance.md](saving-habit-balance.md) PAC-03） |
 | PRC-05 | 基準額はシーズン開始時の M と目標額で決め、シーズン中は変えない（シーズン中に予算を下げて値段を下げるのを防ぐ） |
 | PRC-06 | **基準額** ＝ M と目標額の小さいほう。M 以下の目標でも、達成のころに発展Lv5〜6 に届く。債券の上限（3M）・利息・備えLv（§8）は現実の予算に合わせるもので、基準額ではなく M のままにする |
 

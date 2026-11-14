@@ -3,7 +3,7 @@ import { bondCap, bondMiningStatus, bondShare } from "@/game/bond";
 import { highestUnlockedTier, LINE_IDS, LINES, unlocksAtTech } from "@/game/catalog";
 import { computeMetrics } from "@/game/city/economy";
 import { basePlotLimit, habitPlots, nextHabitPlotIn, plotLimit, plotsUsed, savingDaysOf, unlockedTileCount } from "@/game/city/layout";
-import { cityNeeds, discountRate, levelCap } from "@/game/city/sim";
+import { cityNeeds, discountRate, levelCap, renewal, renewing } from "@/game/city/sim";
 import {
   AWAY_SUMMARY_MIN_MS,
   BANK_EXCHANGE_BONUS,
@@ -14,6 +14,7 @@ import {
   GOLD_MINE_LEVEL_THRESHOLDS,
   REWARD_DAILY_CAP,
   SILVER_MINE_LEVEL_THRESHOLDS,
+  TECH_ERAS,
 } from "@/game/config";
 import { exchangeRate, GAIN_KEYS, needShares, ZERO_GAINS } from "@/game/exchange";
 import { unconfirmedGold } from "@/game/confirm";
@@ -251,6 +252,11 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
       remaining: nextTech !== null ? Math.max(0, nextTech - saved.max) : 0,
       nextUnlocks: nextTech !== null ? unlocksAtTech(city.techLevel + 1) : [],
       nextBuildable: nextTechBuildable,
+      /** 時代の名前（docs/saving-habit-balance.md TEC-03） */
+      era: TECH_ERAS[city.techLevel - 1],
+      nextEra: TECH_ERAS[city.techLevel] ?? null,
+      /** 技術の更新の間なら、終わる時刻・無料か・建て替えた数（TEC-02・TEC-04） */
+      renewal: city.renewal && renewing(city, ctx.now) ? { until: city.renewal.until, free: renewal.evolveRate === 0, evolved: city.renewal.evolved } : null,
     },
     dev: {
       level: dev,
@@ -275,8 +281,18 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
       forecastDays: forecastDays(city, nextDev, fundPace(city, ctx.now)),
       concurrentJobs: CONCURRENT_JOBS[dev - 1],
       tiles: unlockedTileCount(city),
-      /** 開いた・開拓中の区画の数と、その上限（docs/map-layout-redesign.md §7.3） */
-      plots: { used: plotsUsed(city), limit: plotLimit(city.devPoints, savingDaysOf(city)) },
+      /**
+       * 開いた・開拓中の区画の数と、その上限（docs/map-layout-redesign.md §7.3）。上限は発展Lvの分とこまめボーナスの分、
+       * 貯金日の数と、次のこまめボーナスの区画まであと何日の貯金日か（docs/saving-habit-balance.md HAB-02・HAB-04）
+       */
+      plots: {
+        used: plotsUsed(city),
+        limit: plotLimit(city.devPoints, savingDaysOf(city)),
+        base: basePlotLimit(city.devPoints),
+        habit: habitPlots(savingDaysOf(city)),
+        savingDays: savingDaysOf(city),
+        nextHabitIn: nextHabitPlotIn(savingDaysOf(city)),
+      },
       levelCap: levelCap(dev),
     },
     city,

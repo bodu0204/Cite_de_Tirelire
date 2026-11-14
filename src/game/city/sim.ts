@@ -481,8 +481,12 @@ export function plansFor(need: NeedKey, s: CityState, m: Metrics, dev: number, c
     case "efficiency": {
       // 働き口が足りない間は住宅を建て替えない（技術の更新の間は、街を一斉に新しくするので建て替える。TEC-02）
       const lines = m.employment < 0.9 && !renewing(s, s.simTime) ? EVOLVE_ORDER.filter((l) => l !== "housing") : EVOLVE_ORDER;
-      // 電力の余りを超えて電力を使う段階には建て替えない（技術の更新で一斉に建て替えると、発電所がないまま農場が止まる。GRW-07）
-      plans.push(...evolvePlans(s, lines, dev).filter((p) => powerFits(m, p)));
+      // 電力の余りを超えて電力を使う段階には建て替えない（技術の更新で一斉に建て替えると、発電所がないまま農場が止まる。GRW-07）。
+      // 電力が足りずに待つ建て替えがあれば、収まる建て替えのあとに発電所を建てる（建てば次の計画で建て替えられる）
+      const evolves = evolvePlans(s, lines, dev);
+      const fits = evolves.filter((p) => powerFits(m, p));
+      plans.push(...fits);
+      if (fits.length < evolves.length) plans.push(buildPlan(s, "power", dev), ...evolvePlans(s, ["power"], dev), ...upgradePlans(s, ["power"], dev));
       plans.push(...upgradePlans(s, PRODUCERS, dev).slice(0, 3));
       break;
     }
