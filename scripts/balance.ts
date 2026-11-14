@@ -238,8 +238,8 @@ function topShare(s: CityState): number {
 const PROPOSAL_PRICING = { kappa: 0.00025, alpha: 0.5, plotGrowth: 1.03 };
 /** HAB-02：区画の上限 ＝ 発展Lvの上限（今のまま）＋ こまめボーナス（貯金日の最初の7日は1日1区画、そのあとは4日ごとに1区画） */
 const PROPOSAL_HABIT = { first: 7, every: 4 };
-/** TEC-02：技術Lvが上がってから3日間は建て替えを先にし、その値段を半分にする */
-const PROPOSAL_RENEWAL = { days: 3, evolveRate: 0.5 };
+/** TEC-02：技術Lvが上がってから3日間は建て替えを先にし、その値段を4分の1にする（RENEW_RATE=0 で無料。§7.3） */
+const PROPOSAL_RENEWAL = { days: 3, evolveRate: 0.25 };
 
 function applyProposal(on: boolean) {
   const env = (k: string, d: number) => (process.env[k] === undefined ? d : Number(process.env[k]));
