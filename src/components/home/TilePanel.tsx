@@ -129,7 +129,9 @@ function ExpandPanel({ v, tile }: { v: ActiveView; tile: { x: number; y: number 
       <p>まだ開拓されていない土地です。建てる場所が足りなくなると、5×5 マスの区画ごとに開拓されます。開拓すると区画の真ん中に十字の道路が通ります。</p>
       {plots && (
         <p className="text-xs text-muted">
-          開拓できる区画 {plots.used} / {plots.limit}（発展Lvを上げると増えます）
+          開拓できる区画 {plots.used} / {plots.limit}
+          {plots.habit > 0 ? `（発展Lv ${plots.base} ＋ こまめボーナス ${plots.habit}）` : ""}。発展Lvを上げるか、こまめに貯金すると増えます
+          {plots.nextHabitIn !== null && `（あと${plots.nextHabitIn}日の貯金で1つ）`}
         </p>
       )}
       {why && <p className="text-xs text-muted">{why}</p>}

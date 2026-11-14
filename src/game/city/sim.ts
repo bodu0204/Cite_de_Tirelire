@@ -4,6 +4,7 @@ import {
   evolveCost,
   highestUnlockedTier,
   isTierUnlocked,
+  levelMultiplier,
   LINE_IDS,
   LINES,
   tierDef,
@@ -16,7 +17,9 @@ import {
 import {
   BUILDING_LEVEL_CAP,
   CONCURRENT_JOBS,
+  DAY,
   DEV_POINTS_PER_BASE,
+  FUND_PRICE_ALPHA,
   DISCOUNT_MAX,
   DISCOUNT_PER_BUILDING,
   expandCost,
@@ -29,7 +32,11 @@ import {
   INITIAL_PLOTS,
   MINUTE,
   MOVE_IN_PER_HOUR,
+  PLOT_COST_GROWTH,
   PLOT_SIZE,
+  RENEWAL_DAYS,
+  RENEWAL_EVOLVE_RATE,
+  TECH_ERAS,
   TICK_MS,
 } from "../config";
 import { devLevel } from "../levels";
@@ -38,7 +45,7 @@ import type { Zone } from "../catalog";
 import { NEED_ORDER, snapBuilding, type Building, type CityEvent, type CityState, type Gains, type Job, type NeedKey } from "../types";
 import { active, clearEffects, maybeDisaster, reopenDue } from "./disasters";
 import { computeMetrics, type Metrics } from "./economy";
-import { choosePlot, findSite, occupancy, placeWaitingSpecials, plotCross, plotsUsed, siteCache, tileKey, type SiteCache } from "./layout";
+import { choosePlot, findSite, occupancy, placeWaitingSpecials, plotCross, plotsUsed, pollutionPairs, siteCache, tileKey, type SiteCache } from "./layout";
 
 export const alignTick = (t: number) => Math.floor(t / TICK_MS) * TICK_MS;
 
@@ -70,7 +77,8 @@ export function tick(s: CityState, end: number, events: CityEvent[]) {
   maybeDisaster(s, end, events, (c, b) => priceOf(c, tierDef(b.line!, b.tier).cost));
   completeJobs(s, end, events);
 
-  const m = computeMetrics(s);
+  const board = siteCache(s);
+  const m = computeMetrics(s, (board.pollution ??= pollutionPairs(s)));
   const dtH = TICK_MS / HOUR;
 
   const available = s.stock.food + m.production.food * dtH;
@@ -105,6 +113,7 @@ export function tick(s: CityState, end: number, events: CityEvent[]) {
   shortageEvent(s, "power", powerShort, end, events);
 
   develop(s, end);
+  reportRenewal(s, end, events);
   clearEffects(s, end);
   s.simTime = end;
 }
@@ -217,6 +226,7 @@ function completeBuilding(s: CityState, job: Job, at: number, events: CityEvent[
       const from = buildingName(b);
       b.tier = job.tier;
       creditBuild(s, b, "evolve");
+      if (job.renewal && s.renewal) s.renewal.evolved++;
       events.push({
         at,
         type: "EVOLVE",
@@ -263,13 +273,51 @@ export function discountRate(s: CityState): number {
   return Math.min(DISCOUNT_MAX, n * DISCOUNT_PER_BUILDING);
 }
 
-/** 値段の係数 κ。ふだんは FUND_PRICE_KAPPA のまま（scripts/balance.ts が試算のときだけ変える） */
-export const pricing = { kappa: FUND_PRICE_KAPPA };
+/**
+ * 値段の係数 κ、相対コストに掛ける指数 α（docs/saving-habit-balance.md PAC-01）、区画の開拓費の伸び（PAC-03）。
+ * ふだんは config.ts の値のまま（scripts/balance.ts が試算のときだけ変える）
+ */
+export const pricing = { kappa: FUND_PRICE_KAPPA, alpha: FUND_PRICE_ALPHA, plotGrowth: PLOT_COST_GROWTH };
 
-/** 計画の値段（円）＝ 相対コスト × 基準額 × κ ×（1 − 割引）（PRC-01）。資材の値上がり（EVT-03）の間は上がる。1円以上 */
+/** 計画の値段（円）＝ 相対コスト^α × 基準額 × κ ×（1 − 割引）（PRC-01）。資材の値上がり（EVT-03）の間は上がる。1円以上 */
 export function priceOf(s: CityState, cost: Cost): number {
   const surge = active(s.effects?.surge, s.simTime) ? 1 + s.effects!.surge!.rate : 1;
-  return Math.max(1, Math.ceil(relCost(cost) * s.base * pricing.kappa * (1 - discountRate(s)) * surge));
+  const rel = pricing.alpha === 1 ? relCost(cost) : relCost(cost) ** pricing.alpha;
+  return Math.max(1, Math.ceil(rel * s.base * pricing.kappa * (1 - discountRate(s)) * surge));
+}
+
+/**
+ * 技術の更新（docs/saving-habit-balance.md TEC-02）。技術Lvが上がってから days 日の間は、
+ * 不足の解消のすぐあとに建て替え（efficiency）を回し、建て替えの値段に evolveRate を掛ける（0 なら無料）。
+ * ふだんは config.ts の値のまま（scripts/balance.ts が試算のときだけ変える。days が 0 なら更新しない）
+ */
+export const renewal = { days: RENEWAL_DAYS, evolveRate: RENEWAL_EVOLVE_RATE };
+
+const RENEWAL_ORDER: NeedKey[] = ["shortage", "efficiency", ...NEED_ORDER.filter((n) => n !== "shortage" && n !== "efficiency")];
+
+/** その時刻の計画の順（技術の更新の間は建て替えを先にする） */
+export function needOrder(s: Pick<CityState, "renewal">, now: number): NeedKey[] {
+  return renewing(s, now) ? RENEWAL_ORDER : NEED_ORDER;
+}
+
+/** 技術の更新の間か（TEC-02） */
+export function renewing(s: Pick<CityState, "renewal">, now: number): boolean {
+  const r = s.renewal;
+  return !!r && now >= r.from && now < r.until;
+}
+
+/** 計画の値段（技術の更新の間の建て替えは evolveRate を掛ける） */
+export function planPrice(s: CityState, plan: Pick<Plan, "kind" | "cost">, now: number): number {
+  if (plan.kind === "evolve" && renewal.evolveRate !== 1 && renewing(s, now)) return Math.ceil(priceOf(s, plan.cost) * renewal.evolveRate);
+  return priceOf(s, plan.cost);
+}
+
+/** 技術の更新の終わり：更新の間に始めた建て替えがすべて終わったら、建て替えた数を知らせる（TEC-04） */
+function reportRenewal(s: CityState, at: number, events: CityEvent[]) {
+  const r = s.renewal;
+  if (!r || r.reported || at < r.until || s.jobs.some((j) => j.renewal)) return;
+  r.reported = true;
+  events.push({ at, type: "RENEWED", auto: true, important: true, payload: { level: r.level, era: TECH_ERAS[r.level - 1], evolved: r.evolved } });
 }
 
 /**
@@ -277,15 +325,19 @@ export function priceOf(s: CityState, cost: Cost): number {
  * （工事中の分を足りないと数えると、同じ不足に何件も建てて作りすぎる）
  */
 export function plannedMetrics(s: CityState): Metrics {
-  if (s.jobs.length === 0) return computeMetrics(s);
+  // 住宅と工業の隣接は盤面（工事中の新築を含む）だけで決まるので、盤面が変わるまで使い回す
+  const board = siteCache(s);
+  if (s.jobs.length === 0) return computeMetrics(s, (board.pollution ??= pollutionPairs(s)));
+  const byBuilding = new Map(s.jobs.map((j) => [j.buildingId, j]));
   const buildings = s.buildings.map((b) => {
-    const j = s.jobs.find((j) => j.buildingId === b.id);
+    const j = byBuilding.get(b.id);
     if (!j) return b;
     return j.kind === "upgrade" ? { ...b, level: j.level } : j.kind === "evolve" ? { ...b, tier: j.tier } : b;
   });
   for (const j of s.jobs)
     if (j.kind === "build") buildings.push({ id: j.buildingId, line: j.line, tier: j.tier, level: 1, x: j.x, y: j.y, builtAt: j.finishAt });
-  return computeMetrics({ ...s, buildings });
+  const planned = { ...s, buildings };
+  return computeMetrics(planned, (board.plannedPollution ??= pollutionPairs(planned)));
 }
 
 const busy = (s: CityState, id: string) => s.jobs.some((j) => j.buildingId === id);
@@ -317,7 +369,7 @@ export function nextPlotIndex(s: CityState): number {
  */
 export function plotCost(s: CityState): Cost {
   const n = nextPlotIndex(s);
-  return expandCost(n, n >= 2 && highestUnlockedTier("quarry", s.techLevel, devLevel(s.devPoints)) >= 0);
+  return expandCost(n, n >= 2 && highestUnlockedTier("quarry", s.techLevel, devLevel(s.devPoints)) >= 0, pricing.plotGrowth);
 }
 
 /**
@@ -331,6 +383,13 @@ function expandPlan(s: CityState, dev: number, zone: Zone | null, cache?: SiteCa
   const [px, py] = plot.split(",").map(Number);
   const tier = Math.max(0, highestUnlockedTier("road", s.techLevel, dev));
   return { kind: "expand", line: "road", tier, level: 1, site: { x: px * PLOT_SIZE, y: py * PLOT_SIZE }, plot, zone: zone ?? undefined, cost: plotCost(s), minutes: expandMinutes(n) };
+}
+
+/** 建て替えで増える電力の需要が、今の電力の余りに収まるか（工事中の分を含めた指標 m で見る） */
+function powerFits(m: Metrics, p: Plan): boolean {
+  if (p.kind !== "evolve" || p.line === "power" || !p.building) return true;
+  const more = ((tierDef(p.line, p.tier).power ?? 0) - (tierDef(p.line, p.building.tier).power ?? 0)) * levelMultiplier(p.building.level);
+  return more <= 0 || m.powerDemand + more <= m.powerSupply + 1e-9;
 }
 
 function evolvePlans(s: CityState, lines: LineId[], dev: number): Plan[] {
@@ -364,6 +423,8 @@ function upgradePlans(s: CityState, lines: LineId[], dev: number): Plan[] {
 
 const PRODUCERS: LineId[] = ["farm", "factory", "commerce", "office", "lumber", "quarry", "power"];
 const EVOLVE_ORDER: LineId[] = ["farm", "housing", "factory", "commerce", "power", "road", "school", "culture", "office"];
+/** 雇用のために建て替え・増築する仕事場 */
+const WORKPLACES: LineId[] = ["factory", "commerce", "office"];
 const NEW_INDUSTRY: LineId[] = ["quarry", "factory", "commerce", "school", "clinic", "culture", "rail", "logistics", "office", "future"];
 
 /** 必要事項ごとの候補（上から順に検討する）。scripts/balance.ts も使う */
@@ -399,12 +460,15 @@ export function plansFor(need: NeedKey, s: CityState, m: Metrics, dev: number, c
         if (line === "farm" && m.production.food > m.foodUse * 2) continue;
         plans.push(buildPlan(s, line, dev));
       }
+      // 区画の上限に当たって新築できなくても雇用を増やせるよう、仕事場の建て替えと増築も候補にする
+      // （住宅は建て替え・増築で上に伸びるので、仕事場も伸ばさないと働き口が足りなくなる。docs/saving-habit-balance.md §12）
+      plans.push(...evolvePlans(s, WORKPLACES, dev), ...upgradePlans(s, WORKPLACES, dev));
       break;
     }
     case "housing": {
       const vacancy = m.housingCap > 0 ? (m.housingCap - pop) / m.housingCap : 0;
       if (vacancy >= HOUSING_VACANCY_TARGET || m.employment < 0.9) break;
-      plans.push(buildPlan(s, "housing", dev), ...evolvePlans(s, ["housing"], dev), ...upgradePlans(s, ["housing"], dev));
+      plans.push(buildPlan(s, "housing", dev), ...evolvePlans(s, ["housing"], dev).filter((p) => powerFits(m, p)), ...upgradePlans(s, ["housing"], dev));
       break;
     }
     case "logistics": {
@@ -415,7 +479,14 @@ export function plansFor(need: NeedKey, s: CityState, m: Metrics, dev: number, c
       break;
     }
     case "efficiency": {
-      plans.push(...evolvePlans(s, EVOLVE_ORDER, dev));
+      // 働き口が足りない間は住宅を建て替えない（技術の更新の間は、街を一斉に新しくするので建て替える。TEC-02）
+      const lines = m.employment < 0.9 && !renewing(s, s.simTime) ? EVOLVE_ORDER.filter((l) => l !== "housing") : EVOLVE_ORDER;
+      // 電力の余りを超えて電力を使う段階には建て替えない（技術の更新で一斉に建て替えると、発電所がないまま農場が止まる。GRW-07）。
+      // 電力が足りずに待つ建て替えがあれば、収まる建て替えのあとに発電所を建てる（建てば次の計画で建て替えられる）
+      const evolves = evolvePlans(s, lines, dev);
+      const fits = evolves.filter((p) => powerFits(m, p));
+      plans.push(...fits);
+      if (fits.length < evolves.length) plans.push(buildPlan(s, "power", dev), ...evolvePlans(s, ["power"], dev), ...upgradePlans(s, ["power"], dev));
       plans.push(...upgradePlans(s, PRODUCERS, dev).slice(0, 3));
       break;
     }
@@ -425,7 +496,9 @@ export function plansFor(need: NeedKey, s: CityState, m: Metrics, dev: number, c
     }
     case "beautify": {
       if (pop > m.publicCap) plans.push(buildPlan(s, "school", dev), buildPlan(s, "clinic", dev), buildPlan(s, "culture", dev));
-      plans.push(...upgradePlans(s, ["housing", "school", "culture", "clinic"], dev).slice(0, 2));
+      // 働き口が足りない間は、景観のために住宅を増築しない（人が増えるほど働き口が足りなくなる）
+      const lines: LineId[] = m.employment < 0.9 ? ["school", "culture", "clinic"] : ["housing", "school", "culture", "clinic"];
+      plans.push(...upgradePlans(s, lines, dev).slice(0, 2));
       break;
     }
   }
@@ -439,8 +512,8 @@ function concretePlans(s: CityState): Plan[] {
   const m = plannedMetrics(s);
   const seen = new Set<string>();
   const out: Plan[] = [];
-  const cache = siteCache();
-  for (const need of NEED_ORDER) {
+  const cache = siteCache(s);
+  for (const need of needOrder(s, s.simTime)) {
     for (const plan of plansFor(need, s, m, m.devLevel, cache)) {
       const key = plan.kind === "build" ? `build:${plan.line}` : plan.kind === "expand" ? "expand" : `${plan.kind}:${plan.building!.id}`;
       if (seen.has(key)) continue;
@@ -477,7 +550,7 @@ export function planQueue(s: CityState, m: Metrics = computeMetrics(s)): PlanQue
   });
   const x = expansionPlan(s, m.devLevel);
   return {
-    plans: concretePlans(s).map((p) => q({ ...p, cost: fundCost(priceOf(s, p.cost)) })),
+    plans: concretePlans(s).map((p) => q({ ...p, cost: fundCost(planPrice(s, p, s.simTime)) })),
     expansion: q({ kind: "build", line: x.line, tier: x.tier, level: 1, cost: x.cost }),
   };
 }
@@ -518,20 +591,21 @@ export function develop(s: CityState, now: number): void {
   const limit = CONCURRENT_JOBS[dev - 1] ?? CONCURRENT_JOBS[CONCURRENT_JOBS.length - 1];
   // 工事の空きがない・建設資金が1円もない（値段は1円以上）なら、計画を立てても何も始められない。
   // 計画（場所探し）はティックで一番重いので、立てる前に返す
-  if (s.jobs.length >= limit || s.treasury < 1) return;
-  let cache = siteCache();
+  // 技術の更新の間は、建設資金がなくても無料の建て替えは始められる
+  if (s.jobs.length >= limit || (s.treasury < 1 && !(renewing(s, now) && renewal.evolveRate === 0))) return;
+  let cache = siteCache(s);
   let pm = plannedMetrics(s);
-  for (const need of NEED_ORDER) {
+  for (const need of needOrder(s, now)) {
     // 始めたジョブの分だけ候補が変わるので、何も始められなくなるまで候補を出し直す
     for (let started = true; started; ) {
       started = false;
       for (const plan of plansFor(need, s, pm, dev, cache)) {
         if (s.jobs.length >= limit) return;
-        const price = priceOf(s, plan.cost);
+        const price = planPrice(s, plan, now);
         if (s.treasury < price) return;
         startJob(s, plan, price, now);
         // 盤面と完成後の指標が変わったので、場所と指標は出し直す
-        cache = siteCache();
+        cache = siteCache(s);
         pm = plannedMetrics(s);
         started = true;
         break;
@@ -541,6 +615,7 @@ export function develop(s: CityState, now: number): void {
 }
 
 function startJob(s: CityState, plan: Plan, price: number, now: number): Job {
+  const renewalJob = plan.kind === "evolve" && renewing(s, now);
   s.treasury -= price;
   const job: Job = {
     id: `j${s.nextId++}`,
@@ -556,6 +631,7 @@ function startJob(s: CityState, plan: Plan, price: number, now: number): Job {
     startedAt: now,
     finishAt: now + plan.minutes * MINUTE,
     price,
+    ...(renewalJob ? { renewal: true } : {}),
   };
   s.jobs.push(job);
   return job;
@@ -564,8 +640,17 @@ function startJob(s: CityState, plan: Plan, price: number, now: number): Job {
 /** 技術Lvの反映。上昇時のみ解放イベントを出す（発展ポイントは付与しない） */
 export function applyTechLevel(s: CityState, level: number, at: number, events: CityEvent[]): void {
   if (level > s.techLevel) {
+    // 技術の更新（TEC-02）：上がってから renewal.days 日の間、街を一斉に建て替える。続けて上がったら、その時から数え直す
+    const renew = renewal.days > 0 ? { days: renewal.days, free: renewal.evolveRate === 0 } : null;
+    if (renew) s.renewal = { level, from: at, until: at + renew.days * DAY, evolved: s.renewal && !s.renewal.reported ? s.renewal.evolved : 0 };
     for (let lv = s.techLevel + 1; lv <= level; lv++) {
-      events.push({ at, type: "TECH_UNLOCKED", auto: false, important: true, payload: { level: lv, unlocks: unlocksAtTech(lv) } });
+      events.push({
+        at,
+        type: "TECH_UNLOCKED",
+        auto: false,
+        important: true,
+        payload: { level: lv, unlocks: unlocksAtTech(lv), era: TECH_ERAS[lv - 1], ...(renew && lv === level ? { renewalDays: renew.days, renewalFree: renew.free } : {}) },
+      });
     }
   }
   s.techLevel = level;

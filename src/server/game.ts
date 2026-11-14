@@ -10,6 +10,8 @@ import { migrateCity, seasonBase } from "@/game/city/init";
 import { BudgetPlan, type CurrencyDefLite, type Rule } from "@/game/currency";
 import { DAY, FEE_INSTANT_ROAD, SPEND_ESTIMATE_DAYS, SPEND_ESTIMATE_DEFAULT_RATIO, SPEND_ESTIMATE_MIN_RECORDS } from "@/game/config";
 import { confirmByRecord } from "@/game/confirm";
+import { countRecordDay } from "@/game/habit";
+import { habitPlots, savingDaysOf } from "@/game/city/layout";
 import { exchangeRate } from "@/game/exchange";
 import { creditFund } from "@/game/fund";
 import { fail } from "@/game/errors";
@@ -288,6 +290,14 @@ async function load(tx: Tx, userId: string, now: number): Promise<GameCtx> {
   dropLegacyMines(ctx.city);
   // 貯金で育つ街より前の街は、基準額を決めて発展Lvを保ったまま直す（docs/savings-driven-growth.md）
   migrateCity(ctx.city, { base: seasonBase(user.monthlyBudget, season.goalAmount), startedAt: season.startedAt.getTime() });
+  // 貯金日（docs/saving-habit-balance.md HAB-01）を持たない街は、このシーズンに記録の報酬を受けた暦日の数から始める
+  if (ctx.city.savingDays === undefined) {
+    const days = await tx.rewardClaim.groupBy({ by: ["dayKey"], where: { seasonId: season.id } });
+    ctx.city.savingDays = days.length;
+    ctx.city.autoSavedDays = 0;
+    const last = days.map((d) => d.dayKey).sort().at(-1);
+    if (last) ctx.city.lastSavingDay = last;
+  }
   ctx.cityVersion = row.version;
   ctx.mine = mineFromSeason(season);
 
@@ -348,12 +358,16 @@ async function spendEstimate(ctx: GameCtx, plan: BudgetPlan): Promise<number> {
  * 記録を保存したとき：それまでの使わなかった配当（未回収の金貨）を確定し、債券（上限まで）と建設資金に入れる。
  * 債券に入りきらない分は建設資金にし、ゲーム内で使った金貨（貯金額）に数える（docs/savings-driven-growth.md REC-01・RSV-01）
  */
-export function confirmRecords(ctx: GameCtx): { amount: number; toBond: number; fund: number } {
+export function confirmRecords(ctx: GameCtx): { amount: number; toBond: number; fund: number; habitPlots: number } {
   requireSeason(ctx);
   const status = (ctx.seasonPatch.status as string | undefined) ?? ctx.season.status;
-  if (status === "COMPLETED") return { amount: 0, toBond: 0, fund: 0 };
+  if (status === "COMPLETED") return { amount: 0, toBond: 0, fund: 0, habitPlots: 0 };
   const before = ctx.city.treasury;
   const c = withPurse(ctx, (p) => confirmByRecord(p, ctx.now));
+  // 記録した暦日を貯金日に数える（使い過ぎで債券がマイナスなら数えない。docs/saving-habit-balance.md HAB-01）
+  const habitBefore = habitPlots(savingDaysOf(ctx.city));
+  countRecordDay(ctx.city, dayKey(ctx.now, ctx.user.timezone), ctx.balances.bond, ctx.now, ctx.events);
+  const habitAdded = habitPlots(savingDaysOf(ctx.city)) - habitBefore;
   const lv = facilityLevels(ctx);
   if (c.overflow > 0) {
     creditFund(ctx.city, c.overflow * exchangeRate("gold", "treasury", lv), ctx.now);
@@ -361,7 +375,7 @@ export function confirmRecords(ctx: GameCtx): { amount: number; toBond: number; 
   }
   // 債券に入った分の建設資金は、次のティックを待たずにすぐ入れる
   grantBondResources(ctx.city, lv, ctx.now);
-  return { amount: c.amount, toBond: c.toBond, fund: Math.floor(ctx.city.treasury - before) };
+  return { amount: c.amount, toBond: c.toBond, fund: Math.floor(ctx.city.treasury - before), habitPlots: habitAdded };
 }
 
 export function lotFromRow(l: { id: string; currencyId: string; issuedAt: Date; expiresAt: Date | null; amount: number; remaining: number; pending?: number }): Lot {

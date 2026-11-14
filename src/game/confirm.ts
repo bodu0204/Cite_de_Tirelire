@@ -20,15 +20,18 @@ export interface Confirmed {
   eligible: number;
   /** 債券に入りきらず、建設資金になる分（呼び出し側で建設資金にし、ゲーム内で使った金貨に数える） */
   overflow: number;
+  /** 自動の確定で、貯金を確定した日の数（貯金日に数える。docs/saving-habit-balance.md HAB-01） */
+  days: number;
 }
 
-export const NO_CONFIRM: Confirmed = { amount: 0, toBond: 0, eligible: 0, overflow: 0 };
+export const NO_CONFIRM: Confirmed = { amount: 0, toBond: 0, eligible: 0, overflow: 0, days: 0 };
 
 export const addConfirmed = (a: Confirmed, b: Confirmed): Confirmed => ({
   amount: a.amount + b.amount,
   toBond: a.toBond + b.toBond,
   eligible: a.eligible + b.eligible,
   overflow: a.overflow + b.overflow,
+  days: a.days + b.days,
 });
 
 const heldMicro = (m: MineState) => m.uncollected / MICRO_PER_GOLD;
@@ -49,7 +52,7 @@ function confirmAmount(p: Purse, amount: number, reason: string): Confirmed {
   p.bond += toBond;
   p.bondResource = (p.bondResource ?? 0) + eligible;
   if (toBond !== 0) p.moves.push({ currency: "BOND", delta: toBond, reason });
-  return { amount: n, toBond, eligible, overflow: n - toBond };
+  return { amount: n, toBond, eligible, overflow: n - toBond, days: 0 };
 }
 
 /** 記録したとき：今までの未回収の金貨（使わなかった配当）をすべて確定する */
@@ -90,7 +93,8 @@ export function autoConfirm(p: Purse, now: number, cal: PeriodCal | string, esti
       break;
     }
     const mined = days[key] / Number(MICRO_PER_GOLD);
-    total = addConfirmed(total, confirmAmount(p, Math.max(0, mined - estimatePerDay), "confirm_auto"));
+    const done = confirmAmount(p, Math.max(0, mined - estimatePerDay), "confirm_auto");
+    total = addConfirmed(total, { ...done, days: done.amount > 0 ? 1 : 0 });
   }
   p.mine = { ...p.mine, unconfirmed: rest };
   return total;

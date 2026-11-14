@@ -57,13 +57,19 @@ export function WishSavingsGauge({ v }: { v: ActiveView }) {
   );
 }
 
+/** 技術の更新の残り時間（「あと2日5時間」） */
+function leftText(ms: number): string {
+  const h = Math.max(1, Math.ceil(ms / 3_600_000));
+  return h >= 24 ? `${Math.floor(h / 24)}日${h % 24 ? `${h % 24}時間` : ""}` : `${h}時間`;
+}
+
 export function TechGauge({ v }: { v: ActiveView }) {
   const t = v.tech;
   const prev = t.prev;
   return (
     <div>
       <div className="flex items-baseline justify-between">
-        <span className="text-sm font-medium">技術Lv</span>
+        <span className="text-sm font-medium">技術Lv・{t.era}</span>
         <span className="font-pixel text-xl" style={{ color: "var(--tech)" }}>
           {t.level}
           <span className="text-sm text-muted"> / {MAX_TECH}</span>
@@ -75,11 +81,18 @@ export function TechGauge({ v }: { v: ActiveView }) {
           "すべての技術を解放しました"
         ) : (
           <>
-            あと <span className="num font-semibold text-ink">{yen(t.remaining)}</span> 貯金すると Lv{t.level + 1}
+            あと <span className="num font-semibold text-ink">{yen(t.remaining)}</span> 貯金すると「{t.nextEra}」
             {t.nextUnlocks.length > 0 && <>：{t.nextUnlocks.slice(0, 4).join("・")}</>}
           </>
         )}
       </p>
+      {t.renewal && (
+        // 技術の更新（docs/saving-habit-balance.md TEC-02・TEC-04）
+        <p className="mt-1 rounded-md bg-surface-2 px-2 py-1 text-xs">
+          <span className="font-semibold">技術の更新中</span>：あと{leftText(t.renewal.until - v.serverNow)}、建て替えが{t.renewal.free ? "無料" : "安く"}です
+          {t.renewal.evolved > 0 && <>（{fmt(t.renewal.evolved)}棟が新しくなりました）</>}
+        </p>
+      )}
     </div>
   );
 }
@@ -114,6 +127,8 @@ export function DevGauge({ v }: { v: ActiveView }) {
         <span>
           {" "}
           ・ 開拓できる区画 {d.plots.used} / {d.plots.limit}
+          {d.plots.habit > 0 && `（発展Lv ${d.plots.base} ＋ こまめボーナス ${d.plots.habit}）`}
+          {d.plots.nextHabitIn !== null && ` ・ あと${d.plots.nextHabitIn}日の貯金で区画が1つ増えます`}
         </span>
       </p>
     </div>

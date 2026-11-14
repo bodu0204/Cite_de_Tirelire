@@ -46,6 +46,17 @@ function Bars({ plan, before, after }: { plan: QueuePlan; before: PlanStock; aft
   );
 }
 
+/**
+ * 交換で実施できるようになる計画を、同じものでまとめる（「木造住宅を新築 ×3・レンガ住宅へ進化 ×5」）。
+ * 1件が安く、1回の交換で数十件が実施できるようになるため（docs/saving-habit-balance.md §8）
+ */
+export function groupPlans(plans: QueuePlan[], limit = 5): string {
+  const count = new Map<string, number>();
+  for (const p of plans) count.set(planLabel(p), (count.get(planLabel(p)) ?? 0) + 1);
+  const parts = [...count].map(([k, n]) => (n > 1 ? `${k} ×${n}` : k));
+  return parts.length > limit ? `${parts.slice(0, limit).join("・")} ほか${parts.length - limit}種類` : parts.join("・");
+}
+
 export const shortText = (s: PlanStock) =>
   PLAN_KEYS.filter((k) => s[k] > 0)
     .map((k) => `${LABEL[k]} ${fmt(Math.ceil(s[k]))}`)
@@ -83,7 +94,8 @@ export function PlanList({
   const [hideOk, setHideOk] = useState(false);
   const before = coverPlans(queue, stock);
   const after = coverPlans(queue, { wood: stock.wood + gains.wood, stone: stock.stone + gains.stone, treasury: stock.treasury + gains.treasury });
-  const enabled = after.plans.filter((p, i) => p.ok && !before.plans[i].ok).length;
+  const enabledPlans = after.plans.filter((p, i) => p.ok && !before.plans[i].ok).map((p) => p.plan);
+  const enabled = enabledPlans.length;
   const okCount = before.plans.filter((p) => p.ok).length;
   const moreExpansion = after.expansion.count - before.expansion.count;
   // 交換後に今ある計画をすべて払える：建設資金ではなく、工事の空きや工期を待っている。次の目標は拡張計画
@@ -119,6 +131,7 @@ export function PlanList({
             {enabled > 0 && moreExpansion > 0 && "、"}
             {moreExpansion > 0 && <span className="font-semibold">拡張計画 {moreExpansion}件分の資源がそろうように</span>}
             なります。
+            {enabled > 1 && <span className="mt-0.5 block text-xs text-muted">建つもの：{groupPlans(enabledPlans)}</span>}
           </>
         ) : (
           <span className="text-muted">交換額を入力すると、交換後の在庫で実施できる計画がわかります。</span>

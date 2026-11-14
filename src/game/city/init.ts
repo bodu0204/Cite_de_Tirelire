@@ -1,5 +1,5 @@
 // シーズン開始時の街。
-import { DEV_POINTS_PER_BASE, DEV_THRESHOLDS, FUND_PRICE_KAPPA, GOLD_RESOURCE_VALUE, INITIAL_PLOTS, INITIAL_POPULATION, INITIAL_STOCK, INITIAL_TREASURY, PLOT_SIZE } from "../config";
+import { DEV_POINTS_PER_BASE, DEV_THRESHOLDS, LEGACY_FUND_PRICE_KAPPA, GOLD_RESOURCE_VALUE, INITIAL_PLOTS, INITIAL_POPULATION, INITIAL_STOCK, INITIAL_TREASURY, PLOT_SIZE } from "../config";
 import type { Building, CityState } from "../types";
 import { initialZones, isPlannedRoad } from "./layout";
 import { alignTick } from "./sim";
@@ -65,6 +65,9 @@ export function createCity(startAt: number, base: number): CityState {
     // b1, b2, … の次（銀行は名前の ID）
     nextId: buildings.length - 1 + 1,
     flags: { foodShort: false, powerShort: false },
+    // 貯金日（docs/saving-habit-balance.md HAB-01）
+    savingDays: 0,
+    autoSavedDays: 0,
   };
 }
 
@@ -88,7 +91,7 @@ export function migrateCity(s: CityState, opts: { base: number; startedAt: numbe
   s.devPoints = DEV_THRESHOLDS[lv - 1];
   s.completed = (s.devPoints / DEV_POINTS_PER_BASE) * base;
   const rel = s.stock.wood / GOLD_RESOURCE_VALUE.wood + s.stock.stone / GOLD_RESOURCE_VALUE.stone + s.treasury / GOLD_RESOURCE_VALUE.treasury;
-  s.treasury = Math.max(0, Math.floor(rel * FUND_PRICE_KAPPA * base));
+  s.treasury = Math.max(0, Math.floor(rel * LEGACY_FUND_PRICE_KAPPA * base));
   s.stock.wood = 0;
   s.stock.stone = 0;
   s.startedAt = opts.startedAt;

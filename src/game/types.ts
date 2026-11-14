@@ -56,6 +56,8 @@ export interface Job {
   finishAt: number;
   /** 着工時に払った値段（円）。完成すると発展ptに数える（GRW-04） */
   price?: number;
+  /** 技術の更新（TEC-02）の間に始めた建て替え。完成すると更新の数に数える */
+  renewal?: boolean;
 }
 
 export type NeedKey = "shortage" | "jobs" | "housing" | "logistics" | "efficiency" | "industry" | "beautify";
@@ -134,6 +136,17 @@ export interface CityState {
   effects?: CityEffects;
   /** 火事で休業した建物（建物ID → 自動で再開する時刻。EVT-05） */
   closedUntil?: Record<string, number>;
+  /**
+   * 記録で貯金を確定した暦日の数（docs/saving-habit-balance.md HAB-01）。貯金日は、これに自動で確定した日（autoSavedDays）の
+   * 7日分で1日を足したもの（layout.ts savingDaysOf）。こまめボーナスで区画の上限が増える（layout.ts habitPlots）
+   */
+  savingDays?: number;
+  /** 記録のない日が自動で確定した日の数（HAB-01） */
+  autoSavedDays?: number;
+  /** 最後に貯金日に数えた暦日（ユーザーのタイムゾーンの YYYY-MM-DD。1日に1回だけ数える） */
+  lastSavingDay?: string;
+  /** 技術の更新（TEC-02）：上がった技術Lv、始まり・終わりの時刻、その間に建て替えた数。終わりに RENEWED を出したら reported */
+  renewal?: { level: number; from: number; until: number; evolved: number; reported?: boolean };
 }
 
 export type CityEventType =
@@ -143,6 +156,8 @@ export type CityEventType =
   | "DEMOLISH"
   | "MOVE"
   | "TECH_UNLOCKED"
+  | "RENEWED"
+  | "HABIT_PLOT"
   | "DEV_LEVEL"
   | "PLOT_EXPANDED"
   | "POPULATION"

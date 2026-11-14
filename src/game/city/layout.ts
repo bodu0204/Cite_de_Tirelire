@@ -1,7 +1,7 @@
 // マップ：区画の開拓、土地用途、道路網、自動配置（docs/map-layout-redesign.md）。
 // 銀行の中心が原点で、開拓した 5×5 の区画だけが使える。
 import { LINES, type LineId, type Zone } from "../catalog";
-import { DEV_THRESHOLDS, MAX_PLOTS, PLOT_LIMIT, PLOT_SIZE, PLOT_STEP, PLOT_STEP_POINTS } from "../config";
+import { AUTO_DAYS_PER_SAVING_DAY, DEV_THRESHOLDS, HABIT_PLOTS, MAX_PLOTS, PLOT_LIMIT, PLOT_SIZE, PLOT_STEP, PLOT_STEP_POINTS } from "../config";
 import { devLevel } from "../levels";
 import type { Building, CityState, Job } from "../types";
 
@@ -315,16 +315,51 @@ function siteAllowed(line: LineId, x: number, y: number, size: number): boolean 
 }
 
 /**
- * 発展の1回の計画で使い回す盤面の情報（計画を立てる間は街が変わらないので、系統ごとに作り直さない）
+ * 盤面の情報（置ける場所・道路網・系統の配置・選んだ場所・開く区画）。どれも盤面だけで決まるので、
+ * 盤面が変わるまで使い回す（計画を立てる間も、何も変わらないティックの間も作り直さない）
  */
 export interface SiteCache {
   ctx?: PlaceCtx;
   grid?: Map<string, LineId | "special">;
   /** 大きさ・道路かどうかごとの置ける場所 */
   sites: Map<string, { x: number; y: number }[]>;
+  /** 系統ごとに選んだ場所（findSite） */
+  found?: Map<LineId, { x: number; y: number } | null>;
+  /** 土地用途・区画の上限ごとに選んだ区画（choosePlot） */
+  plots?: Map<string, string | null>;
+  /** 住宅と工業の隣接の数（今の街・工事がすべて終わった街） */
+  pollution?: number;
+  plannedPollution?: number;
 }
 
-export const siteCache = (): SiteCache => ({ sites: new Map() });
+/**
+ * 盤面のキー：置ける場所の計算に使うもの（建物と新築の工事の位置・系統・段階・置いたか、開いた区画、土地用途）が変われば変わる。
+ * 系統の建物は、建ったあとは動かず消えず、段階は工事の完了でだけ変わる（工事の一覧が変わる）ので、数と次のIDで足りる。
+ * 動いたり消えたりする特殊施設（公園・像・備えの施設）は1つずつ入れる。土地用途は区画を開いたときにだけ増える
+ */
+function boardKey(s: CityState): string {
+  const parts: (string | number)[] = [s.nextId, s.buildings.length, s.plots.length];
+  for (const b of s.buildings) if (b.special) parts.push(b.id, b.x, b.y, b.tier, b.placed === false ? 0 : 1);
+  parts.push("|");
+  for (const j of s.jobs) parts.push(j.id);
+  return parts.join(",");
+}
+
+const boards = new WeakMap<CityState, { key: string; cache: SiteCache }>();
+
+/**
+ * 盤面の情報の入れ物。s を渡すと、盤面が前と同じならその入れ物を返す（ティックをまたいで使い回す）。
+ * 渡さなければ新しく作る
+ */
+export function siteCache(s?: CityState): SiteCache {
+  if (!s) return { sites: new Map() };
+  const key = boardKey(s);
+  const hit = boards.get(s);
+  if (hit && hit.key === key) return hit.cache;
+  const cache: SiteCache = { sites: new Map() };
+  boards.set(s, { key, cache });
+  return cache;
+}
 
 function cachedSites(s: CityState, kind: Kind, cache?: SiteCache): { x: number; y: number }[] {
   if (!cache) return candidateSites(s, kind);
@@ -343,6 +378,15 @@ function cachedSites(s: CityState, kind: Kind, cache?: SiteCache): { x: number; 
  * 同系統の隣接と道路の隣接を加点し、住宅と工業の隣接を減点する。決定的にタイブレークする。
  */
 export function findSite(s: CityState, line: LineId, cache?: SiteCache): { x: number; y: number } | null {
+  if (cache) {
+    const found = (cache.found ??= new Map());
+    if (!found.has(line)) found.set(line, searchSite(s, line, cache));
+    return found.get(line)!;
+  }
+  return searchSite(s, line);
+}
+
+function searchSite(s: CityState, line: LineId, cache?: SiteCache): { x: number; y: number } | null {
   const def = LINES[line];
   const kind = { line, tier: 0 };
   const size = buildingSize(kind);
@@ -473,13 +517,46 @@ export function forestSite(s: CityState, b: Kind): ForestSite | null {
 
 // ---- 開拓（docs/map-layout-redesign.md §7） ----
 
-/** 開拓できる区画数の上限（初期の区画を含む。Q8） */
-export function plotLimit(devPoints: number): number {
+/**
+ * こまめボーナスの規則（docs/saving-habit-balance.md HAB-02）。区画の上限は、発展Lvの上限（PLOT_LIMIT）に貯金日の数だけ足す：
+ * 最初の first 日は1日1区画、そのあとは every 日ごとに1区画。null なら足さない（scripts/balance.ts LEGACY=1 が以前の規則と比べるとき）
+ */
+export const plotRule: { habit: null | { first: number; every: number } } = { habit: { ...HABIT_PLOTS } };
+
+/** 貯金日の数（HAB-01）：記録で確定した日 ＋ 自動で確定した日の AUTO_DAYS_PER_SAVING_DAY 日分で1日 */
+export function savingDaysOf(s: Pick<CityState, "savingDays" | "autoSavedDays">): number {
+  return (s.savingDays ?? 0) + Math.floor((s.autoSavedDays ?? 0) / AUTO_DAYS_PER_SAVING_DAY);
+}
+
+/** 貯金日によるこまめボーナスの区画数（HAB-02） */
+export function habitPlots(savingDays = 0): number {
+  const r = plotRule.habit;
+  if (!r) return 0;
+  const d = Math.max(0, Math.floor(savingDays));
+  return Math.min(d, r.first) + Math.floor(Math.max(0, d - r.first) / r.every);
+}
+
+/** 次のこまめボーナスの区画まで、あと何日の貯金日か（表示用。HAB-04） */
+export function nextHabitPlotIn(savingDays = 0): number | null {
+  const r = plotRule.habit;
+  if (!r) return null;
+  const d = Math.max(0, Math.floor(savingDays));
+  if (d < r.first) return 1;
+  return r.every - ((d - r.first) % r.every);
+}
+
+/** 発展Lvで決まる区画の上限（こまめボーナスを除く。初期の区画を含む。Q8） */
+export function basePlotLimit(devPoints: number): number {
   const lv = devLevel(devPoints);
   const base = PLOT_LIMIT[Math.min(lv, PLOT_LIMIT.length) - 1];
   const top = DEV_THRESHOLDS[DEV_THRESHOLDS.length - 1];
   const extra = devPoints > top ? Math.floor((devPoints - top) / PLOT_STEP_POINTS) * PLOT_STEP : 0;
-  return Math.min(MAX_PLOTS, base + extra);
+  return base + extra;
+}
+
+/** 開拓できる区画数の上限：発展Lvの上限 ＋ こまめボーナス（HAB-02） */
+export function plotLimit(devPoints: number, savingDays = 0): number {
+  return Math.min(MAX_PLOTS, basePlotLimit(devPoints) + habitPlots(savingDays));
 }
 
 /** 開拓中の区画（"px,py"） */
@@ -507,8 +584,9 @@ export function expansionError(s: CityState, px: number, py: number, net = roadN
   if (expandingPlots(s).has(k)) return "開拓中の区画です";
   const near = [plotKey(px + 1, py), plotKey(px - 1, py), plotKey(px, py + 1), plotKey(px, py - 1)];
   if (!near.some((n) => plotSet(s).has(n))) return "開拓済みの区画の隣から開拓してください";
-  if (plotsUsed(s) >= plotLimit(s.devPoints)) {
-    return plotsUsed(s) >= MAX_PLOTS ? "これ以上は開拓できません" : `開拓できる区画は ${plotLimit(s.devPoints)} までです。発展Lvを上げると増えます`;
+  const limit = plotLimit(s.devPoints, savingDaysOf(s));
+  if (plotsUsed(s) >= limit) {
+    return plotsUsed(s) >= MAX_PLOTS ? "これ以上は開拓できません" : `開拓できる区画は ${limit} までです。発展Lvを上げるか、こまめに貯金すると増えます`;
   }
   // 区画の十字の道路が、銀行までつながった道路の隣に来ること（Q4）
   if (!plotCross(px, py).some((t) => perimeter(t.x, t.y, 1).some((n) => net.tiles.has(tileKey(n.x, n.y))))) return "銀行までつながった道路が、この区画の境目まで届いていません";
@@ -549,10 +627,25 @@ function plotZone(s: CityState, px: number, py: number): Zone | null {
   return best;
 }
 
+/** 区画を選ぶとき：同じ用途の区画と辺で接するごとの減点と、住宅と工業が接するごとの減点（docs/map-layout-redesign.md §7.5 ZN-01） */
+const SAME_ZONE_NEIGHBOR = 2;
+const CLASH_NEIGHBOR = 4;
+const clash = (a: Zone, b: Zone) => (a === "residential" && b === "industrial") || (a === "industrial" && b === "residential");
+
 /**
- * 街が開く区画：同じ用途の区画の隣を優先し、次に銀行に近いもの。決定的にタイブレークする
+ * 街が開く区画：銀行に近いものを選ぶ。土地用途は区画ごとに分かれるように、同じ用途の区画とは隣り合わせにくくし
+ * （中心から同じ用途が扇形に広がらない）、住宅と工業は隣り合わせない（公害。pollutionPairs）。決定的にタイブレークする
  */
 export function choosePlot(s: CityState, zone: Zone | null, cache?: SiteCache): string | null {
+  if (!cache) return searchPlot(s, zone);
+  // 開ける区画は上限（発展pt・貯金日で変わる）にもよる
+  const key = `${zone}:${plotLimit(s.devPoints, savingDaysOf(s))}`;
+  const plots = (cache.plots ??= new Map());
+  if (!plots.has(key)) plots.set(key, searchPlot(s, zone, cache));
+  return plots.get(key)!;
+}
+
+function searchPlot(s: CityState, zone: Zone | null, cache?: SiteCache): string | null {
   let best: { k: string; score: number } | null = null;
   const net = cache ? (cache.ctx ??= placeCtx(s)).net : roadNetwork(s);
   for (const k of expandablePlots(s, net)) {
@@ -564,8 +657,12 @@ export function choosePlot(s: CityState, zone: Zone | null, cache?: SiteCache): 
         [-1, 0],
         [0, 1],
         [0, -1],
-      ])
-        if (plotSet(s).has(plotKey(px + dx, py + dy)) && plotZone(s, px + dx, py + dy) === zone) score += 3;
+      ]) {
+        if (!plotSet(s).has(plotKey(px + dx, py + dy))) continue;
+        const near = plotZone(s, px + dx, py + dy);
+        if (near === zone) score -= SAME_ZONE_NEIGHBOR;
+        else if (near && clash(zone, near)) score -= CLASH_NEIGHBOR;
+      }
     if (!best || score > best.score) best = { k, score };
   }
   return best?.k ?? null;

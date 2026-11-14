@@ -25,7 +25,7 @@ describe("REC-01 記録で確定する", () => {
   it("使わなかった配当（未回収の金貨）がすべて確定し、債券と建設資金に入る", () => {
     const p = purse({ uncollected: 5000 });
     const c = confirmByRecord(p, OCT1 + HOUR);
-    expect(c).toEqual({ amount: 5000, toBond: 5000, eligible: 5000, overflow: 0 });
+    expect(c).toEqual({ amount: 5000, toBond: 5000, eligible: 5000, overflow: 0, days: 0 });
     expect(p.bond).toBe(5000);
     expect(p.bondResource).toBe(5000);
     expect(p.mine.uncollected).toBe(0n);
@@ -38,14 +38,14 @@ describe("REC-01 記録で確定する", () => {
   it("RSV-01：債券が上限に届いたら、入りきらない分は建設資金になる（overflow）", () => {
     const p = purse({ uncollected: 5000, bond: CAP - 1000 });
     const c = confirmByRecord(p, OCT1);
-    expect(c).toEqual({ amount: 5000, toBond: 1000, eligible: 1000, overflow: 4000 });
+    expect(c).toEqual({ amount: 5000, toBond: 1000, eligible: 1000, overflow: 4000, days: 0 });
     expect(p.bond).toBe(CAP);
   });
 
   it("債券がマイナスなら、確定した配当で先に返す（その分は建設資金をつけない）", () => {
     const p = purse({ uncollected: 3000, bond: -1000 });
     const c = confirmByRecord(p, OCT1);
-    expect(c).toEqual({ amount: 3000, toBond: 3000, eligible: 2000, overflow: 0 });
+    expect(c).toEqual({ amount: 3000, toBond: 3000, eligible: 2000, overflow: 0, days: 0 });
     expect(p.bond).toBe(2000);
   });
 });
@@ -94,6 +94,8 @@ describe("REC-01 記録のない日の自動の確定", () => {
     expect(autoConfirm(p, OCT1 + 7 * DAY, TZ, 500).amount).toBe(0);
     const c = autoConfirm(p, OCT1 + 8 * DAY, TZ, 500);
     expect(c.amount).toBe(1500);
+    // 自動で確定した日の数（貯金日に数える。docs/saving-habit-balance.md HAB-01）
+    expect(c.days).toBe(1);
     expect(p.bond).toBe(1500);
     expect(Number(p.mine.uncollected / MICRO_PER_GOLD)).toBe(500);
     expect(unconfirmedGold(p.mine)).toBe(0);

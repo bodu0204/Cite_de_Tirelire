@@ -84,8 +84,15 @@ export function describeEvent(e: DescribableEvent): string {
       return "建物を移動しました";
     case "TECH_UNLOCKED": {
       const unlocks = (p.unlocks as unknown as string[]) ?? [];
-      return `技術Lv${p.level}に到達！${unlocks.length ? `${unlocks.slice(0, 4).join("・")}が解放されました` : ""}`;
+      const era = p.era ? `「${p.era}」になりました。` : "";
+      // 技術の更新（docs/saving-habit-balance.md TEC-04）
+      const renewal = p.renewalDays ? `${p.renewalDays}日間、建て替えが${p.renewalFree ? "無料" : "安く"}になります` : "";
+      return `技術Lv${p.level}に到達！${era}${unlocks.length ? `${unlocks.slice(0, 4).join("・")}が解放されました。` : ""}${renewal}`;
     }
+    case "RENEWED":
+      return (p.evolved as number) > 0 ? `技術の更新：「${p.era}」の建物に、${p.evolved}棟が建て替わりました` : `技術の更新が終わりました（建て替えた建物はありません）`;
+    case "HABIT_PLOT":
+      return `こまめな貯金で、街が広がりました（こまめボーナス ${p.plots}区画・貯金した日 ${p.savingDays}日）`;
     case "DEV_LEVEL":
       return `街が「${DEV_NAMES[(p.level as number) - 1]}」（発展Lv${p.level}）に成長しました`;
     case "PLOT_EXPANDED":

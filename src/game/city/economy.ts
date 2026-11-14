@@ -73,7 +73,8 @@ export function parkHappiness(openParks: number): number {
   return Math.min(PARK_HAPPINESS_CAP, total);
 }
 
-export function computeMetrics(s: CityState): Metrics {
+/** 街の指標。pollution（住宅と工業の隣接の数）は盤面だけで決まるので、呼び出し側が使い回した値を渡してよい */
+export function computeMetrics(s: CityState, pollution = pollutionPairs(s)): Metrics {
   const dev = devLevel(s.devPoints);
   const pop = s.population;
   const normals = s.buildings.filter(active);
@@ -137,7 +138,7 @@ export function computeMetrics(s: CityState): Metrics {
   h += Math.min(20, publicHappiness) * coverage;
   h += ((logistics - LOGISTICS_FLOOR) / (1 - LOGISTICS_FLOOR)) * 6;
   h += parkHappiness(openParks);
-  h -= Math.min(15, pollutionPairs(s) * 3);
+  h -= Math.min(15, pollution * 3);
   const happinessTarget = Math.max(0, Math.min(100, h));
 
   const logisticsNorm = (logistics - LOGISTICS_FLOOR) / (1 - LOGISTICS_FLOOR);

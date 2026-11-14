@@ -6,7 +6,8 @@
 >
 > 貯金、続いていますか？
 > シテ・ド・ティルリールは、あなたの「使わなかったお金」で小さな街が育つゲームです。
-> 買い物をがまんした分、貯めた分だけ街の技術が進み、建物が新しくなっていきます。
+> 買い物をがまんした分、貯めた分だけ街の技術が進み、新しい時代が来るたびに街じゅうの建物が建て替わります。
+> こまめに記録して貯金するほど、街は広がっていきます。毎日少しずつでも、1日に何件もの工事が完成します。
 > 貯めた分は放っておいても数時間〜数日かけて形になるので、毎日開かなくても大丈夫です。記録を忘れても貯金は少し遅れて街に入りますし、使いすぎても建てた街が壊れることはありません。
 > 債券（もしもの備え）を持っておくと、毎日の利息で街が育ち、台風や火事から街を守ってくれます。
 > 目標の金額まで貯まったら、街の物語はエンディングです。小さな村が都市になるまでの歩みを、タイムラプスで振り返れます。
@@ -35,7 +36,7 @@ npm run dev                   # http://localhost:3000
 | `npm test`                                         | ゲームエンジンの単体テスト（受入テスト AT-001〜014 を含む）        |
 | `npm run typecheck`                                | 型チェック                                      |
 | `npm run build`                                    | 本番ビルド                                      |
-| `npx tsx scripts/balance.ts`                       | 貯金だけで育つ街（[To-Be](docs/savings-driven-growth.md)）の推移を表示。`MODE=compare` で貯め方ごとの比較、`MODE=kappa` で値段の係数の比較（バランス調整用） |
+| `npx tsx scripts/balance.ts`                       | 貯金だけで育つ街（[To-Be](docs/savings-driven-growth.md)）の推移を表示。`MODE=compare` で貯め方ごとの比較、`MODE=kappa` で値段の係数の比較、`MODE=habit` で貯める額×記録の間隔ごとの1日の工事数・広さ・技術の追いつきの比較（`PROPOSAL=1` で [貯め方で街の形が変わる](docs/saving-habit-balance.md) の案）（バランス調整用） |
 | `BASE=http://localhost:3000 bash scripts/smoke.sh` | APIの通しテスト（登録→シーズン→記録→交換→建設→目標達成→タイムラプス→削除） |
 | `node scripts/make-icons.mjs`                      | PWAアイコンの再生成                                |
 
@@ -46,11 +47,12 @@ npm run dev                   # http://localhost:3000
 
 ```
 src/game/        ゲームエンジン（純粋なTypeScript。DB・UIに依存しない）
-  config.ts        バランス値の正本（意図は docs/savings-driven-growth.md）
+  config.ts        バランス値の正本（意図は docs/savings-driven-growth.md・docs/saving-habit-balance.md）
   catalog.ts       建物の系統×段階（技術Lv・発展Lvの解放条件、生産・消費・建設費）
   mine.ts          金貨の配当（10^-6G単位の固定小数点、月境界・サブスク区切り）と購入の精算
   confirm.ts       記録による貯金の確定（債券・建設資金へ。記録のない日は7日後に自動で確定）
   fund.ts          建設資金・開拓期ボーナス・債券の利息・備えLv
+  habit.ts         貯金日とこまめボーナス（こまめに貯金するほど区画の上限が増える）
   exchange.ts      建設資金への交換の効率
   levels.ts        銀行Lv・配当Lv・記録Lv・技術Lv・発展Lv
   city/economy.ts  街の指標（人口・労働・電力・物流・幸福度。街は自分では稼がない）

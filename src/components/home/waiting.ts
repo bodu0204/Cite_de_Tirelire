@@ -24,6 +24,9 @@ export function waitingFor(v: ActiveView, always = false): string[] {
   const atCap = c.buildings.some((b) => b.line && b.level >= d.levelCap);
   if (d.next !== null && atCap && levelCap(d.level + 1) > d.levelCap)
     out.push(`発展Lv${d.level + 1}：あと${fmt(Math.ceil(d.next - d.points))}pt で建物のLv上限が ${levelCap(d.level + 1)} に上がる`);
+  // 区画の上限に当たっていれば、こまめな貯金で広がる（docs/saving-habit-balance.md HAB-04）
+  if (d.plots.used >= d.plots.limit && d.plots.nextHabitIn !== null)
+    out.push(`次の区画：あと${d.plots.nextHabitIn}日、記録して貯金すると上限が1つ増える（今 ${d.plots.used} / ${d.plots.limit}区画）`);
   const vacancy = m.housingCap > 0 ? (m.housingCap - m.population) / m.housingCap : 0;
   if (vacancy >= HOUSING_VACANCY_TARGET)
     out.push(`人口の増加：住宅の空き ${Math.round(vacancy * 100)}%（${Math.round(HOUSING_VACANCY_TARGET * 100)}%を切ると住宅を増やす）`);

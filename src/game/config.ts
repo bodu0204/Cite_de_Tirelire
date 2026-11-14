@@ -17,19 +17,27 @@ export const PLOT_SIZE = 5;
 export const INITIAL_PLOTS = ["-1,-1", "0,-1", "-1,0", "0,0"];
 /**
  * 開拓できる区画数の上限（初期の4区画を含む。発展Lv別。docs/map-layout-redesign.md §7.2、Q8）。
- * 発展Lv6 からは発展pt が PLOT_STEP_POINTS 増えるごとに PLOT_STEP ずつ増え、MAX_PLOTS で止まる（Q5）
+ * 発展Lv6 からは発展pt が PLOT_STEP_POINTS 増えるごとに PLOT_STEP ずつ増え、MAX_PLOTS で止まる（Q5）。
+ * こまめボーナス（HABIT_PLOTS）はこの上に足す。1件が安くなったので（docs/saving-habit-balance.md PAC-01）、以前の 4 / 8 / 14 / 22 / 30 / 40 では
+ * その発展Lvの区画に建てられる工事が次の発展Lvの閾値に届かず、記録の少ない人の街が長く止まるため、少し広げた（同 §12.4）
  */
-export const PLOT_LIMIT = [4, 8, 14, 22, 30, 40];
+export const PLOT_LIMIT = [6, 10, 20, 28, 36, 46];
 export const PLOT_STEP_POINTS = 150;
 export const PLOT_STEP = 4;
 export const MAX_PLOTS = 400;
 /**
  * n 区画目（初期の4区画のあとに開く順、0 から）の開拓の相対コストと工事時間（分）。開くたびに増える。
- * 値段（円）は建物と同じく相対コストから決める（sim.ts priceOf。docs/savings-driven-growth.md PRC-04）
+ * 値段（円）は建物と同じく相対コストから決める（sim.ts priceOf。docs/savings-driven-growth.md PRC-04）。
+ * 広さはこまめさ（貯金日）で決めるので、開拓費の伸びは緩くする（docs/saving-habit-balance.md PAC-03）
  */
-export const PLOT_COST_GROWTH = 1.1;
-export const expandCost = (n: number, stone = n >= 2) => {
-  const k = PLOT_COST_GROWTH ** n;
+export const PLOT_COST_GROWTH = 1.03;
+/**
+ * こまめボーナス（docs/saving-habit-balance.md HAB-02）：区画の上限に、貯金日の最初の first 日は1日1区画、
+ * そのあとは every 日ごとに1区画を足す
+ */
+export const HABIT_PLOTS = { first: 7, every: 4 } as const;
+export const expandCost = (n: number, stone = n >= 2, growth = PLOT_COST_GROWTH) => {
+  const k = growth ** n;
   // stone が false なら木材と都市資金だけ（最初の2区画と、石材加工所が解放されるまで。sim.ts plotCost）
   return { wood: Math.round(60 * k), stone: stone ? Math.round(20 * k) : 0, treasury: Math.round(150 * k) };
 };
@@ -52,6 +60,8 @@ export const SPEND_ESTIMATE_MIN_RECORDS = 3;
 export const SPEND_ESTIMATE_DEFAULT_RATIO = 0.5;
 /** 見通し（REC-04）：直近この日数に入った建設資金のペースから求める */
 export const FORECAST_DAYS = 14;
+/** 貯金日（docs/saving-habit-balance.md HAB-01）：記録のない日が自動で確定したときは、この日数分で貯金日1日と数える */
+export const AUTO_DAYS_PER_SAVING_DAY = 7;
 
 // ---- シーズン初期値 ----
 export const INITIAL_GOLD = 0;
@@ -97,10 +107,14 @@ export const FUND_PER_GOLD = 1;
 export const SILVER_VALUE_RATIO = 0.1;
 /**
  * カタログの相対コストの重み：木材 ÷10 ＋ 石材 ÷5 ＋ 都市資金 ÷10（以前の金貨1枚あたりの交換量）。
- * 計画の値段（円）＝ 相対コスト × 基準額 × FUND_PRICE_KAPPA ×（1 − 割引）（PRC-01）
+ * 計画の値段（円）＝ 相対コスト^FUND_PRICE_ALPHA × 基準額 × FUND_PRICE_KAPPA ×（1 − 割引）（PRC-01）。
+ * 指数を 1 より小さくして、段階が上がっても1件の値段が上がりにくくする（1日に数件の工事。docs/saving-habit-balance.md PAC-01）
  */
 export const GOLD_RESOURCE_VALUE = { wood: 10, stone: 5, food: 10, treasury: 10 } as const;
-export const FUND_PRICE_KAPPA = 0.0002;
+export const FUND_PRICE_KAPPA = 0.00025;
+export const FUND_PRICE_ALPHA = 0.5;
+/** 貯金で育つ街より前の街を直すときの換算（init.ts migrateCity。そのころの κ） */
+export const LEGACY_FUND_PRICE_KAPPA = 0.0002;
 /** 木材加工所・石材加工所・工場1棟あたりの建設費の割引と、その上限（GRW-05） */
 export const DISCOUNT_PER_BUILDING = 0.02;
 export const DISCOUNT_MAX = 0.4;
@@ -122,6 +136,14 @@ export const FEE_INSTANT_ROAD = 15;
 export const TECH_THRESHOLDS = [0, 0.05, 0.15, 0.3, 0.6, 1.0, 1.5];
 export const TECH_MULTIPLIER = [1.0, 1.1, 1.25, 1.4, 1.6, 1.8, 2.0];
 export const MAX_TECH = TECH_THRESHOLDS.length;
+/** 技術Lvごとの時代の名前（docs/saving-habit-balance.md TEC-03） */
+export const TECH_ERAS = ["開拓の時代", "木造の時代", "レンガと電気の時代", "コンクリートの時代", "高層の時代", "自動化の時代", "未来の時代"];
+/**
+ * 技術の更新（TEC-02）：技術Lvが上がってから RENEWAL_DAYS 日の間は、建て替えを不足の解消のすぐあとに回し、
+ * 建て替えの値段に RENEWAL_EVOLVE_RATE を掛ける（0 なら無料）
+ */
+export const RENEWAL_DAYS = 3;
+export const RENEWAL_EVOLVE_RATE = 0;
 
 // ---- 発展Lv（完成した計画の累計額で決まる。GRW-04・PRC-02） ----
 /** 発展pt ＝ 完成した計画の累計額 ÷ 基準額 × DEV_POINTS_PER_BASE */
