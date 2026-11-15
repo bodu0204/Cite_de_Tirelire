@@ -176,7 +176,7 @@ function PayWithField({
   const sum = sources.reduce((a, s) => a + Number(amounts[sourceKey(s)] || 0), 0);
   const draw = sources.find((s) => s.currency === "GOLD")?.draw ?? 0;
   return (
-    <div className="space-y-2 rounded-lg border border-line p-3">
+    <div role="group" aria-label="使う通貨" className="space-y-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-sm font-medium">使う通貨</span>
         <label className="flex items-center gap-2 text-xs">
@@ -213,16 +213,31 @@ function PayWithField({
         </>
       ) : (
         <>
-          <select aria-label="使う通貨" value={pick} onChange={(e) => onPick(e.target.value)}>
-            <option value="">おまかせ（期限の近いユーザ通貨 → 金貨）</option>
-            {sources.map((s) => (
-              <option key={sourceKey(s)} value={sourceKey(s)}>
-                {s.currency === "CUSTOM" ? `${cur(s.currencyId)?.icon ?? "🪙"} ` : ""}
-                {name(s)}（{fmt(s.available)}）
-              </option>
-            ))}
-          </select>
-          <p className="text-xs text-muted">選んだ通貨を先に使います。足りない分は{USUAL_ORDER}で払います。</p>
+          <div className="flex flex-wrap gap-1.5">
+            {[null, ...sources].map((s) => {
+              const key = s ? sourceKey(s) : "";
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  aria-pressed={pick === key}
+                  onClick={() => onPick(key)}
+                  className={`min-h-9 rounded-full border px-3 py-1 text-sm transition ${pick === key ? "border-ink bg-ink text-bg" : "border-line bg-surface-2 hover:border-ink"}`}
+                >
+                  {s ? (
+                    <>
+                      {s.currency === "CUSTOM" && `${cur(s.currencyId)?.icon ?? "🪙"} `}
+                      {name(s)}
+                      <span className="num ml-1 text-xs opacity-70">{fmt(s.available)}</span>
+                    </>
+                  ) : (
+                    "おまかせ"
+                  )}
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-xs text-muted">{pick ? `選んだ通貨を先に使います。足りない分は${USUAL_ORDER}で払います。` : `おまかせは、${USUAL_ORDER}で払います。`}</p>
         </>
       )}
       {draw > 0 && <p className="num text-xs text-muted">金貨には、今月貯めた債券の取り崩し（手数料なし）{fmt(draw)} を含みます。</p>}
