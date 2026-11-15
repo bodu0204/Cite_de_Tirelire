@@ -10,7 +10,7 @@ import { dayEvents, dayGrid, minuteRule, shiftDays, startOfDay, validWindow, typ
 import { autoConfirm, noteMined } from "./confirm";
 import { exchangeRate, GAIN_KEYS, quoteNeedsExchange, ZERO_GAINS, type FacilityLevels } from "./exchange";
 import { bondInterestPerDay, creditFund, creditGains, logFund, reserveLevel } from "./fund";
-import { countAutoDays } from "./habit";
+import { savingsHoldings, trackSavingDay } from "./habit";
 import { goldMineLevel } from "./levels";
 import { accrue, floorMinute } from "./mine";
 import { depositToBond, type Lot, type Purse } from "./settle";
@@ -60,6 +60,11 @@ export interface World {
   cuts?: CustomCut[];
   /** この放置計算で、確定した配当のうち債券に入りきらずに建設資金にした金貨（ゲーム内で使った金貨に数える。REC-01） */
   citySpent?: number;
+  /**
+   * 持ち分（貯金日を数える。docs/saving-habit-balance.md HAB-01）のうち、放置計算の外で決まる分：
+   * 欲しいもの貯金とゲーム内で使った金貨の累計（放置計算の前の値）
+   */
+  savingsBase?: number;
 }
 
 export interface AdvanceOpts {
@@ -225,14 +230,14 @@ export function advance(w: World, opts: AdvanceOpts, events: CityEvent[]): void 
       creditFund(w.city, c.overflow * exchangeRate("gold", "treasury", levels()), end);
       w.citySpent = (w.citySpent ?? 0) + c.overflow;
     }
-    // 自動で確定した日も、7日分で貯金日1日に数える（docs/saving-habit-balance.md HAB-01）
-    countAutoDays(w.city, c.days, w.purse.bond, end, events);
     holdBondResource(w);
     grantBondResources(w.city, levels(), end);
     grantInterest(w.city, w.purse.bond, w.purse.bondCap, end);
     // 備えLv（債券残高）は悪い出来事の被害を軽くし、Lvごとに備えの施設が建つ（RSV-03・EVT-04）
     w.city.reserveLevel = reserveLevel(w.purse.bond, plan.budget);
     syncReserve(w.city, w.city.reserveLevel, end, events);
+    // 日が替わったら、前の日に持ち分が増えていれば貯金日に数える（プレイヤーは何も確定しない。HAB-01）
+    trackSavingDay(w.city, end, tz, savingsHoldings(w.purse, (w.savingsBase ?? 0) + (w.citySpent ?? 0)), w.purse.bond, events);
     tick(w.city, end, events);
   }
   // 最後の端数は金鉱・ユーザ通貨だけ進め、街は次のティックまで待つ（債券化の資源も次のティックの前に入れる）
