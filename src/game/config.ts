@@ -60,8 +60,6 @@ export const SPEND_ESTIMATE_MIN_RECORDS = 3;
 export const SPEND_ESTIMATE_DEFAULT_RATIO = 0.5;
 /** 見通し（REC-04）：直近この日数に入った建設資金のペースから求める */
 export const FORECAST_DAYS = 14;
-/** 貯金日（docs/saving-habit-balance.md HAB-01）：記録のない日が自動で確定したときは、この日数分で貯金日1日と数える */
-export const AUTO_DAYS_PER_SAVING_DAY = 7;
 
 // ---- シーズン初期値 ----
 export const INITIAL_GOLD = 0;
