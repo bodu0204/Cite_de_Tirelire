@@ -14,6 +14,7 @@ import { floorMinute, remainingMining, windowMinedBy } from "@/game/mine";
 import { dayKey, parseDateInTz, periodKey, periodRange } from "@/game/time";
 import type { Gains } from "@/game/types";
 import { addCurrency, budgetPlan, confirmRecords, facilityLevels, newLotId, requireSeason, withPurse, type GameCtx } from "./game";
+import { incomeAccountFor, resolveAccount } from "./accounts";
 import { grantReward } from "./ops";
 import { previewShortfall, previewSurplus, resolveShortfall, resolveSurplus, type ResolutionView } from "./resolve";
 import { bool, date, int, oneOf, optStr, str } from "./validate";
@@ -364,6 +365,8 @@ async function recordMonthly(ctx: GameCtx, body: Body) {
       memo: optStr(body.memo, "メモ"),
       autoExchange: bool(body.autoExchange),
       allocation: rows as never,
+      // 入金先（指定がなければいつもの入金先。docs/money-accounts.md RS-02）
+      accountId: await incomeAccountFor(ctx, body.accountId),
     },
   });
   const dividend = key === ctx.mine.monthKey;
@@ -388,6 +391,8 @@ async function recordExtra(ctx: GameCtx, body: Body) {
       memo: optStr(body.memo, "メモ"),
       autoExchange: bool(body.autoExchange),
       allocation: rows as never,
+      // 入金先（指定がなければいつもの入金先。docs/money-accounts.md RS-02）
+      accountId: await incomeAccountFor(ctx, body.accountId),
     },
   });
   // 過去の日付でも、記録した時点から配当する
@@ -448,7 +453,10 @@ async function ownIncome(ctx: GameCtx, id: string) {
  */
 export async function editIncome(ctx: GameCtx, id: string, body: Body) {
   const income = await ownIncome(ctx, id);
-  if (Object.keys(body).some((k) => k !== "amount")) fail("invalid", "登録した収入は金額だけ変更できます");
+  if (Object.keys(body).some((k) => k !== "amount" && k !== "accountId")) fail("invalid", "登録した収入は金額と入金先だけ変更できます");
+  // 入金先はあとから変えられる（ゲームの判定は変わらない。docs/money-accounts.md RS-04）
+  if (body.accountId !== undefined) await ctx.tx.income.update({ where: { id }, data: { accountId: (await resolveAccount(ctx, body.accountId, "入金先")).id } });
+  if (body.amount === undefined) return { id, resolution: null };
   const amount = int(body.amount, "金額", { min: 0, max: 100_000_000 });
   if (amount === income.amount) return { id, resolution: null };
   const edit = { before: income.amount, after: amount };

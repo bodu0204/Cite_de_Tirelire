@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import { fail } from "@/game/errors";
+import { seasonSavingsMoves } from "@/server/accounts";
 import { prisma } from "@/server/db";
 import { route } from "@/server/http";
 import type { IdParams } from "@/server/routes";
@@ -15,11 +16,8 @@ export async function GET(req: NextRequest, { params }: IdParams) {
       prisma.citySnapshot.findUnique({ where: { seasonId_kind: { seasonId: id, kind: "START" } } }),
       prisma.citySnapshot.findUnique({ where: { seasonId_kind: { seasonId: id, kind: "FINAL" } } }),
       prisma.cityEvent.findMany({ where: { seasonId: id }, orderBy: [{ at: "asc" }, { id: "asc" }] }),
-      prisma.savingsTransaction.findMany({
-        where: { seasonId: id, deletedAt: null },
-        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-        select: { kind: true, amount: true, createdAt: true },
-      }),
+      // 貯金管理の増減（貯金用の置き場所への振替と、以前の貯金管理の記録）
+      seasonSavingsMoves(prisma, userId, id),
     ]);
     return {
       season: {

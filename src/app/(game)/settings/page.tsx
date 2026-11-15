@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useGame } from "@/components/GameProvider";
+import { AccountsCard } from "@/components/AccountsCard";
 import { Button, Card, Field, Modal, NumberInput } from "@/components/ui";
 import { api, ApiError, yen } from "@/lib/api";
 
@@ -91,6 +92,8 @@ export default function SettingsPage() {
           </Button>
         </form>
       </Card>
+
+      <AccountsCard tz={view?.user.timezone ?? "Asia/Tokyo"} />
 
       <Card title="データ">
         <div className="flex flex-wrap gap-2">
