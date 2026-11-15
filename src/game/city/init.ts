@@ -67,7 +67,6 @@ export function createCity(startAt: number, base: number): CityState {
     flags: { foodShort: false, powerShort: false },
     // 貯金日（docs/saving-habit-balance.md HAB-01）
     savingDays: 0,
-    autoSavedDays: 0,
   };
 }
 

@@ -6,7 +6,7 @@
 // 実行: npx tsx scripts/balance.ts                  標準の貯め方で1回分の推移
 //       MODE=compare npx tsx scripts/balance.ts     貯め方・記録の有無ごとに節目の日を比べる（§12 の表）
 //       MODE=kappa npx tsx scripts/balance.ts       値段の係数 κ（PRC-01）ごとに、節目での街の大きさを比べる
-//       MODE=habit npx tsx scripts/balance.ts       貯める額 × 記録の間隔ごとに、1日の工事数・区画・技術の追いつきを比べる
+//       MODE=habit npx tsx scripts/balance.ts       貯める額 × 貯め方（毎日少しずつ・まとめて）ごとに、1日の工事数・区画・技術の追いつきを比べる
 //                                                    （docs/saving-habit-balance.md。LEGACY=1 で以前の規則と比べる）
 // 条件（環境変数）:
 //   M=100000      月間自由予算（円）
@@ -15,6 +15,8 @@
 //   INITIAL=0.05  初日の入金（M に対する割合）
 //   EVERY=1       記録の間隔（日）。1＝毎日記録する（すぐ確定）、3＝3日に1回、0＝記録しない（7日後か収入期間の締めで自動確定。REC-01）
 //                 LAG=7 は EVERY=0 と同じ（以前の書き方）
+//   LUMP=1        貯め方（日）。1＝毎日少しずつ使わずに残す、7＝毎日の予算は使い切り、7日ごとにまとめて貯める（同じ月の額）。
+//                 貯金日（HAB-01）は貯金が出た日なので、まとめて貯めるほど少ない
 //   LEGACY=0      1 なら docs/saving-habit-balance.md より前の規則（こまめボーナス・値段の指数・技術の更新なし、κ 0.0002、開拓費 1.1^n）で試算する
 //                 個別に変えるとき：KAPPA・ALPHA・PLOT_GROWTH・HABIT_FIRST・HABIT_EVERY・RENEW_DAYS・RENEW_RATE（ふだんは config.ts の値）
 //   EVENTS=1      悪い出来事の被害を受けるか（0 なら備えLv4 として扱い、すべて防ぐ）
@@ -26,7 +28,7 @@ import { createCity, seasonBase } from "../src/game/city/init";
 import { plotRule, savingDaysOf } from "../src/game/city/layout";
 import { alignTick, applyTechLevel, cityNeeds, pricing, renewal, tick } from "../src/game/city/sim";
 import { highestUnlockedTier } from "../src/game/catalog";
-import { countAutoDays, countRecordDay } from "../src/game/habit";
+import { countSavingDay } from "../src/game/habit";
 import {
   DAY,
   FUND_PRICE_ALPHA,
@@ -60,6 +62,8 @@ interface Params {
   initial: number;
   /** 記録の間隔（日）。0 は記録しない */
   every: number;
+  /** 貯める間隔（日）。1 は毎日少しずつ */
+  lump: number;
   events: boolean;
   days: number;
   seed: number;
@@ -95,6 +99,8 @@ interface World {
   topShare: Record<number, number>;
   /** 日の終わりの区画の数 */
   plotsAt: Record<number, number>;
+  /** 貯金日に数えた最後の日 */
+  savedDay?: number;
 }
 
 function params(over: Partial<Params> = {}): Params {
@@ -105,6 +111,7 @@ function params(over: Partial<Params> = {}): Params {
     rate: env("RATE", 0.2),
     initial: env("INITIAL", 0.05),
     every: env("EVERY", env("LAG", 0) > 0 ? 0 : 1),
+    lump: env("LUMP", 1),
     events: env("EVENTS", 1) !== 0,
     days: env("DAYS", 180),
     seed: env("SEED", 1),
@@ -196,12 +203,22 @@ function step(w: World, end: number, events: CityEvent[]) {
   if (recording) {
     w.records++;
     w.silver += RECORD_SILVER;
-    // 貯金日（HAB-01）：記録で貯金を確定した暦日。使い過ぎ（債券がマイナス）の日は数えない
-    countRecordDay(s, `d${dayOf(w, end)}`, w.bond, end, events);
   }
-  // 記録しない人：その日の配当が7日後に自動で確定する（7日分で貯金日1日。HAB-01）
-  if (w.p.every === 0 && (end - w.t0) % DAY === TICK_MS && dayOf(w, end) > 7) countAutoDays(s, 1, w.bond, end, events);
-  addSavings(w, end, (w.p.rate * w.p.M * TICK_MS) / (30 * DAY));
+  // 貯金の出方：毎日少しずつ（LUMP=1）か、LUMP 日ごとの最初のティックにまとめて
+  const firstTick = (end - w.t0) % DAY === TICK_MS;
+  const saved =
+    w.p.lump <= 1
+      ? (w.p.rate * w.p.M * TICK_MS) / (30 * DAY)
+      : firstTick && (dayOf(w, end) - 1) % w.p.lump === 0
+        ? (w.p.rate * w.p.M * w.p.lump) / 30
+        : 0;
+  addSavings(w, end, saved);
+  // 貯金日（HAB-01）：貯金が出た日（持ち分が増えた日）。エンジンでは放置計算が日の終わりに数える。ここでは貯金が出た最初のティックで数える
+  const today = dayOf(w, end);
+  if (saved > 0 && w.savedDay !== today && w.bond >= 0) {
+    w.savedDay = today;
+    countSavingDay(s, end, events);
+  }
   confirm(w, end, events);
   grantInterest(s, w.bond, w.cap, end);
   s.reserveLevel = w.p.events ? reserveLevel(w.bond, w.p.M) : 4;
@@ -294,6 +311,7 @@ function describe(p: Params): string {
   return [
     `M ${yen(p.M)}・目標 ${yen(p.goal)}・基準額 ${yen(seasonBase(p.M, p.goal))}`,
     `毎月 M の ${Math.round(p.rate * 100)}%・初日 ${yen(p.initial * p.M)}`,
+    p.lump > 1 ? `${p.lump}日ごとにまとめて貯める` : "毎日少しずつ貯める",
     p.every === 1 ? "毎日記録" : p.every > 1 ? `${p.every}日に1回記録` : "記録しない（7日後に確定）",
     `κ ${pricing.kappa}・α ${pricing.alpha}・開拓費 ${pricing.plotGrowth}^n`,
     plotRule.habit ? `区画は発展Lv＋こまめボーナス（${plotRule.habit.first}日まで毎日、以降${plotRule.habit.every}日ごと）` : "区画は発展Lvで決まる",
@@ -412,13 +430,14 @@ function renewed(w: World): string {
 
 function habit() {
   const rows: [string, Partial<Params>][] = [
-    ["控えめ0.1M・毎日", { rate: 0.1, initial: 0, every: 1 }],
-    ["標準0.2M・毎日", { rate: 0.2, initial: 0.05, every: 1 }],
-    ["標準0.2M・3日に1回", { rate: 0.2, initial: 0.05, every: 3 }],
-    ["標準0.2M・週1回", { rate: 0.2, initial: 0.05, every: 7 }],
-    ["標準0.2M・記録しない", { rate: 0.2, initial: 0.05, every: 0 }],
-    ["積極0.4M・毎日", { rate: 0.4, initial: 0.1, every: 1 }],
-    ["積極0.4M・週1回", { rate: 0.4, initial: 0.1, every: 7 }],
+    ["控えめ0.1M・毎日", { rate: 0.1, initial: 0, lump: 1 }],
+    ["標準0.2M・毎日", { rate: 0.2, initial: 0.05, lump: 1 }],
+    ["標準0.2M・毎日・記録しない", { rate: 0.2, initial: 0.05, lump: 1, every: 0 }],
+    ["標準0.2M・3日ごとにまとめて", { rate: 0.2, initial: 0.05, lump: 3 }],
+    ["標準0.2M・週1回まとめて", { rate: 0.2, initial: 0.05, lump: 7 }],
+    ["標準0.2M・月1回まとめて", { rate: 0.2, initial: 0.05, lump: 30 }],
+    ["積極0.4M・毎日", { rate: 0.4, initial: 0.1, lump: 1 }],
+    ["積極0.4M・月1回まとめて", { rate: 0.4, initial: 0.1, lump: 30 }],
   ];
   const only = process.env.ROWS?.split(",").map(Number);
   const p0 = params();

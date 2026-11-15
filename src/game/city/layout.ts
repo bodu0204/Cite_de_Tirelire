@@ -1,7 +1,7 @@
 // マップ：区画の開拓、土地用途、道路網、自動配置（docs/map-layout-redesign.md）。
 // 銀行の中心が原点で、開拓した 5×5 の区画だけが使える。
 import { LINES, type LineId, type Zone } from "../catalog";
-import { AUTO_DAYS_PER_SAVING_DAY, DEV_THRESHOLDS, HABIT_PLOTS, MAX_PLOTS, PLOT_LIMIT, PLOT_SIZE, PLOT_STEP, PLOT_STEP_POINTS } from "../config";
+import { DEV_THRESHOLDS, HABIT_PLOTS, MAX_PLOTS, PLOT_LIMIT, PLOT_SIZE, PLOT_STEP, PLOT_STEP_POINTS } from "../config";
 import { devLevel } from "../levels";
 import type { Building, CityState, Job } from "../types";
 
@@ -523,9 +523,9 @@ export function forestSite(s: CityState, b: Kind): ForestSite | null {
  */
 export const plotRule: { habit: null | { first: number; every: number } } = { habit: { ...HABIT_PLOTS } };
 
-/** 貯金日の数（HAB-01）：記録で確定した日 ＋ 自動で確定した日の AUTO_DAYS_PER_SAVING_DAY 日分で1日 */
-export function savingDaysOf(s: Pick<CityState, "savingDays" | "autoSavedDays">): number {
-  return (s.savingDays ?? 0) + Math.floor((s.autoSavedDays ?? 0) / AUTO_DAYS_PER_SAVING_DAY);
+/** 貯金日の数（HAB-01：使い過ぎずに貯金が出た日） */
+export function savingDaysOf(s: Pick<CityState, "savingDays">): number {
+  return s.savingDays ?? 0;
 }
 
 /** 貯金日によるこまめボーナスの区画数（HAB-02） */
