@@ -1,4 +1,4 @@
-// クレジットカードの請求の区切り（docs/payment-method-sync.md §5.1）。日付は "YYYY-MM-DD"（ユーザーのタイムゾーンの暦日）。
+// クレジットカードの請求の区切り（docs/money-accounts.md §7）。日付は "YYYY-MM-DD"（ユーザーのタイムゾーンの暦日）。
 
 export interface CardTerms {
   /** 締め日（1〜31。その月にない日は末日） */
@@ -29,29 +29,21 @@ export function billingDate(date: string, t: CardTerms): string {
 /** 引き落とし日の 0:00 を過ぎたら未払いから外れる（CB-03） */
 export const isUnpaid = (date: string, t: CardTerms, today: string) => billingDate(date, t) > today;
 
-export interface CardUnpaid {
-  /** 未払いの合計 */
-  amount: number;
-  /** 次回の引き落とし（未払いがなければ null） */
-  next: { date: string; amount: number } | null;
-}
-
-/** カードで払った支出（金額 0 の取り消しは除く）から、今日の時点の未払いを求める（CE-01） */
-export function cardUnpaid(purchases: { date: string; amount: number }[], t: CardTerms, today: string): CardUnpaid {
+/**
+ * カードで払った支出（金額 0 の取り消しは除く）を引き落とし日ごとにまとめる（引き落とし予定の請求額。docs/money-accounts.md CB-02）。
+ * 返す Map は引き落とし日の昇順
+ */
+export function billsByDue(purchases: { date: string; amount: number }[], t: CardTerms): Map<string, number> {
   const byDate = new Map<string, number>();
   for (const p of purchases) {
     if (p.amount <= 0) continue;
     const due = billingDate(p.date, t);
-    if (due > today) byDate.set(due, (byDate.get(due) ?? 0) + p.amount);
+    byDate.set(due, (byDate.get(due) ?? 0) + p.amount);
   }
-  const dates = [...byDate.keys()].sort();
-  return {
-    amount: [...byDate.values()].reduce((a, v) => a + v, 0),
-    next: dates.length ? { date: dates[0], amount: byDate.get(dates[0])! } : null,
-  };
+  return new Map([...byDate].sort(([a], [b]) => a.localeCompare(b)));
 }
 
-/** 未払いの支出を探すときの利用日の下限：これより前の利用は、どのカードでも引き落とし済み（最長で翌々月末） */
+/** 引き落とし日が since 以後になりうる利用日の下限（最長で翌々月末払いなので、3か月前の1日） */
 export function unpaidSince(today: string): string {
   const [y, m] = today.split("-").map(Number);
   const from = addMonth(y, m, -3);

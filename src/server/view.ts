@@ -13,8 +13,8 @@ import {
   DEV_THRESHOLDS,
   GOLD_MINE_LEVEL_THRESHOLDS,
   REWARD_DAILY_CAP,
-  REWARD_PAYMENT,
-  REWARD_PAYMENT_DAILY_CAP,
+  REWARD_EXTRA,
+  REWARD_EXTRA_DAILY_CAP,
   SILVER_MINE_LEVEL_THRESHOLDS,
   TECH_ERAS,
 } from "@/game/config";
@@ -28,7 +28,8 @@ import { dayKey, periodRange } from "@/game/time";
 import type { CityState, Gains } from "@/game/types";
 import { currencySummaries } from "./currencies";
 import { budgetPlan, monthlyEquivalent, savingsOf, type GameCtx } from "./game";
-import { facilityLevels, PAYMENT_REWARD_PREFIX } from "./ops";
+import { extraRewardWhere, facilityLevels } from "./ops";
+import { seasonSavingsMoves } from "./accounts";
 
 export interface AwayStats {
   population: number;
@@ -108,12 +109,8 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
   };
   if (!season || !city || !mine) return { ...base, season: null };
 
-  const savings = await tx.savingsTransaction.findMany({
-    where: { seasonId: season.id, deletedAt: null },
-    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-    select: { kind: true, amount: true, date: true, createdAt: true },
-  });
-  // 貯金管理（別口座への出し入れ）の純増額。判定には使わない
+  // 貯金管理（貯金用の置き場所への振替と、以前の貯金管理の記録）の純増額。判定には使わない（docs/money-accounts.md H7）
+  const savings = await seasonSavingsMoves(tx, user.id, season.id);
   const managed = savingsProgress(savings).net;
   const saved = savingsOf(ctx);
   const period = periodRange(ctx.now, ctx.cal);
@@ -130,11 +127,11 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
   const rewardedRecords = (ctx.seasonPatch.rewardedRecords as number | undefined) ?? season.rewardedRecords;
   // 記録の報酬の今日の合計（支払い方法の記入の報酬は別枠なので数えない。docs/payment-method-sync.md RW-04）
   const today = await tx.rewardClaim.aggregate({
-    where: { userId: user.id, dayKey: dayKey(ctx.now, tz), NOT: { recordKey: { startsWith: PAYMENT_REWARD_PREFIX } } },
+    where: { userId: user.id, dayKey: dayKey(ctx.now, tz), NOT: extraRewardWhere },
     _sum: { amount: true },
   });
   const todayPayment = await tx.rewardClaim.aggregate({
-    where: { userId: user.id, dayKey: dayKey(ctx.now, tz), recordKey: { startsWith: PAYMENT_REWARD_PREFIX } },
+    where: { userId: user.id, dayKey: dayKey(ctx.now, tz), ...extraRewardWhere },
     _sum: { amount: true },
   });
   const log = await tx.cityEvent.findMany({
@@ -238,8 +235,8 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
       nextLevelAt: nextThreshold(SILVER_MINE_LEVEL_THRESHOLDS, silverMineLevel(rewardedRecords)),
       todayRewarded: today._sum.amount ?? 0,
       dailyCap: REWARD_DAILY_CAP,
-      /** 支払い方法の記入の報酬（別枠） */
-      payment: { amount: REWARD_PAYMENT, dailyCap: REWARD_PAYMENT_DAILY_CAP, todayRewarded: todayPayment._sum.amount ?? 0 },
+      /** 振替・出どころの記入の報酬（別枠。docs/money-accounts.md §8） */
+      extra: { amount: REWARD_EXTRA, dailyCap: REWARD_EXTRA_DAILY_CAP, todayRewarded: todayPayment._sum.amount ?? 0 },
     },
     exchange: {
       levels,

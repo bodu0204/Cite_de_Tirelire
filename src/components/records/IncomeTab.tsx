@@ -6,6 +6,7 @@ import { Button, Card, Empty, Field, NumberInput } from "@/components/ui";
 import { REWARD_PURCHASE } from "@/game/config";
 import { api, fmt, todayIn, yen } from "@/lib/api";
 import { AllocationEditor, type AllocationRow, type IncomeQuote } from "./Allocation";
+import { AccountPicker, useAccounts } from "./accounts";
 import { confirmedText, ResolutionPreview, type Confirmed } from "./shared";
 
 interface BasePeriod {
@@ -27,7 +28,7 @@ interface RowState {
 const monthLabel = (key: string) => `${Number(key.slice(5, 7))}月の月収`;
 
 /** 月の収入：未記録の期間を雛形（今の B）で並べ、保存ボタンひとつで記録する（docs/record-input-redesign.md §5.3） */
-function MonthlyIncomes({ onDone }: { onDone: () => void }) {
+function MonthlyIncomes({ onDone, accountId }: { onDone: () => void; accountId: string | null }) {
   const { act, toast, busy } = useGame();
   const [periods, setPeriods] = useState<BasePeriod[] | null>(null);
   const [state, setState] = useState<Record<string, RowState>>({});
@@ -45,7 +46,7 @@ function MonthlyIncomes({ onDone }: { onDone: () => void }) {
   const body = (p: BasePeriod) => {
     const st = state[p.key];
     const amount = Number(st.amount || 0);
-    return { kind: "MONTHLY", monthKey: p.key, amount, autoExchange: st.autoExchange, ...(amount > p.base && st.rows ? { allocation: st.rows } : {}) };
+    return { kind: "MONTHLY", monthKey: p.key, amount, autoExchange: st.autoExchange, accountId, ...(amount > p.base && st.rows ? { allocation: st.rows } : {}) };
   };
   const done = async (n: number, reward: number, confirmed?: Confirmed | null) => {
     const c = confirmedText(confirmed);
@@ -147,7 +148,7 @@ function MonthlyIncomes({ onDone }: { onDone: () => void }) {
 }
 
 /** 臨時の収入：全額を振り分ける（初期値は即時貯蓄） */
-function ExtraIncomeForm({ onDone }: { onDone: () => void }) {
+function ExtraIncomeForm({ onDone, accountId }: { onDone: () => void; accountId: string | null }) {
   const { act, toast, busy } = useGame();
   const v = useSeasonView();
   const tz = v?.user.timezone ?? "Asia/Tokyo";
@@ -161,7 +162,7 @@ function ExtraIncomeForm({ onDone }: { onDone: () => void }) {
       className="space-y-3"
       onSubmit={async (e) => {
         e.preventDefault();
-        const r = await act<{ reward: number; confirmed?: Confirmed | null }>("/api/incomes", { kind: "EXTRA", ...f, amount, ...(rows ? { allocation: rows } : {}) });
+        const r = await act<{ reward: number; confirmed?: Confirmed | null }>("/api/incomes", { kind: "EXTRA", ...f, amount, accountId, ...(rows ? { allocation: rows } : {}) });
         if (!r) return;
         toast(r.reward > 0 ? `臨時の収入を記録しました！ 銀貨 +${r.reward}S${confirmedText(r.confirmed)}` : `臨時の収入を記録しました${confirmedText(r.confirmed)}`, r.reward > 0 ? "reward" : "info");
         setF((p) => ({ ...p, amount: "", name: "", memo: "", autoExchange: false }));
@@ -200,13 +201,23 @@ function ExtraIncomeForm({ onDone }: { onDone: () => void }) {
 
 export function IncomeTab({ onDone }: { onDone: () => void }) {
   const v = useSeasonView();
+  const { data, active } = useAccounts();
+  const [picked, setPicked] = useState("");
+  // 入金先（初期値はいつもの入金先。docs/money-accounts.md RS-02）
+  const accountId = picked || data?.defaults.income || null;
   return (
     <div className="space-y-4">
+      {active.length > 1 && (
+        <Card>
+          <AccountPicker label="入金先" accounts={active} value={accountId ?? ""} defaultId={data?.defaults.income} onChange={setPicked} exclude={(a) => a.kind === "CARD"} />
+          <p className="mt-1 text-xs text-muted">月の収入・臨時の収入が入る置き場所です。給料のうち自由予算でない分は「お金の管理」の予算外の入出金で記録します。</p>
+        </Card>
+      )}
       <Card title="月の収入">
-        {v ? <MonthlyIncomes onDone={onDone} /> : <p className="text-sm text-muted">進行中のシーズンがないため、月の収入は記録できません。</p>}
+        {v ? <MonthlyIncomes onDone={onDone} accountId={accountId} /> : <p className="text-sm text-muted">進行中のシーズンがないため、月の収入は記録できません。</p>}
       </Card>
       <Card title="臨時の収入">
-        <ExtraIncomeForm onDone={onDone} />
+        <ExtraIncomeForm onDone={onDone} accountId={accountId} />
       </Card>
     </div>
   );

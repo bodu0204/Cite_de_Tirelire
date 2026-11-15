@@ -13,7 +13,7 @@ import {
   NAME_SILVER,
   REPAIR_SILVER,
   REWARD_DAILY_CAP,
-  REWARD_PAYMENT_DAILY_CAP,
+  REWARD_EXTRA_DAILY_CAP,
   REWARD_PURCHASE,
   REWARD_SAVINGS,
   SAVINGS_DAILY_LIMIT,
@@ -44,8 +44,7 @@ import {
   type GameCtx,
 } from "./game";
 import { resolveCategory } from "./categories";
-import { checksOf } from "./adjustments";
-import { grantPaymentReward, resolvePaymentMethod, setPurchasePayment } from "./payments";
+import { grantPaymentReward, setPurchaseAccount, spendAccountFor } from "./accounts";
 import { resolveDiff } from "./resolve";
 import { bool, date, int, oneOf, optDate, optStr, str } from "./validate";
 
@@ -226,28 +225,30 @@ export async function buyTimelapseFx(ctx: GameCtx, seasonId: string, body: Body)
 
 // ---- 銀鉱：記録と報酬 ----
 
-/** 支払い方法の記入の報酬の recordKey の接頭辞（記録の報酬とは別枠で上限を数える。docs/payment-method-sync.md RW-03・04） */
-export const PAYMENT_REWARD_PREFIX = "payment:";
+/** 別枠の報酬（振替・支出の出どころの記入）の recordKey の接頭辞（記録の報酬とは別枠で上限を数える。docs/money-accounts.md RW-03・04） */
+export const EXTRA_REWARD_PREFIXES = ["payment:", "transfer:"];
+/** 別枠の報酬の recordKey だけ／それ以外だけに絞る条件 */
+export const extraRewardWhere = { OR: EXTRA_REWARD_PREFIXES.map((p) => ({ recordKey: { startsWith: p } })) };
 
 /**
  * 記録の報酬。同じ recordKey は1回だけ（上限で 0 になった分も後日は出さない）。
- * payment：支払い方法の記入の報酬。1日の上限は記入の分だけで数え、記録Lv（有効な記録数）には数えない
+ * extra：振替・出どころの記入の報酬。1日の上限は別枠で数え、記録Lv（有効な記録数）には数えない
  */
-export async function grantReward(ctx: GameCtx, recordKey: string, base: number, opts: { payment?: boolean } = {}): Promise<number> {
+export async function grantReward(ctx: GameCtx, recordKey: string, base: number, opts: { extra?: boolean } = {}): Promise<number> {
   if (!ctx.season) return 0;
   const day = dayKey(ctx.now, ctx.user.timezone);
   const exists = await ctx.tx.rewardClaim.findUnique({ where: { recordKey } });
   if (exists) return 0;
-  const kind = opts.payment ? { recordKey: { startsWith: PAYMENT_REWARD_PREFIX } } : { NOT: { recordKey: { startsWith: PAYMENT_REWARD_PREFIX } } };
+  const kind = opts.extra ? extraRewardWhere : { NOT: extraRewardWhere };
   const today = await ctx.tx.rewardClaim.aggregate({ where: { userId: ctx.user.id, dayKey: day, ...kind }, _sum: { amount: true } });
-  const cap = opts.payment ? REWARD_PAYMENT_DAILY_CAP : REWARD_DAILY_CAP;
+  const cap = opts.extra ? REWARD_EXTRA_DAILY_CAP : REWARD_DAILY_CAP;
   const amount = Math.max(0, Math.min(base, cap - (today._sum.amount ?? 0)));
   await ctx.tx.rewardClaim.create({ data: { userId: ctx.user.id, seasonId: ctx.season.id, recordKey, dayKey: day, amount } });
   if (amount === 0) return 0;
   const before = silverMineLevel(ctx.season.rewardedRecords);
-  if (!opts.payment) ctx.seasonPatch.rewardedRecords = ctx.season.rewardedRecords + 1;
-  addCurrency(ctx, "SILVER", amount, opts.payment ? "payment_reward" : "record_reward", recordKey);
-  if (!opts.payment) emitFacilityLevels(ctx, { silver: before });
+  if (!opts.extra) ctx.seasonPatch.rewardedRecords = ctx.season.rewardedRecords + 1;
+  addCurrency(ctx, "SILVER", amount, opts.extra ? "extra_reward" : "record_reward", recordKey);
+  if (!opts.extra) emitFacilityLevels(ctx, { silver: before });
   return amount;
 }
 
@@ -348,8 +349,10 @@ export async function recordPurchase(ctx: GameCtx, body: Body) {
   const input = purchaseInput(subPay ? { ...body, name: body.name ?? subPay.sub.name, isSubscription: true } : wish ? { ...body, name: body.name ?? wish.name } : body);
   const cat = await resolveCategory(ctx, body);
   const baseAmount = subPay ? subPay.sub.amount : wish ? wish.price : null;
-  // 支払い方法（任意）。サブスクの支払いで指定がなければ、サブスクに登録した支払い方法（PM-11・RW-06）
-  const method = await resolvePaymentMethod(ctx, body.paymentMethodId === undefined && subPay ? subPay.sub.paymentMethodId : body.paymentMethodId);
+  // 出どころ（指定がなければ、サブスクに登録した出どころ → いつもの置き場所。docs/money-accounts.md RS-01・03）
+  const accountId = await spendAccountFor(ctx, body.accountId, subPay?.sub.accountId);
+  // いつもの置き場所以外を選んだら、出どころの記入の報酬（RW-02）
+  const chosen = accountId !== ctx.user.defaultSpendAccountId;
 
   const purchase = await ctx.tx.purchase.create({
     data: {
@@ -361,8 +364,8 @@ export async function recordPurchase(ctx: GameCtx, body: Body) {
       subscriptionId: subPay?.sub.id ?? null,
       periodKey: subPay?.periodKey ?? null,
       baseAmount,
-      paymentMethodId: method?.id ?? null,
-      paymentRecordedAt: method ? new Date(ctx.now) : null,
+      accountId,
+      paymentRecordedAt: chosen ? new Date(ctx.now) : null,
     },
   });
   let reservedApplied = 0;
@@ -395,8 +398,8 @@ export async function recordPurchase(ctx: GameCtx, body: Body) {
     await syncSpecials(ctx);
   }
   const reward = await grantReward(ctx, `purchase:${purchase.id}`, REWARD_PURCHASE);
-  // 支払い方法も記入したら、記録の報酬とは別に記入の報酬（RW-02）
-  const paymentReward = method ? await grantPaymentReward(ctx, purchase) : 0;
+  // 出どころを自分で選んだら、記録の報酬とは別に記入の報酬（RW-02）
+  const paymentReward = chosen ? await grantPaymentReward(ctx, purchase) : 0;
   // 記録したので、それまでの使わなかった配当を確定する（docs/savings-driven-growth.md REC-01）
   const confirmed = ctx.season ? confirmRecords(ctx) : null;
   return { id: purchase.id, reward, paymentReward, settled: settledAmount, reservedApplied, payment: summarize(payments), resolution, confirmed };
@@ -440,17 +443,17 @@ async function ownPurchase(ctx: GameCtx, id: string) {
 /**
  * 支出の金額だけを変える（docs/record-input-redesign.md §9.3）。最初の精算はそのまま残し、変化分を差分として解消する：
  * 減額は＋差分（債券 → おまかせ交換）、増額は−差分（債券＋手数料）。金額 0 は取り消し（記録は残る）。
- * 日付・名称・ジャンルなどは変えられない。支払い方法だけは例外で、あとから記入・変更できる（docs/payment-method-sync.md PM-13）
+ * 日付・名称・ジャンルなどは変えられない。出どころだけは例外で、あとから変えられる（docs/money-accounts.md RS-04）
  */
 export async function editPurchase(ctx: GameCtx, id: string, body: Body) {
   let p = await ownPurchase(ctx, id);
-  const extra = Object.keys(body).filter((k) => k !== "amount" && k !== "paymentMethodId");
-  if (extra.length) fail("invalid", "登録した支出は金額と支払い方法だけ変更できます");
+  const extra = Object.keys(body).filter((k) => k !== "amount" && k !== "accountId");
+  if (extra.length) fail("invalid", "登録した支出は金額と出どころだけ変更できます");
   let paymentReward = 0;
-  if ("paymentMethodId" in body) {
-    const r = await setPurchasePayment(ctx, p, body.paymentMethodId);
+  if ("accountId" in body) {
+    const r = await setPurchaseAccount(ctx, p, body.accountId);
     paymentReward = r.paymentReward;
-    p = { ...p, paymentMethodId: r.paymentMethodId };
+    p = { ...p, accountId: r.accountId };
   }
   if (body.amount === undefined) return { id, resolution: null, paymentReward };
   const amount = int(body.amount, "金額", { min: 0, max: 100_000_000 });
@@ -481,13 +484,9 @@ export async function savingsCountToday(ctx: GameCtx) {
  * 貯金管理：手元の財布と別口座の間の出し入れ（docs/record-input-redesign.md §7.2）。
  * 判定（技術Lv・銀行Lv・目標）には使わず、通貨も動かさない。手元のお金の推測（E5）と履歴に使う。1日3回まで。
  */
-export async function recordSavings(ctx: GameCtx, body: Body) {
-  const input = savingsInput(body);
-  if ((await savingsCountToday(ctx)) >= SAVINGS_DAILY_LIMIT) fail("daily_limit", `貯金管理の登録は1日${SAVINGS_DAILY_LIMIT}回までです`, 429);
-  const tx = await ctx.tx.savingsTransaction.create({ data: { ...input, userId: ctx.user.id, seasonId: ctx.season?.id ?? null } });
-  const reward = await grantReward(ctx, `savings:${tx.id}`, REWARD_SAVINGS);
-  const confirmed = ctx.season ? confirmRecords(ctx) : null;
-  return { id: tx.id, reward, confirmed };
+export async function recordSavings(_ctx: GameCtx, _body: Body): Promise<never> {
+  // 貯金管理は貯金用の置き場所への振替にまとめた（docs/money-accounts.md H7）。以前の記録は読むだけ
+  return fail("moved", "貯金管理は「お金の管理」の振替（貯金用の置き場所への振替）で記録してください", 410);
 }
 
 /**
@@ -642,11 +641,11 @@ async function subscriptionWarnings(ctx: GameCtx): Promise<{ warning: string | n
   return { warning: overruns.length ? `${describeOverruns(overruns)}。その月の金貨の配当は0になります` : null, overruns };
 }
 
-/** サブスクの支払い方法（任意。支出タブのサブスクの行の初期値。docs/payment-method-sync.md PM-11） */
+/** サブスクの出どころ（任意。支出タブのサブスクの行の初期値。docs/money-accounts.md RS-03）。null・空はいつもの置き場所 */
 async function subscriptionPayment(ctx: GameCtx, body: Body, prev?: string | null) {
-  if (body.paymentMethodId === undefined) return prev === undefined ? {} : { paymentMethodId: prev };
-  if (prev !== undefined && body.paymentMethodId === prev) return { paymentMethodId: prev };
-  return { paymentMethodId: (await resolvePaymentMethod(ctx, body.paymentMethodId))?.id ?? null };
+  if (body.accountId === undefined) return prev === undefined ? {} : { accountId: prev };
+  if (prev !== undefined && body.accountId === prev) return { accountId: prev };
+  return { accountId: body.accountId === null || body.accountId === "" ? null : (await spendAccountFor(ctx, body.accountId)) };
 }
 
 export async function createSubscription(ctx: GameCtx, body: Body) {
@@ -658,7 +657,7 @@ export async function createSubscription(ctx: GameCtx, body: Body) {
 export async function updateSubscription(ctx: GameCtx, id: string, body: Body) {
   const sub = await ctx.tx.subscription.findFirst({ where: { id, userId: ctx.user.id } });
   if (!sub) fail("not_found", "サブスクが見つかりません", 404);
-  await ctx.tx.subscription.update({ where: { id }, data: { ...subscriptionInput({ ...sub, ...body }), ...(await subscriptionPayment(ctx, body, sub!.paymentMethodId)) } });
+  await ctx.tx.subscription.update({ where: { id }, data: { ...subscriptionInput({ ...sub, ...body }), ...(await subscriptionPayment(ctx, body, sub!.accountId)) } });
   await syncSpecials(ctx);
   return { id, ...(await subscriptionWarnings(ctx)) };
 }
@@ -778,10 +777,4 @@ export async function updateSettings(ctx: GameCtx, body: Body) {
   return { ok: true };
 }
 
-/** 手元のお金の推測のチェックの状態を保存する（前回の設定を引き継ぐ）。送られなかった項目は初期値（E7 のない以前の画面からでも E7 はあり） */
-export async function saveEstimateChecks(ctx: GameCtx, body: Body) {
-  const checks = checksOf(body.checks);
-  ctx.user = await ctx.tx.user.update({ where: { id: ctx.user.id }, data: { estimateChecks: checks } });
-  return { checks };
-}
 

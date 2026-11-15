@@ -10,35 +10,42 @@ datasource db {
 }
 
 model User {
-  id             String   @id @default(cuid())
-  email          String   @unique
-  passwordHash   String
+  id                     String   @id @default(cuid())
+  email                  String   @unique
+  passwordHash           String
   /// 月間自由予算（円）
-  monthlyBudget  Int      @default(0)
-  timezone       String   @default("Asia/Tokyo")
+  monthlyBudget          Int      @default(0)
+  timezone               String   @default("Asia/Tokyo")
   /// 採掘の債券化率（%、0〜100、10刻み）
-  bondMiningRate Int      @default(0)
+  bondMiningRate         Int      @default(0)
   /// 毎月の収入が入る日（1〜31。その月にない日は末日）。配当・採掘・精算の「月」はこの日で区切る
-  incomeDay      Int      @default(1)
+  incomeDay              Int      @default(1)
   /// 収入日の変更の履歴（src/game/time.ts の IncomeEra の配列。from・prevEnd は ms、最初は null）。空なら毎月1日
-  incomeEras     Json     @default("[]")
+  incomeEras             Json     @default("[]")
   /// 手元のお金の推測のチェックの状態（前回の設定を引き継ぐ）
-  estimateChecks Json?
-  createdAt      DateTime @default(now())
+  estimateChecks         Json?
+  /// いつもの置き場所（置き場所を選ばない支出の出どころ）・いつもの入金先（docs/money-accounts.md AC-03）
+  defaultSpendAccountId  String?
+  defaultIncomeAccountId String?
+  createdAt              DateTime @default(now())
 
-  sessions        Session[]
-  seasons         Season[]
-  purchases       Purchase[]
-  savings         SavingsTransaction[]
-  subscriptions   Subscription[]
-  wishItems       WishItem[]
-  rewardClaims    RewardClaim[]
-  idempotencyKeys IdempotencyKey[]
-  categories      Category[]
-  currencyDefs    CurrencyDef[]
-  incomes         Income[]
-  adjustments     CashAdjustment[]
-  paymentMethods  PaymentMethod[]
+  sessions           Session[]
+  seasons            Season[]
+  purchases          Purchase[]
+  savings            SavingsTransaction[]
+  subscriptions      Subscription[]
+  wishItems          WishItem[]
+  rewardClaims       RewardClaim[]
+  idempotencyKeys    IdempotencyKey[]
+  categories         Category[]
+  currencyDefs       CurrencyDef[]
+  incomes            Income[]
+  adjustments        CashAdjustment[]
+  accounts           MoneyAccount[]
+  transfers          Transfer[]
+  cardBills          CardBill[]
+  outsideRecords     OutsideRecord[]
+  accountAdjustments AccountAdjustment[]
 }
 
 model Session {
@@ -77,28 +84,28 @@ model Season {
   bond         Int @default(0)
 
   // 金鉱（金額は 10^-6 G 単位）
-  mineUncollected    BigInt   @default(0)
+  mineUncollected    BigInt    @default(0)
   /// 債券化した採掘の端数
-  mineBondFraction   BigInt   @default(0)
+  mineBondFraction   BigInt    @default(0)
   mineLastAccrualAt  DateTime
   mineMonthKey       String
-  mineMinedMonth     BigInt   @default(0)
-  mineSettledMonth   Int      @default(0)
-  mineTotalCollected Int      @default(0)
+  mineMinedMonth     BigInt    @default(0)
+  mineSettledMonth   Int       @default(0)
+  mineTotalCollected Int       @default(0)
   /// 採掘への上乗せの区間（月の収入の差分・臨時の収入。src/game/mine.ts の GoldWindow、total は文字列）
-  mineWindows        Json     @default("[]")
+  mineWindows        Json      @default("[]")
   /// 当期の残りの採掘から減らす額（µG。月の収入の−差分）
-  mineCut            BigInt   @default(0)
+  mineCut            BigInt    @default(0)
   /// 当期の配当で所持通貨に入った額（µG。手元のお金の推測）
-  mineDividend       BigInt   @default(0)
+  mineDividend       BigInt    @default(0)
   /// 最後に記録で貯金を確定した時刻（docs/savings-driven-growth.md REC-01）
   mineConfirmedAt    DateTime?
   /// まだ確定していない日ごとの配当（日の始まりの時刻 → µG。src/game/confirm.ts）
-  mineUnconfirmed    Json     @default("{}")
+  mineUnconfirmed    Json      @default("{}")
   /// 当期に確定で債券に入れた額のうち、手数料なしで取り崩せる残り
-  mineFreeBond       Int      @default(0)
+  mineFreeBond       Int       @default(0)
   /// 当期のユーザ通貨の未発生分から減らす額（src/game/idle.ts の CustomCut の配列）
-  customCuts         Json     @default("[]")
+  customCuts         Json      @default("[]")
 
   /// 都市に使った金貨の累計（円）：金貨で資源・都市資金を得た額。現実で使わなかった＝貯金になったお金。
   /// 貯金額 ＝ 債券 ＋ これ（docs/record-input-redesign.md §7.1）。貯金管理の記録では戻さない
@@ -202,45 +209,45 @@ model MonthlyOverspend {
 }
 
 model Purchase {
-  id              String            @id @default(cuid())
-  userId          String
+  id                String            @id @default(cuid())
+  userId            String
   /// 記録した時点のシーズン（家計履歴自体はシーズンをまたいで残る）
-  seasonId        String?
-  amount          Int
-  date            String // YYYY-MM-DD（ユーザーのタイムゾーン）
-  name            String
+  seasonId          String?
+  amount            Int
+  date              String // YYYY-MM-DD（ユーザーのタイムゾーン）
+  name              String
   /// 表示用のジャンル名（categoryId の名前を写す）
-  category        String?
-  categoryId      String?
-  memo            String?
+  category          String?
+  categoryId        String?
+  memo              String?
   /// サブスク支払いとして入力した（金鉱の精算から外す）
-  isSubscription  Boolean           @default(false)
-  wishItemId      String?
+  isSubscription    Boolean           @default(false)
+  wishItemId        String?
   /// 金鉱で精算済みの額と、その月
-  settledAmount   Int               @default(0)
-  settledMonth    String?
+  settledAmount     Int               @default(0)
+  settledMonth      String?
   /// 像の積立金貨から充当した額
-  reservedApplied Int               @default(0)
+  reservedApplied   Int               @default(0)
   /// サブスクの支払い：どのサブスクの何期間分か（同じサブスク・同じ期間は1件だけ）
-  subscriptionId  String?
-  periodKey       String?
+  subscriptionId    String?
+  periodKey         String?
   /// ベース（サブスクの登録額・ほしい物の価格）。金額との差は差分として解消する
-  baseAmount      Int?
-  /// 支払い方法（null は未記入＝現金として扱う。docs/payment-method-sync.md G3）
-  paymentMethodId   String?
-  /// 支払い方法を初めて記入した時刻
+  baseAmount        Int?
+  /// 出どころ（お金の置き場所。null はいつもの置き場所。docs/money-accounts.md RS-01）
+  accountId         String?
+  /// 出どころを初めて自分で選んだ時刻（報酬の判定）
   paymentRecordedAt DateTime?
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
-  deletedAt       DateTime?
-  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  categoryRef     Category?         @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  paymentMethod   PaymentMethod?    @relation(fields: [paymentMethodId], references: [id], onDelete: SetNull)
-  payments        PurchasePayment[]
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  deletedAt         DateTime?
+  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  categoryRef       Category?         @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  account           MoneyAccount?     @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  payments          PurchasePayment[]
 
   @@unique([subscriptionId, periodKey])
   @@index([userId, date])
-  @@index([paymentMethodId, date])
+  @@index([accountId, date])
 }
 
 /// 購入の支払い内訳（払い戻しを逆順に行うため）
@@ -259,31 +266,122 @@ model PurchasePayment {
   @@index([purchaseId])
 }
 
-enum PaymentKind {
+enum AccountKind {
+  BANK
   CASH
   CARD
-  OTHER
+  EMONEY
 }
 
-/// 支出の支払い方法（docs/payment-method-sync.md §4.1）。現金はユーザーごとに1件、消せない
-model PaymentMethod {
-  id            String         @id @default(cuid())
-  userId        String
-  name          String
-  kind          PaymentKind
-  /// クレカの締め日・引き落とし日（1〜31。その月にない日は末日）と、何か月後に引き落とすか（1 = 翌月、2 = 翌々月）
-  closingDay    Int?
-  paymentDay    Int?
-  paymentMonths Int?
-  sortOrder     Int            @default(0)
-  /// 使わないにした時刻（一覧から外す。記入済みの支出の名前とカードの未払いの計算には残す）
-  archivedAt    DateTime?
-  createdAt     DateTime       @default(now())
-  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  purchases     Purchase[]
-  subscriptions Subscription[]
+/// お金の置き場所（docs/money-accounts.md §4）。口座・財布（現金）・クレカ・電子マネー。
+/// 残高 ＝ 開始残高 ＋ 開始日以後の 収入 − 支出 ± 振替 ± 予算外の入出金 ± 照合の調整（src/game/ledger.ts）
+model MoneyAccount {
+  id             String         @id @default(cuid())
+  userId         String
+  name           String
+  kind           AccountKind
+  /// 登録したときの残高（クレカは未払いをマイナスで持つ）と、その日付（"YYYY-MM-DD"。これより前の記録は残高に数えない）
+  openingBalance Int            @default(0)
+  openingDate    String
+  /// 貯金用（ここへの振替が貯金の追加、ここからの振替が引出）
+  isSavings      Boolean        @default(false)
+  /// クレカの締め日・引き落とし日（1〜31。その月にない日は末日）・何か月後か（1 = 翌月、2 = 翌々月）・引き落とし口座
+  closingDay     Int?
+  paymentDay     Int?
+  paymentMonths  Int?
+  debitAccountId String?
+  sortOrder      Int            @default(0)
+  /// 使わないにした時刻（選ぶ欄から外す。履歴と残高には残る）
+  archivedAt     DateTime?
+  createdAt      DateTime       @default(now())
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  purchases      Purchase[]
+  subscriptions  Subscription[]
+  incomes        Income[]
 
   @@index([userId])
+}
+
+enum TransferKind {
+  MANUAL
+  CARD_PAYMENT
+}
+
+/// 振替：置き場所 A から B へのお金の移動（ATM・チャージ・カードの引き落とし・送金・貯金）。ゲームの通貨は動かさない
+model Transfer {
+  id            String       @id @default(cuid())
+  userId        String
+  /// 記録した時点のシーズン（報酬・貯金管理の増減に使う）
+  seasonId      String?
+  date          String
+  fromAccountId String
+  toAccountId   String
+  /// 金額（取り消すと 0）
+  amount        Int
+  memo          String?
+  kind          TransferKind @default(MANUAL)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, date])
+}
+
+enum CardBillStatus {
+  PENDING
+  CONFIRMED
+  DISMISSED
+}
+
+/// クレカの引き落とし予定（docs/money-accounts.md §7）。確定すると振替になる
+model CardBill {
+  id         String         @id @default(cuid())
+  userId     String
+  cardId     String
+  /// 引き落とし日（"YYYY-MM-DD"）。カードごとに1件
+  dueDate    String
+  /// 計算した請求額（確定前は記録に合わせて計算し直す）
+  amount     Int
+  status     CardBillStatus @default(PENDING)
+  transferId String?
+  createdAt  DateTime       @default(now())
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([cardId, dueDate])
+  @@index([userId, status])
+}
+
+/// 予算外の入出金（家賃・固定費の引き落とし、給料のうち自由予算でない分など）。置き場所の残高だけを動かし、ゲームには使わない
+model OutsideRecord {
+  id        String   @id @default(cuid())
+  userId    String
+  accountId String
+  date      String
+  name      String
+  /// 入金は＋、出金は−（取り消すと 0）
+  amount    Int
+  memo      String?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, date])
+}
+
+/// 照合での置き場所ごとの残高の調整（docs/money-accounts.md §9）。誤差の合計は CashAdjustment
+model AccountAdjustment {
+  id           String   @id @default(cuid())
+  userId       String
+  adjustmentId String
+  accountId    String
+  date         String
+  computed     Int
+  actual       Int
+  diff         Int
+  createdAt    DateTime @default(now())
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, accountId])
+  @@index([adjustmentId])
 }
 
 /// ジャンル（購入のカテゴリ）のマスタ
@@ -381,19 +479,19 @@ enum BillingCycle {
 }
 
 model Subscription {
-  id        String       @id @default(cuid())
+  id        String        @id @default(cuid())
   userId    String
   name      String
   amount    Int
-  cycle     BillingCycle @default(MONTHLY)
+  cycle     BillingCycle  @default(MONTHLY)
   startDate String
   endDate   String?
   memo      String?
-  /// 支払い方法（支出タブのサブスクの行の初期値。docs/payment-method-sync.md PM-11）
-  paymentMethodId String?
-  createdAt DateTime     @default(now())
-  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  paymentMethod PaymentMethod? @relation(fields: [paymentMethodId], references: [id], onDelete: SetNull)
+  /// 出どころ（支出タブのサブスクの行の初期値。docs/money-accounts.md RS-03）
+  accountId String?
+  createdAt DateTime      @default(now())
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account   MoneyAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull)
 
   @@index([userId])
 }
@@ -459,7 +557,7 @@ enum IncomeKind {
 
 /// 収入の記録。月の収入（収入期間ごとに1件。雛形との差分を振り分ける）と臨時の収入（全額を振り分ける）
 model Income {
-  id           String     @id @default(cuid())
+  id           String        @id @default(cuid())
   userId       String
   seasonId     String?
   kind         IncomeKind
@@ -470,13 +568,16 @@ model Income {
   /// 金額（取り消すと 0）
   amount       Int
   /// 雛形の金額（月の収入）。臨時の収入は 0
-  baseAmount   Int        @default(0)
+  baseAmount   Int           @default(0)
   memo         String?
-  autoExchange Boolean    @default(false)
+  autoExchange Boolean       @default(false)
   /// 振り分けの行（src/server/incomes.ts の AllocationRow の配列）
-  allocation   Json       @default("[]")
-  createdAt    DateTime   @default(now())
-  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  allocation   Json          @default("[]")
+  /// 入金先（お金の置き場所。null はいつもの入金先。docs/money-accounts.md RS-02）
+  accountId    String?
+  createdAt    DateTime      @default(now())
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account      MoneyAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull)
 
   @@unique([userId, monthKey])
   @@index([userId, date])

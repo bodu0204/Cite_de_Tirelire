@@ -1,10 +1,10 @@
-// カードの請求の区切りと未払い（docs/payment-method-sync.md §5、AT-084）
+// カードの請求の区切りと未払い（docs/money-accounts.md §7）
 import { describe, expect, it } from "vitest";
-import { billingDate, cardUnpaid, isUnpaid, unpaidSince } from "../billing";
+import { billingDate, billsByDue, isUnpaid, unpaidSince } from "../billing";
 
 const t15 = { closingDay: 15, paymentDay: 10, paymentMonths: 1 };
 
-describe("AT-084 カードの引き落とし日", () => {
+describe("AT-087 カードの引き落とし日", () => {
   it("15日締め・翌月10日払い：10/14 は 11/10、10/15 も 11/10、10/16 は 12/10", () => {
     expect(billingDate("2026-10-14", t15)).toBe("2026-11-10");
     expect(billingDate("2026-10-15", t15)).toBe("2026-11-10");
@@ -33,24 +33,25 @@ describe("AT-084 カードの引き落とし日", () => {
   });
 });
 
-describe("カードの未払い", () => {
-  it("引き落とし日がまだ来ていない分の合計と、次回の引き落とし", () => {
+describe("AT-087 引き落とし予定の請求額", () => {
+  it("利用日を引き落とし日ごとにまとめる（取り消しは除く）", () => {
     const list = [
       { date: "2026-10-01", amount: 1000 }, // 11/10
-      { date: "2026-10-14", amount: 2000 }, // 11/10
+      { date: "2026-10-15", amount: 2000 }, // 11/10
       { date: "2026-10-20", amount: 4000 }, // 12/10
       { date: "2026-10-21", amount: 0 }, // 取り消し
-      { date: "2026-09-10", amount: 8000 }, // 10/10（引き落とし済み）
+      { date: "2026-09-10", amount: 8000 }, // 10/10
     ];
-    expect(cardUnpaid(list, t15, "2026-10-25")).toEqual({ amount: 7000, next: { date: "2026-11-10", amount: 3000 } });
-    expect(cardUnpaid(list, t15, "2026-11-10")).toEqual({ amount: 4000, next: { date: "2026-12-10", amount: 4000 } });
-    expect(cardUnpaid(list, t15, "2026-12-10")).toEqual({ amount: 0, next: null });
+    expect([...billsByDue(list, t15)]).toEqual([
+      ["2026-10-10", 8000],
+      ["2026-11-10", 3000],
+      ["2026-12-10", 4000],
+    ]);
   });
 
   it("探す範囲の下限は3か月前の1日（翌々月末払いでも漏れない）", () => {
     expect(unpaidSince("2026-11-14")).toBe("2026-08-01");
     expect(unpaidSince("2026-02-03")).toBe("2025-11-01");
-    // 8/1 の利用を末日締め・翌々月末払いにしても 10/31 で、11/14 には引き落とし済み
     expect(isUnpaid("2026-07-31", { closingDay: 31, paymentDay: 31, paymentMonths: 2 }, "2026-11-14")).toBe(false);
   });
 });

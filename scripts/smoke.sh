@@ -37,11 +37,12 @@ req DELETE /api/subscriptions/$(echo "$SUB2" | j 'o.id') >/dev/null
 echo "== bond mining rate"; req PATCH /api/settings '{"bondMiningRate":30}'; req GET /api/state | j '[o.user.bondMiningRate, o.mine.bond]'
 req PATCH /api/settings '{"bondMiningRate":35}'
 PSQL=${PSQL:-docker compose exec -T db psql -U tirelire}
-echo "== same idempotency key twice (savings management)"; K=$(uuidgen); req POST /api/savings "{\"kind\":\"DEPOSIT\",\"amount\":5000,\"date\":\"$TODAY\"}" $K; req POST /api/savings "{\"kind\":\"DEPOSIT\",\"amount\":5000,\"date\":\"$TODAY\"}" $K
-echo "== savings management does not change savings amount / tech"; req GET /api/state | j '[o.season.savings, o.season.managed, o.tech.level]'
-echo "== savings management: 3 per day"; req POST /api/savings "{\"kind\":\"WITHDRAW\",\"amount\":1000,\"date\":\"$TODAY\"}" >/dev/null; req POST /api/savings "{\"kind\":\"DEPOSIT\",\"amount\":1000,\"date\":\"$TODAY\"}" >/dev/null
-req POST /api/savings "{\"kind\":\"DEPOSIT\",\"amount\":1000,\"date\":\"$TODAY\"}" | j 'o.error && o.error.code'
-req GET /api/savings | j '[o.today, o.limit]'
+echo "== savings management is a transfer to a savings account (docs/money-accounts.md H7)"
+BANK=$(req POST /api/accounts "{\"name\":\"口座A\",\"kind\":\"BANK\",\"openingBalance\":100000}" | j 'o.id')
+SAVE=$(req POST /api/accounts "{\"name\":\"貯金口座\",\"kind\":\"BANK\",\"isSavings\":true}" | j 'o.id')
+echo "== same idempotency key twice (transfer)"; K=$(uuidgen); req POST /api/transfers "{\"fromAccountId\":\"$BANK\",\"toAccountId\":\"$SAVE\",\"amount\":5000,\"date\":\"$TODAY\"}" $K; req POST /api/transfers "{\"fromAccountId\":\"$BANK\",\"toAccountId\":\"$SAVE\",\"amount\":5000,\"date\":\"$TODAY\"}" $K
+echo "== savings transfer does not change savings amount / tech"; req GET /api/state | j '[o.season.savings, o.season.managed, o.tech.level]'
+echo "== old savings management is closed"; req POST /api/savings "{\"kind\":\"DEPOSIT\",\"amount\":1000,\"date\":\"$TODAY\"}" | j 'o.error && o.error.code'
 echo "== daily cap: 4th record gives 0"; req POST /api/purchases "{\"amount\":300,\"date\":\"$TODAY\",\"name\":\"コーヒー\"}"
 echo "== g2s with 0 gold fails"; req POST /api/exchange '{"kind":"gold_to_silver","amount":10}'
 echo "== silver->fund is rejected (silver is for repairs and fees)";  req POST /api/exchange '{"kind":"to_resource","currency":"silver","resource":"wood","amount":20}' | j 'o.error && o.error.code'
@@ -92,13 +93,11 @@ echo "== edit purchase amount up (shortfall from bond + fee), then cancel"; req 
 req PATCH /api/purchases/$PID '{"amount":0}' | j '[o.resolution.amount, o.resolution.bond]'
 req PATCH /api/purchases/$PID '{"date":"2020-01-01"}' | j 'o.error.message'
 req DELETE /api/purchases/$PID | head -c 80; echo
-echo "== estimate (checks default: E5 off)"; req GET /api/adjustments/estimate | j '[o.items, o.checks, o.estimated]'
-EST=$(req GET /api/adjustments/estimate | j 'o.estimated')
-echo "== save checks (E5 on) and they persist"; req PUT /api/settings/estimate-checks '{"checks":{"E1":true,"E2":true,"E3a":true,"E3b":true,"E4a":true,"E4b":true,"E5":true}}' | j 'o.checks.E5'
-req GET /api/adjustments/estimate | j 'o.checks.E5'
-EST=$(req GET /api/adjustments/estimate | j 'o.estimated')
-echo "== adjustment quote/record: actual = estimate - 1000"; req POST /api/adjustments/quote "{\"actual\":$((EST - 1000))}" | j '[o.diff, o.resolution.bond, o.resolution.feeSilver]'
-req POST /api/adjustments "{\"actual\":$((EST - 1000))}" | j '[o.diff, o.resolution.amount]'
+echo "== reconcile (docs/money-accounts.md §9): wallet is 1000 short -> total -1000 from bond"
+WAL=$(req GET /api/accounts | j 'o.items.find(a=>a.kind==="CASH").id'); WB=$(req GET /api/accounts | j 'o.items.find(a=>a.kind==="CASH").balance')
+req POST /api/adjustments/quote "{\"accounts\":[{\"accountId\":\"$WAL\",\"actual\":$((WB - 1000))}]}" | j '[o.total, o.resolution.bond, o.resolution.feeSilver, o.partial]'
+req POST /api/adjustments "{\"accounts\":[{\"accountId\":\"$WAL\",\"actual\":$((WB - 1000))}]}" | j '[o.total, o.resolution.amount]'
+req GET /api/accounts | j 'o.items.find(a=>a.kind==="CASH").balance'
 echo "== income day 25: next payday onward"; req PATCH /api/settings '{"incomeDay":25}'; req GET /api/state | j '[o.user.incomeDay, o.income]'
 echo "== timelapse locked"; SID=$(req GET /api/state | j 'o.season.id'); req GET /api/seasons/$SID/timelapse
 echo "== reserve facilities: bond of 0.5M raises the reserve level; the facility is built on the next 10-minute tick (RSV-03)"
