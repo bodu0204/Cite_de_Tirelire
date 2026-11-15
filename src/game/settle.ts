@@ -104,6 +104,8 @@ export interface SourceBalance {
   available: number;
   /** 金貨：available のうち、同じ期間に確定した債券の取り崩し（手数料なし）の分 */
   draw?: number;
+  /** いつもの順で最初に使う通貨（選ぶ欄の初期の選択） */
+  first?: boolean;
 }
 
 /** 同じ期間に確定して債券に入れた分のうち、手数料なしで取り崩せる額 */
@@ -111,7 +113,7 @@ const freeDraw = (p: Pick<Purse, "mine" | "bond">) => Math.max(0, Math.min(p.min
 
 /**
  * 支払いに使える通貨の一覧：ユーザ通貨（order の順）→ 金貨。払える額が 0 のものは含めない。
- * lots は使えるロット（ジャンルが一致するもの）。
+ * lots は使えるロット（ジャンルが一致するもの）を支払い順に並べたもの。いつもの順で最初に使う通貨に first を付ける。
  */
 export function payableSources(p: Pick<Purse, "mine" | "gold" | "bond">, lots: Lot[], order: string[]): SourceBalance[] {
   const custom = new Map<string, number>();
@@ -123,6 +125,9 @@ export function payableSources(p: Pick<Purse, "mine" | "gold" | "bond">, lots: L
   const draw = freeDraw(p);
   const gold = Number(p.mine.uncollected / MICRO_PER_GOLD) + Math.max(0, p.gold) + draw;
   if (gold > 0) out.push({ currency: "GOLD", currencyId: null, available: gold, draw });
+  const firstId = lots.find((l) => l.remaining > 0)?.currencyId ?? null;
+  const first = out.find((s) => s.currencyId === firstId);
+  if (first) first.first = true;
   return out;
 }
 

@@ -29,6 +29,8 @@ interface Source {
   available: number;
   /** 金貨：available のうち、今月貯めた債券の取り崩し（手数料なし）の分 */
   draw?: number;
+  /** いつもの順で最初に使う通貨（初期の選択） */
+  first?: boolean;
 }
 
 /** 使う通貨の指定（先に使う通貨と、その額。額を省くと、その通貨で払えるだけ払う） */
@@ -161,7 +163,7 @@ function PayWithField({
   sources: Source[];
   /** 支出の金額 */
   amount: number;
-  /** 選んだ通貨（sourceKey。空はおまかせ） */
+  /** 選んだ通貨（sourceKey） */
   pick: string;
   onPick: (key: string) => void;
   mix: boolean;
@@ -214,8 +216,8 @@ function PayWithField({
       ) : (
         <>
           <div className="flex flex-wrap gap-1.5">
-            {[null, ...sources].map((s) => {
-              const key = s ? sourceKey(s) : "";
+            {sources.map((s) => {
+              const key = sourceKey(s);
               return (
                 <button
                   key={key}
@@ -224,20 +226,16 @@ function PayWithField({
                   onClick={() => onPick(key)}
                   className={`min-h-9 rounded-full border px-3 py-1 text-sm transition ${pick === key ? "border-ink bg-ink text-bg" : "border-line bg-surface-2 hover:border-ink"}`}
                 >
-                  {s ? (
-                    <>
-                      {s.currency === "CUSTOM" && `${cur(s.currencyId)?.icon ?? "🪙"} `}
-                      {name(s)}
-                      <span className="num ml-1 text-xs opacity-70">{fmt(s.available)}</span>
-                    </>
-                  ) : (
-                    "おまかせ"
-                  )}
+                  <span className="inline-flex items-center gap-1">
+                    {s.currency === "GOLD" ? <Coin kind="gold" /> : <CustomIcon icon={cur(s.currencyId)?.icon ?? "🪙"} />}
+                    {name(s)}
+                    <span className="num text-xs opacity-70">{fmt(s.available)}</span>
+                  </span>
                 </button>
               );
             })}
           </div>
-          <p className="text-xs text-muted">{pick ? `選んだ通貨を先に使います。足りない分は${USUAL_ORDER}で払います。` : `おまかせは、${USUAL_ORDER}で払います。`}</p>
+          <p className="text-xs text-muted">選んだ通貨を先に使います。足りない分は{USUAL_ORDER}で払います。</p>
         </>
       )}
       {draw > 0 && <p className="num text-xs text-muted">金貨には、今月貯めた債券の取り崩し（手数料なし）{fmt(draw)} を含みます。</p>}
@@ -282,12 +280,14 @@ function PurchaseForm({ onDone, tz, accounts, defaultId }: { onDone: () => void;
   const choosable = sources.length >= 2;
   const mixRows = sources.map((s) => ({ ...s, use: Number(mixAmounts[sourceKey(s)] || 0) }));
   const mixInvalid = choosable && mix && (mixRows.some((r) => r.use > r.available) || mixRows.reduce((a, r) => a + r.use, 0) > amount);
-  const picked = sources.find((s) => sourceKey(s) === pick);
+  // 選んでいなければ、いつもの順で最初に使う通貨を選んだ状態にする（払い方はいつもの順のまま）
+  const usual = sources.find((s) => s.first) ?? sources[0];
+  const picked = sources.find((s) => sourceKey(s) === pick) ?? usual;
   const payWith: PayWith[] | undefined = !choosable
     ? undefined
     : mix
       ? mixRows.filter((r) => r.use > 0).map((r) => ({ currency: r.currency, currencyId: r.currencyId, amount: r.use }))
-      : picked
+      : picked && picked !== usual
         ? [{ currency: picked.currency, currencyId: picked.currencyId }]
         : undefined;
   // 併用の額が残高や支出の金額を超えている間は、内訳を取り直さない
@@ -314,7 +314,7 @@ function PurchaseForm({ onDone, tz, accounts, defaultId }: { onDone: () => void;
       } catch (e) {
         if (stale) return;
         setQuote(null);
-        // 選んだ通貨が使えなくなっていたら（残高がなくなったなど）、おまかせに戻して使える通貨を取り直す
+        // 選んだ通貨が使えなくなっていたら（残高がなくなったなど）、初めの選択に戻して使える通貨を取り直す
         if (chosen && e instanceof ApiError && e.status >= 400 && e.status < 500) {
           setPick("");
           setMix(false);
@@ -328,7 +328,7 @@ function PurchaseForm({ onDone, tz, accounts, defaultId }: { onDone: () => void;
     };
   }, [v, f.amount, f.date, f.categoryId, payKey]);
 
-  // 併用に切り替えたときは、今の内訳（おまかせ・選んだ通貨での払い方）を通貨ごとの額の出発点にする
+  // 併用に切り替えたときは、今の内訳（選んだ通貨での払い方）を通貨ごとの額の出発点にする
   const toggleMix = (on: boolean) => {
     if (on && quote?.settleable) {
       const p = quote.payment;
@@ -423,7 +423,7 @@ function PurchaseForm({ onDone, tz, accounts, defaultId }: { onDone: () => void;
           </Button>
         </div>
       )}
-      {choosable && <PayWithField sources={sources} amount={amount} pick={picked ? pick : ""} onPick={setPick} mix={mix} onMix={toggleMix} amounts={mixAmounts} onAmounts={setMixAmounts} />}
+      {choosable && <PayWithField sources={sources} amount={amount} pick={picked ? sourceKey(picked) : ""} onPick={setPick} mix={mix} onMix={toggleMix} amounts={mixAmounts} onAmounts={setMixAmounts} />}
       {quote && <QuoteView q={quote} />}
       <p className="text-xs text-muted">
         登録したあとは金額だけ変更できます（減額は＋差分、増額は−差分として解消します）。出どころはあとからでも変えられます。カードでも現金でも、使った日に記録してください。
