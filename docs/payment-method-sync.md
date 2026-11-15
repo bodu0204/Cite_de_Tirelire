@@ -1,5 +1,7 @@
 # 支出の支払い方法とカードの未払い As-Is / To-Be
 
+> **2026-11-15：本書の方向は [money-accounts.md](money-accounts.md) で改めた**（支払い方法の記入から、置き場所ごとの残高と振替の記録へ）。本書は今の実装の説明として残す。
+
 作成日：2026-11-05（案B：支出に支払い方法を記入し、カードの未払いを手元のお金の推測に入れる。未記入は現金として扱い、記入で銀貨の報酬を出す）
 改訂：2026-11-14（実装に合わせて §11 の確認事項を決定事項（§10.2）へ移し、§12 を追加。E7 はカードごとのチェックを持たず、内訳だけ表示する（CE-03））
 関係：[record-input-redesign.md](record-input-redesign.md) §6・§8・§9.3、[requirements.md](requirements.md) 3.3・SCR-02・SCR-06・SCR-10、[adjustments.ts](../src/server/adjustments.ts) `estimateItems` / `purchaseBase`、[config.ts](../src/game/config.ts) `REWARD_*`、[AdjustTab.tsx](../src/components/records/AdjustTab.tsx)、[ExpenseTab.tsx](../src/components/records/ExpenseTab.tsx)、[schema.prisma](../prisma/schema.prisma) `Purchase` / `Subscription` / `RewardClaim`
