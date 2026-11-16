@@ -1,7 +1,9 @@
 // 購入の精算と払い戻し（docs/bond-and-custom-currency.md §6）。
 // 支払い順：（像の積立金貨は呼び出し側）→ ジャンルが一致するユーザ通貨 → 未回収の金貨 → 所持金貨 → 債券（マイナス可）＋ 銀貨の手数料。
+// 使う通貨を選んだときは、選んだ通貨だけを使い、足りない分は債券で払う（§6.3）。
 // 払い戻しは逆順：債券 → 所持金貨 → ユーザ通貨（元のロットへ）。手数料は債券の支払い合計から計算し直す。
 import { bondFee, bondResourceEligible } from "./bond";
+import { MICRO_PER_GOLD } from "./config";
 import { payWithGold, type MineState } from "./mine";
 
 export type PayCurrency = "GOLD" | "SILVER" | "BOND" | "CUSTOM" | "RESERVED";
@@ -84,11 +86,49 @@ export function depositToBond(p: Purse, amount: number, reason: string, currency
 }
 
 /**
- * amount を支払う。lots は使えるロット（ジャンルが一致するもの）を支払い順に並べたもの。
- * payments（この購入の支払い内訳）に追記する。
+ * 支払いに使う通貨の指定（§6.3）。金貨は 未回収 → 所持 → 同じ期間に確定した債券の取り崩し（手数料なし）までを指す。
+ * 債券（足りない分の肩代わり）は指定できない。
  */
-export function pay(p: Purse, amount: number, lots: Lot[], payments: Payment[]) {
-  let rest = amount;
+export interface PaySource {
+  currency: "GOLD" | "CUSTOM";
+  /** CUSTOM のときの通貨 */
+  currencyId?: string | null;
+  /** 使う額。省略すると、その通貨で払えるだけ払う（省略した通貨どうしはいつもの順） */
+  amount?: number | null;
+}
+
+/** 支払いに使える通貨と、その通貨で払える額 */
+export interface SourceBalance {
+  currency: "GOLD" | "CUSTOM";
+  currencyId: string | null;
+  available: number;
+  /** 金貨：available のうち、同じ期間に確定した債券の取り崩し（手数料なし）の分 */
+  draw?: number;
+}
+
+/** 同じ期間に確定して債券に入れた分のうち、手数料なしで取り崩せる額 */
+const freeDraw = (p: Pick<Purse, "mine" | "bond">) => Math.max(0, Math.min(p.mine.freeBond ?? 0, p.bond));
+
+/**
+ * 支払いに使える通貨の一覧：ユーザ通貨（order の順）→ 金貨。払える額が 0 のものは含めない。
+ * lots は使えるロット（ジャンルが一致するもの）。
+ */
+export function payableSources(p: Pick<Purse, "mine" | "gold" | "bond">, lots: Lot[], order: string[]): SourceBalance[] {
+  const custom = new Map<string, number>();
+  for (const l of lots) if (l.remaining > 0) custom.set(l.currencyId, (custom.get(l.currencyId) ?? 0) + l.remaining);
+  const rank = (id: string) => (order.indexOf(id) + 1 || order.length + 1);
+  const out: SourceBalance[] = [...custom]
+    .sort(([a], [b]) => rank(a) - rank(b) || a.localeCompare(b))
+    .map(([currencyId, available]) => ({ currency: "CUSTOM", currencyId, available }));
+  const draw = freeDraw(p);
+  const gold = Number(p.mine.uncollected / MICRO_PER_GOLD) + Math.max(0, p.gold) + draw;
+  if (gold > 0) out.push({ currency: "GOLD", currencyId: null, available: gold, draw });
+  return out;
+}
+
+/** ロットから want まで払う。払った額を返す */
+function payLots(p: Purse, want: number, lots: Lot[], payments: Payment[]): number {
+  let rest = want;
   for (const lot of lots) {
     if (rest <= 0) break;
     const use = Math.min(rest, lot.remaining);
@@ -100,25 +140,63 @@ export function pay(p: Purse, amount: number, lots: Lot[], payments: Payment[]) 
     addPayment(payments, { currency: "CUSTOM", kind: "pay", currencyId: lot.currencyId, lotId: lot.id, amount: use });
     move(p, { currency: "CUSTOM", delta: -use, reason: "purchase_custom", currencyId: lot.currencyId });
   }
-  const g = payWithGold(p.mine, p.gold, rest);
+  return want - rest;
+}
+
+/** 同じ期間に確定して債券に入れた分を、want まで手数料なしで取り崩す（使い過ぎではない）。取り崩した額を返す */
+function payDraw(p: Purse, want: number, payments: Payment[]): number {
+  const draw = Math.min(want, freeDraw(p));
+  if (draw <= 0) return 0;
+  p.bond -= draw;
+  p.mine = { ...p.mine, freeBond: (p.mine.freeBond ?? 0) - draw };
+  move(p, { currency: "BOND", delta: -draw, reason: "purchase_draw" });
+  addPayment(payments, { currency: "BOND", kind: "draw", amount: draw });
+  return draw;
+}
+
+/** 金貨から want まで払う：未回収 → 所持 → 同じ期間に確定した債券の取り崩し。払った額を返す */
+function payGold(p: Purse, want: number, payments: Payment[]): number {
+  if (want <= 0) return 0;
+  const g = payWithGold(p.mine, p.gold, want);
   p.mine = g.mine;
   p.gold -= g.fromHeld;
   move(p, { currency: "GOLD", delta: -g.fromHeld, reason: "purchase_settle" });
   addPayment(payments, { currency: "GOLD", kind: "pay", amount: g.fromUncollected + g.fromHeld });
-  // 同じ期間に確定して債券に入れた分は、手数料なしで取り崩す（使い過ぎではない）
-  const draw = Math.min(g.rest, Math.max(0, Math.min(p.mine.freeBond ?? 0, p.bond)));
-  if (draw > 0) {
-    p.bond -= draw;
-    p.mine = { ...p.mine, freeBond: (p.mine.freeBond ?? 0) - draw };
-    move(p, { currency: "BOND", delta: -draw, reason: "purchase_draw" });
-    addPayment(payments, { currency: "BOND", kind: "draw", amount: draw });
+  return want - g.rest + payDraw(p, g.rest, payments);
+}
+
+/**
+ * amount を支払う。lots は使えるロット（ジャンルが一致するもの）を支払い順に並べたもの。
+ * payments（この購入の支払い内訳）に追記する。
+ * sources を渡すと、そこに並べた通貨だけを使う（§6.3）：額の指定がある通貨はその額まで（残高までしか使わない）、
+ * 額の指定がない通貨はいつもの順（ユーザ通貨 → 金貨）で払えるだけ払う。並べなかった通貨は使わない。
+ * 足りない分は債券で払う（同じ期間に確定した分の取り崩しが先で、超えた分に手数料がかかる）。
+ * sources を渡さなければ、使える通貨をすべて使う（いつもの順）。
+ */
+export function pay(p: Purse, amount: number, lots: Lot[], payments: Payment[], sources?: PaySource[] | null) {
+  let rest = amount;
+  let open = lots;
+  let gold = true;
+  if (sources) {
+    for (const s of sources) {
+      if (s.amount === undefined || s.amount === null) continue;
+      const want = Math.max(0, Math.min(rest, s.amount));
+      if (s.currency === "GOLD") rest -= payGold(p, want, payments);
+      else rest -= payLots(p, want, lots.filter((l) => l.currencyId === s.currencyId), payments);
+    }
+    const free = sources.filter((s) => s.amount === undefined || s.amount === null);
+    open = lots.filter((l) => free.some((s) => s.currency === "CUSTOM" && s.currencyId === l.currencyId));
+    gold = free.some((s) => s.currency === "GOLD");
   }
-  const over = g.rest - draw;
-  if (over > 0) {
-    p.bond -= over;
-    p.overspend += over;
-    move(p, { currency: "BOND", delta: -over, reason: "purchase_bond" });
-    addPayment(payments, { currency: "BOND", kind: "pay", amount: over });
+  rest -= payLots(p, rest, open, payments);
+  if (gold) rest -= payGold(p, rest, payments);
+  // 足りない分は債券から：手数料なしで取り崩せる分 → 使い過ぎ（手数料あり）
+  rest -= payDraw(p, rest, payments);
+  if (rest > 0) {
+    p.bond -= rest;
+    p.overspend += rest;
+    move(p, { currency: "BOND", delta: -rest, reason: "purchase_bond" });
+    addPayment(payments, { currency: "BOND", kind: "pay", amount: rest });
   }
   settleFee(p, payments);
 }

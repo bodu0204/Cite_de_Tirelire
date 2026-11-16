@@ -5,7 +5,7 @@ import { confirmedText, sumConfirmed, type Confirmed } from "./shared";
 import { useGame, useSeasonView } from "@/components/GameProvider";
 import { BondIcon, Button, Card, Coin, CustomIcon, Empty, Field, NumberInput } from "@/components/ui";
 import { REWARD_PURCHASE } from "@/game/config";
-import { api, fmt, todayIn, yen } from "@/lib/api";
+import { api, ApiError, fmt, todayIn, yen } from "@/lib/api";
 import { useList } from "@/lib/useList";
 import { AccountPicker, doubleCountWarning, rewardText, useAccounts, type Account } from "./accounts";
 
@@ -22,13 +22,39 @@ interface Category {
   name: string;
 }
 
+/** この支出に使える通貨と、その通貨で払える額（サーバーの SourceBalance） */
+interface Source {
+  currency: "GOLD" | "CUSTOM";
+  currencyId: string | null;
+  available: number;
+  /** 金貨：available のうち、今月貯めた債券の取り崩し（手数料なし）の分 */
+  draw?: number;
+}
+
+/** 使う通貨の指定（ここに並べた通貨だけを使い、足りない分は債券。額を省くと、その通貨で払えるだけ払う） */
+interface PayWith {
+  currency: "GOLD" | "CUSTOM";
+  currencyId: string | null;
+  amount?: number;
+}
+
 interface Quote {
   settleable: boolean;
-  payment: { reserved: number; custom: { currencyId: string; amount: number }[]; gold: number; bond: number; feeSilver: number; feeBond: number };
+  payment: { reserved: number; custom: { currencyId: string; amount: number }[]; gold: number; bond: number; draw: number; feeSilver: number; feeBond: number };
+  sources: Source[];
   after: { gold: number; uncollected: number; silver: number; bond: number } | null;
 }
 
 const NEW_CATEGORY = "__new__";
+
+const sourceKey = (s: { currency: string; currencyId: string | null }) => s.currencyId ?? s.currency;
+
+/** ユーザ通貨の支払い（ロットごと）を通貨ごとにまとめる */
+function byCurrency(rows: { currencyId: string; amount: number }[]) {
+  const out = new Map<string, number>();
+  for (const r of rows) out.set(r.currencyId, (out.get(r.currencyId) ?? 0) + r.amount);
+  return [...out].map(([currencyId, amount]) => ({ currencyId, amount }));
+}
 
 /** 支払い内訳の1行表示（ユーザ通貨はアイコンで） */
 export function PaymentLine({ rows }: { rows: PaymentRow[] }) {
@@ -48,6 +74,7 @@ export function PaymentLine({ rows }: { rows: PaymentRow[] }) {
         </span>
       ))}
       {sum("GOLD", "pay") > 0 && <span>金貨 {fmt(sum("GOLD", "pay"))}G</span>}
+      {sum("BOND", "draw") > 0 && <span>債券の取り崩し {fmt(sum("BOND", "draw"))}（手数料なし）</span>}
       {sum("BOND", "pay") > 0 && <span className="text-danger">債券 {fmt(sum("BOND", "pay"))}</span>}
       {fee > 0 && <span>手数料 {fmt(fee)}</span>}
     </span>
@@ -64,8 +91,8 @@ function QuoteView({ q }: { q: Quote }) {
     <div className={`rounded-lg px-3 py-2 text-sm ${p.bond > 0 ? "bg-danger/10" : "bg-surface-2"}`}>
       <div className="mb-1 text-xs font-medium">支払いの内訳</div>
       <dl className="num grid grid-cols-[1fr_auto] gap-y-0.5 text-xs">
-        {p.custom.map((c, i) => (
-          <div key={i} className="contents">
+        {byCurrency(p.custom).map((c) => (
+          <div key={c.currencyId} className="contents">
             <dt className="flex items-center gap-1">
               <CustomIcon icon={cur(c.currencyId)?.icon ?? "🪙"} />
               {cur(c.currencyId)?.name ?? "ユーザ通貨"}
@@ -80,6 +107,15 @@ function QuoteView({ q }: { q: Quote }) {
               金貨（未受取→所持）
             </dt>
             <dd className="text-right">{fmt(p.gold)}G</dd>
+          </>
+        )}
+        {p.draw > 0 && (
+          <>
+            <dt className="flex items-center gap-1">
+              <BondIcon />
+              今月貯めた債券（手数料なし）
+            </dt>
+            <dd className="text-right">{fmt(p.draw)}</dd>
           </>
         )}
         {p.bond > 0 && (
@@ -106,6 +142,115 @@ function QuoteView({ q }: { q: Quote }) {
   );
 }
 
+const CHIP = "min-h-9 rounded-full border px-3 py-1 text-sm transition";
+
+/**
+ * 使う通貨（docs/bond-and-custom-currency.md §6.3）。この支出に使える通貨が2つ以上あるときに出す。
+ * 使う通貨をいくつでも選ぶ（初めは全部）。選んだ通貨だけを使い、足りない分は債券で払う。
+ * 詳細設定にすると、通貨ごとに額を決められる。
+ */
+function PayWithField({
+  sources,
+  amount,
+  off,
+  onToggle,
+  mix,
+  onMix,
+  amounts,
+  onAmounts,
+}: {
+  sources: Source[];
+  /** 支出の金額（未入力は 0） */
+  amount: number;
+  /** 使わない通貨（sourceKey） */
+  off: string[];
+  onToggle: (key: string) => void;
+  mix: boolean;
+  onMix: (on: boolean) => void;
+  /** 詳細設定：通貨ごとの額（sourceKey → 入力） */
+  amounts: Record<string, string>;
+  onAmounts: (a: Record<string, string>) => void;
+}) {
+  const v = useSeasonView();
+  const cur = (id: string | null) => v?.currencies.custom.find((c) => c.id === id);
+  const name = (s: Source) => (s.currency === "GOLD" ? "金貨" : (cur(s.currencyId)?.name ?? "ユーザ通貨"));
+  const sum = sources.reduce((a, s) => a + Number(amounts[sourceKey(s)] || 0), 0);
+  const draw = sources.find((s) => s.currency === "GOLD")?.draw ?? 0;
+  const on = sources.filter((s) => !off.includes(sourceKey(s)));
+  const short = amount - on.reduce((a, s) => a + s.available, 0);
+  return (
+    <div role="group" aria-label="使う通貨" className="space-y-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-sm font-medium">使う通貨</span>
+        <label className="flex items-center gap-2 text-xs">
+          <input type="checkbox" className="w-auto" checked={mix} onChange={(e) => onMix(e.target.checked)} />
+          詳細設定：通貨ごとに額を決める
+        </label>
+      </div>
+      {mix ? (
+        <>
+          <ul className="space-y-1.5">
+            {sources.map((s) => {
+              const key = sourceKey(s);
+              const over = Number(amounts[key] || 0) > s.available;
+              return (
+                <li key={key}>
+                  <div className="flex items-center gap-2">
+                    <span className="flex min-w-0 flex-1 items-center gap-1 text-sm">
+                      {s.currency === "GOLD" ? <Coin kind="gold" /> : <CustomIcon icon={cur(s.currencyId)?.icon ?? "🪙"} />}
+                      <span className="truncate">{name(s)}</span>
+                      <span className="num shrink-0 text-xs text-muted">（{fmt(s.available)}）</span>
+                    </span>
+                    <NumberInput aria-label={`${name(s)}で払う額`} className="w-28" placeholder="0" value={amounts[key] ?? ""} onValueChange={(val) => onAmounts({ ...amounts, [key]: val })} />
+                  </div>
+                  {over && <p className="num text-right text-xs font-medium text-danger">払えるのは {fmt(s.available)} までです</p>}
+                </li>
+              );
+            })}
+          </ul>
+          {sum === 0 ? (
+            <p className="text-xs text-muted">額を入れないときは、選べる通貨をすべて使います。</p>
+          ) : (
+            amount > 0 && (
+              <p className={`num text-xs ${sum !== amount ? "font-medium text-danger" : "text-muted"}`}>
+                合計 {fmt(sum)} / {fmt(amount)}円
+                {sum > amount && "（支出の金額を超えています）"}
+                {sum < amount && ` ・ 足りない ${fmt(amount - sum)}円は、債券で払います`}
+              </p>
+            )
+          )}
+        </>
+      ) : (
+        <>
+          <div className="flex flex-wrap gap-1.5">
+            {sources.map((s) => {
+              const key = sourceKey(s);
+              const used = !off.includes(key);
+              return (
+                <button key={key} type="button" aria-pressed={used} onClick={() => onToggle(key)} className={`${CHIP} ${used ? "border-ink bg-ink text-bg" : "border-line bg-surface-2 hover:border-ink"}`}>
+                  <span className="inline-flex items-center gap-1">
+                    {s.currency === "GOLD" ? <Coin kind="gold" /> : <CustomIcon icon={cur(s.currencyId)?.icon ?? "🪙"} />}
+                    {name(s)}
+                    <span className="num text-xs opacity-70">{fmt(s.available)}</span>
+                  </span>
+                </button>
+              );
+            })}
+            {/* 債券は選ぶものではなく、足りない分を払う。足りないときに色が付く */}
+            <span className={`${CHIP} inline-flex items-center gap-1 border-dashed ${short > 0 ? "border-danger bg-danger/10 font-medium text-danger" : "border-line text-muted"}`}>
+              <BondIcon />
+              債券
+              <span className="num text-xs">{short > 0 ? `不足 ${fmt(short)}` : "不足分"}</span>
+            </span>
+          </div>
+          <p className="text-xs text-muted">色の付いた通貨を使います（期限の近いユーザ通貨 → 金貨の順）。タップで使う・使わないを切り替えられます。足りない分は債券で払います。</p>
+        </>
+      )}
+      {draw > 0 && <p className="num text-xs text-muted">金貨には、今月貯めた債券の取り崩し（手数料なし）{fmt(draw)} を含みます。</p>}
+    </div>
+  );
+}
+
 /** 普通の支出 */
 function PurchaseForm({ onDone, tz, accounts, defaultId }: { onDone: () => void; tz: string; accounts: Account[]; defaultId: string | null }) {
   const { act, toast, busy } = useGame();
@@ -118,23 +263,95 @@ function PurchaseForm({ onDone, tz, accounts, defaultId }: { onDone: () => void;
   const [adding, setAdding] = useState(false);
   const [newCategory, setNewCategory] = useState("");
   const [quote, setQuote] = useState<Quote | null>(null);
+  // 使う通貨：この支出に使える通貨（プレビューで取り直す）、使わない通貨、詳細設定の通貨ごとの額
+  const [sources, setSources] = useState<Source[]>([]);
+  const [off, setOff] = useState<string[]>([]);
+  const [mix, setMix] = useState(false);
+  const [mixAmounts, setMixAmounts] = useState<Record<string, string>>({});
   const set = (k: keyof typeof f, val: string) => setF((p) => ({ ...p, [k]: val }));
   const usable = f.categoryId ? (v?.currencies.custom ?? []).filter((c) => c.categoryIds.includes(f.categoryId)) : [];
+  const amount = Number(f.amount);
+
+  const resetPay = () => {
+    setOff([]);
+    setMix(false);
+    setMixAmounts({});
+  };
+  // ジャンルを変えると使える通貨が変わるので、選び直す
+  const setCategory = (id: string) => {
+    set("categoryId", id);
+    setSources([]);
+    resetPay();
+  };
+
+  // 使える通貨が1つだけなら選ぶものがない
+  const choosable = sources.length >= 2;
+  const mixRows = sources.map((s) => ({ ...s, use: Number(mixAmounts[sourceKey(s)] || 0) }));
+  const mixInvalid = choosable && mix && (mixRows.some((r) => r.use > r.available) || mixRows.reduce((a, r) => a + r.use, 0) > amount);
+  // 初めは全部を使う（いつもの順）。使わない通貨があるときだけ、使う通貨を送る
+  const on = sources.filter((s) => !off.includes(sourceKey(s)));
+  const picked = mixRows.filter((r) => r.use > 0);
+  const payWith: PayWith[] | undefined = !choosable
+    ? undefined
+    : mix
+      ? picked.length
+        ? picked.map((r) => ({ currency: r.currency, currencyId: r.currencyId, amount: r.use }))
+        : undefined
+      : on.length < sources.length
+        ? on.map((s) => ({ currency: s.currency, currencyId: s.currencyId }))
+        : undefined;
+  // 最後の1つは外せない（全部を債券で払うことになるため）
+  const toggle = (key: string) => setOff((o) => (o.includes(key) ? o.filter((k) => k !== key) : on.length > 1 ? [...o, key] : o));
+  // 併用の額が残高や支出の金額を超えている間は、内訳を取り直さない
+  const payKey = mixInvalid ? null : JSON.stringify(payWith ?? null);
 
   useEffect(() => {
-    if (!v || Number(f.amount) <= 0 || !f.date) {
+    if (!v || !f.date) {
+      setQuote(null);
+      setSources([]);
+      return;
+    }
+    if (payKey === null) {
       setQuote(null);
       return;
     }
+    let stale = false;
     const t = setTimeout(async () => {
+      const chosen = JSON.parse(payKey) as PayWith[] | null;
       try {
-        setQuote(await api<Quote>("/api/purchases/quote", { body: { amount: Number(f.amount), date: f.date, categoryId: f.categoryId || undefined } }));
-      } catch {
+        const q = await api<Quote>("/api/purchases/quote", { body: { amount: Number(f.amount) || 0, date: f.date, categoryId: f.categoryId || undefined, payWith: chosen ?? undefined } });
+        if (stale) return;
+        // 金額がまだなければ、使える通貨だけを受け取る（内訳は出さない）
+        setQuote(Number(f.amount) > 0 ? q : null);
+        setSources(q.sources);
+      } catch (e) {
+        if (stale) return;
         setQuote(null);
+        // 選んだ通貨が使えなくなっていたら（残高がなくなったなど）、初めの選択に戻して使える通貨を取り直す
+        if (chosen && e instanceof ApiError && e.status >= 400 && e.status < 500) {
+          setOff([]);
+          setMix(false);
+          setMixAmounts({});
+        }
       }
     }, 300);
-    return () => clearTimeout(t);
-  }, [v, f.amount, f.date, f.categoryId]);
+    return () => {
+      stale = true;
+      clearTimeout(t);
+    };
+  }, [v, f.amount, f.date, f.categoryId, payKey]);
+
+  // 詳細設定に切り替えたときは、今の内訳（選んだ通貨での払い方）を通貨ごとの額の出発点にする
+  const toggleMix = (on: boolean) => {
+    if (on && quote?.settleable) {
+      const p = quote.payment;
+      setMixAmounts({
+        ...Object.fromEntries(byCurrency(p.custom).map((c) => [c.currencyId, String(c.amount)])),
+        ...(p.gold + p.draw > 0 ? { GOLD: String(p.gold + p.draw) } : {}),
+      });
+    }
+    setMix(on);
+  };
 
   const addCategory = async () => {
     const name = newCategory.trim();
@@ -144,7 +361,7 @@ function PurchaseForm({ onDone, tz, accounts, defaultId }: { onDone: () => void;
     await categories.reload();
     setNewCategory("");
     setAdding(false);
-    set("categoryId", r.id);
+    setCategory(r.id);
   };
 
   return (
@@ -152,11 +369,12 @@ function PurchaseForm({ onDone, tz, accounts, defaultId }: { onDone: () => void;
       className="space-y-3"
       onSubmit={async (e) => {
         e.preventDefault();
-        const r = await act<{ reward: number; paymentReward: number; payment?: Quote["payment"] & { draw?: number }; confirmed?: Confirmed | null }>("/api/purchases", {
+        const r = await act<{ reward: number; paymentReward: number; payment?: Quote["payment"]; confirmed?: Confirmed | null }>("/api/purchases", {
           ...f,
           amount: Number(f.amount),
           categoryId: f.categoryId || null,
           accountId: accountId || null,
+          payWith,
         });
         if (!r) return;
         // 債券の肩代わり（docs/savings-driven-growth.md RSV-05）。同じ期間に確定した分の取り崩しは手数料なし
@@ -171,6 +389,7 @@ function PurchaseForm({ onDone, tz, accounts, defaultId }: { onDone: () => void;
         const got = rewardText(r.reward, r.paymentReward);
         toast(got ? `記録しました！ ${got}${done}${bond}` : `記録しました（今日の記録報酬は上限に達しています）${done}${bond}`, got ? "reward" : "info");
         setF((p) => ({ ...p, amount: "", name: "", memo: "" }));
+        resetPay();
         onDone();
       }}
     >
@@ -188,12 +407,12 @@ function PurchaseForm({ onDone, tz, accounts, defaultId }: { onDone: () => void;
       {warning && <p className="rounded-lg bg-danger/10 px-3 py-2 text-xs">{warning}</p>}
       {accounts.length > 1 && <AccountPicker label="出どころ" accounts={accounts} value={accountId} defaultId={defaultId} onChange={(id) => set("accountId", id)} reward={!!v} />}
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="ジャンル（任意）" hint={usable.length ? `使える通貨：${usable.map((c) => `${c.icon}${c.name}（${fmt(c.balance)}）`).join("・")}` : undefined}>
+        <Field label="ジャンル（任意）" hint={usable.length ? `使える通貨：${usable.map((c) => `${c.icon}${c.name}（${fmt(c.balance + c.pending)}）`).join("・")}` : undefined}>
           <select
             value={adding ? NEW_CATEGORY : f.categoryId}
             onChange={(e) => {
               setAdding(e.target.value === NEW_CATEGORY);
-              if (e.target.value !== NEW_CATEGORY) set("categoryId", e.target.value);
+              if (e.target.value !== NEW_CATEGORY) setCategory(e.target.value);
             }}
           >
             <option value="">選ばない</option>
@@ -217,11 +436,12 @@ function PurchaseForm({ onDone, tz, accounts, defaultId }: { onDone: () => void;
           </Button>
         </div>
       )}
+      {choosable && <PayWithField sources={sources} amount={amount} off={off} onToggle={toggle} mix={mix} onMix={toggleMix} amounts={mixAmounts} onAmounts={setMixAmounts} />}
       {quote && <QuoteView q={quote} />}
       <p className="text-xs text-muted">
         登録したあとは金額だけ変更できます（減額は＋差分、増額は−差分として解消します）。出どころはあとからでも変えられます。カードでも現金でも、使った日に記録してください。
       </p>
-      <Button type="submit" className="w-full" disabled={busy || Number(f.amount) <= 0 || !f.date || !f.name.trim()}>
+      <Button type="submit" className="w-full" disabled={busy || Number(f.amount) <= 0 || !f.date || !f.name.trim() || mixInvalid}>
         支出を記録（+{REWARD_PURCHASE}S）
       </Button>
     </form>
