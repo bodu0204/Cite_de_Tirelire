@@ -256,7 +256,8 @@ describe("AT-096 支払いに使える通貨の一覧（§6.3）", () => {
     const { p, lots } = twoCoins({ bond: 5000, freeBond: 2000 });
     expect(payableSources(p, lots, ["eat", "food"])).toEqual([
       { currency: "CUSTOM", currencyId: "eat", available: 800 },
-      { currency: "CUSTOM", currencyId: "food", available: 1200 },
+      // 初めに選ばれているのは、いつもの順で最初に使う（期限の近い）食費コイン
+      { currency: "CUSTOM", currencyId: "food", available: 1200, first: true },
       { currency: "GOLD", currencyId: null, available: 3300, draw: 2000 },
     ]);
   });
