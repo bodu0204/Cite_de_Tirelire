@@ -17,6 +17,7 @@ export default function GoalPage() {
     return (
       <div className="mx-auto max-w-xl space-y-3">
         <h1 className="font-pixel text-2xl">目標達成まで</h1>
+        {s.name && <p className="text-sm">{s.name}</p>}
         <p className="text-sm text-muted">達成率 {fmt(s.rate, 1)}%。あと {yen(Math.max(0, s.goal - s.savings))} で街が完成します。</p>
         <LinkButton href="/">街へ戻る</LinkButton>
       </div>
@@ -28,6 +29,7 @@ export default function GoalPage() {
       <div className="rise text-center">
         <p className="font-pixel text-sm text-gold">GOAL!</p>
         <h1 className="font-pixel text-3xl">貯金目標を達成しました</h1>
+        <p className="mt-1 text-sm text-muted">{s.name ?? `シーズン${s.number}`}</p>
       </div>
       <CityView
         fixed

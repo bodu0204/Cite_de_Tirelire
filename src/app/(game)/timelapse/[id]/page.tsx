@@ -12,7 +12,7 @@ import type { CityState } from "@/game/types";
 import { api, fmt, formatDate, yen } from "@/lib/api";
 
 interface Data {
-  season: { id: string; number: number; goal: number; startedAt: number; reachedAt: number | null; completedAt: number | null; fx: string[] };
+  season: { id: string; number: number; name: string | null; goal: number; startedAt: number; reachedAt: number | null; completedAt: number | null; fx: string[] };
   start: CityState | null;
   events: (ReplayEvent & { auto: boolean; important: boolean })[];
   savings: { at: number; delta: number }[];
@@ -93,8 +93,10 @@ export default function TimelapsePlayer({ params }: { params: Promise<{ id: stri
   return (
     <div className="mx-auto max-w-xl space-y-4">
       <div className="flex items-baseline justify-between">
-        <h1 className="font-pixel text-2xl">シーズン{s.number}</h1>
-        <span className="text-sm text-muted">目標 {yen(s.goal)}</span>
+        <h1 className="font-pixel text-2xl">{s.name ?? `シーズン${s.number}`}</h1>
+        <span className="text-sm text-muted">
+          {s.name && `シーズン${s.number}・`}目標 {yen(s.goal)}
+        </span>
       </div>
       <div className="relative">
         <CityView
@@ -110,7 +112,10 @@ export default function TimelapsePlayer({ params }: { params: Promise<{ id: stri
         {finished && (
           <div className="rise pointer-events-none absolute inset-0 flex flex-col items-center justify-center rounded-xl bg-black/40 text-center text-white">
             <p className="font-pixel text-3xl">COMPLETE</p>
-            <p className="mt-1 text-sm">{yen(s.goal)} の貯金を達成</p>
+            <p className="mt-1 text-sm">
+              {s.name && `${s.name}：`}
+              {yen(s.goal)} の貯金を達成
+            </p>
           </div>
         )}
       </div>

@@ -170,9 +170,14 @@ function AccountForm({
   );
 }
 
-export function AccountsCard({ tz }: { tz: string }) {
+/** onChange：置き場所を変えたあとに呼ぶ。note：説明の先頭に添える文（開始画面。docs/season-start-settings.md OA-01） */
+export function AccountsCard({ tz, onChange, note }: { tz: string; onChange?: () => void; note?: string }) {
   const { act, toast } = useGame();
-  const { data, reload } = useAccounts();
+  const { data, reload: reloadList } = useAccounts();
+  const reload = () => {
+    reloadList();
+    onChange?.();
+  };
   const [edit, setEdit] = useState<Account | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const items = data?.items ?? [];
@@ -183,6 +188,7 @@ export function AccountsCard({ tz }: { tz: string }) {
   return (
     <div id="accounts">
       <Card title="お金の置き場所">
+        {note && <p className="mb-2 text-sm">{note}</p>}
         <p className="mb-3 text-xs text-muted">
           口座・財布・クレカ・電子マネーごとに残高を持ち、収入・支出・振替で動かします。「お金の管理」で実際の残高に合わせると、収入・支出の記録漏れだけが債券で解消されます。どの置き場所で払っても、精算・貯金額は変わりません。
         </p>

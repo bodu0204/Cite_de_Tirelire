@@ -23,6 +23,7 @@ export async function GET(req: NextRequest, { params }: IdParams) {
       season: {
         id: season!.id,
         number: season!.number,
+        name: season!.goalName,
         goal: season!.goalAmount,
         startedAt: season!.startedAt.getTime(),
         reachedAt: season!.reachedAt?.getTime() ?? null,

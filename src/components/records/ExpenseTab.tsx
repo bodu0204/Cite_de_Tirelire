@@ -60,6 +60,8 @@ function QuoteView({ q }: { q: Quote }) {
   if (!q.settleable) return <p className="rounded-lg bg-surface-2 px-3 py-2 text-xs text-muted">この支出は金貨の精算対象外です（当期以外の日付・シーズン外）。</p>;
   const p = q.payment;
   const cur = (id: string) => v?.currencies.custom.find((c) => c.id === id);
+  // 持ち込みの備え（この範囲のマイナスは借金として扱わない。docs/season-start-settings.md RC-07）
+  const carried = v?.season.carried.reserve ?? 0;
   return (
     <div className={`rounded-lg px-3 py-2 text-sm ${p.bond > 0 ? "bg-danger/10" : "bg-surface-2"}`}>
       <div className="mb-1 text-xs font-medium">支払いの内訳</div>
@@ -98,8 +100,12 @@ function QuoteView({ q }: { q: Quote }) {
       </dl>
       {q.after && p.bond > 0 && (
         <p className="mt-1 text-xs">
-          記録後の債券は <span className={`num font-semibold ${q.after.bond < 0 ? "text-danger" : ""}`}>{fmt(q.after.bond)}</span>
-          {q.after.bond < 0 && "。0に戻るまで配当の20%以上が債券に回ります（その間は債券の利息がつきません）"}
+          記録後の債券は <span className={`num font-semibold ${q.after.bond < -carried ? "text-danger" : ""}`}>{fmt(q.after.bond)}</span>
+          {q.after.bond < -carried
+            ? carried > 0
+              ? `。持ち込みの備え（${fmt(carried)}）を超えるので、そこに戻るまで配当の20%以上が債券に回ります（0に戻るまで債券の利息はつきません）`
+              : "。0に戻るまで配当の20%以上が債券に回ります（その間は債券の利息がつきません）"
+            : q.after.bond < 0 && `。持ち込みの備え（${fmt(carried)}）から取り崩します（0に戻るまで債券の利息はつきません）`}
         </p>
       )}
     </div>

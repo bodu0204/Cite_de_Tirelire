@@ -20,7 +20,10 @@ export function SavingsGauge({ v }: { v: ActiveView }) {
   return (
     <div>
       <div className="flex items-baseline justify-between gap-2">
-        <span className="text-sm font-medium">貯金目標</span>
+        <span className="min-w-0 text-sm font-medium">
+          貯金目標
+          {s.name && <span className="ml-1.5 text-xs font-normal text-muted">{s.name}</span>}
+        </span>
         <span className="num text-right">
           <span className="font-pixel text-xl">{fmt(Math.min(999, s.rate), 1)}%</span>
           <span className="ml-1 text-sm text-muted">

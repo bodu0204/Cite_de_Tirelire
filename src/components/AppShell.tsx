@@ -32,6 +32,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   const { view } = useGame();
   const [menu, setMenu] = useState(false);
   const cur = view && "currencies" in view ? view.currencies : null;
+  // 債券が借金の扱いか・持ち込みの備えから取り崩している額（docs/season-start-settings.md RC-09）
+  const inDebt = view && "currencies" in view ? view.season.inDebt : false;
+  const drawn = view && "currencies" in view ? view.season.carried.drawn : 0;
 
   return (
     <div className="mx-auto flex min-h-dvh max-w-6xl flex-col md:flex-row">
@@ -74,7 +77,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   <Coin kind="silver" />
                   {fmt(cur.silver)}S
                 </span>
-                <span className={`num flex items-center gap-1 ${cur.bond < 0 ? "font-semibold text-danger" : ""}`} title="債券">
+                <span className={`num flex items-center gap-1 ${inDebt ? "font-semibold text-danger" : ""}`} title={drawn > 0 && !inDebt ? `債券（持ち込みの備えから ${fmt(drawn)}円 取り崩し中）` : "債券"}>
                   <BondIcon />
                   {fmt(cur.bond)}
                 </span>

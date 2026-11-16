@@ -181,6 +181,7 @@ export function withPurse<T>(ctx: GameCtx, fn: (p: Purse) => T): T {
     silver: ctx.balances.silver,
     bond: ctx.balances.bond,
     bondCap: bondCap(ctx.user.monthlyBudget),
+    carried: ctx.season.reserveCarried,
     moves: [],
     overspend: 0,
   };

@@ -333,7 +333,15 @@ export async function ensureCardBills(ctx: GameCtx, list?: MoneyAccount[]) {
 async function pendingBills(ctx: GameCtx, list: MoneyAccount[]) {
   const bills = await ctx.tx.cardBill.findMany({ where: { userId: ctx.user.id, status: "PENDING" }, orderBy: { dueDate: "asc" } });
   const name = new Map(list.map((a) => [a.id, a]));
-  return bills.map((b) => ({ ...b, cardName: name.get(b.cardId)?.name ?? "クレカ", debitAccountId: name.get(b.cardId)?.debitAccountId ?? null }));
+  // 開始残高に未払いがあり、まだ引き落としを確定していないカード：最初の予定に開始前の利用が含まれるか確かめてもらう（docs/season-start-settings.md OA-06）
+  const paid = new Set((await ctx.tx.cardBill.findMany({ where: { userId: ctx.user.id, status: "CONFIRMED" }, select: { cardId: true } })).map((b) => b.cardId));
+  const first = new Set<string>();
+  return bills.map((b) => {
+    const card = name.get(b.cardId);
+    const openingUnpaid = card && card.openingBalance < 0 && !paid.has(b.cardId) && !first.has(b.cardId) ? -card.openingBalance : 0;
+    first.add(b.cardId);
+    return { ...b, cardName: card?.name ?? "クレカ", debitAccountId: card?.debitAccountId ?? null, openingUnpaid };
+  });
 }
 
 async function ownBill(ctx: GameCtx, id: string) {

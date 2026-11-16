@@ -7,7 +7,7 @@ export async function GET(req: NextRequest) {
     items: await prisma.season.findMany({
       where: { userId, status: "COMPLETED" },
       orderBy: { number: "desc" },
-      select: { id: true, number: true, goalAmount: true, startedAt: true, reachedAt: true, completedAt: true },
+      select: { id: true, number: true, goalName: true, goalAmount: true, startedAt: true, reachedAt: true, completedAt: true },
     }),
   }));
 }
