@@ -153,68 +153,68 @@ function twoCoins(o: Partial<{ bond: number; silver: number; freeBond: number }>
 }
 
 describe("AT-094 使う通貨を選ぶ（§6.3）", () => {
-  it("選ばなければ、期限の近いユーザ通貨から使う（いつもの順）", () => {
+  const FOOD = { currency: "CUSTOM", currencyId: "food" } as const;
+  const EAT = { currency: "CUSTOM", currencyId: "eat" } as const;
+  const GOLD = { currency: "GOLD" } as const;
+
+  it("選ばなければ、使える通貨をすべて使う（期限の近いユーザ通貨 → 金貨）", () => {
     const { p, lots, left } = twoCoins();
-    pay(p, 500, lots, []);
-    expect(left()).toEqual({ food: 700, eat: 800, gold: 1300, bond: 0 });
+    pay(p, 2500, lots, []);
+    expect(left()).toEqual({ food: 0, eat: 0, gold: 800, bond: 0 });
   });
 
-  it("選んだユーザ通貨を先に使う", () => {
+  it("選んだ通貨だけを使う（選ばなかった通貨は残る）", () => {
     const { p, lots, left } = twoCoins();
     const payments: Payment[] = [];
-    pay(p, 500, lots, payments, [{ currency: "CUSTOM", currencyId: "eat" }]);
+    pay(p, 500, lots, payments, [EAT]);
     expect(left()).toEqual({ food: 1200, eat: 300, gold: 1300, bond: 0 });
     expect(summarize(payments).custom).toEqual([{ currencyId: "eat", lotId: "e1", amount: 500 }]);
   });
 
-  it("選んだ通貨で足りない分は、いつもの順（ほかのユーザ通貨 → 金貨）で払う", () => {
+  it("いくつも選べる：選んだ通貨の中では、期限の近いユーザ通貨 → 金貨の順", () => {
     const { p, lots, left } = twoCoins();
-    pay(p, 1000, lots, [], [{ currency: "CUSTOM", currencyId: "eat" }]);
-    expect(left()).toEqual({ food: 1000, eat: 0, gold: 1300, bond: 0 });
+    pay(p, 1500, lots, [], [GOLD, FOOD]);
+    expect(left()).toEqual({ food: 0, eat: 800, gold: 1000, bond: 0 });
   });
 
-  it("金貨を選ぶと、ユーザ通貨を残して 未回収 → 所持 の順に払う", () => {
+  it("選んだ通貨で足りない分は債券で払う（手数料あり）。選ばなかった通貨は使わない", () => {
     const { p, lots, left } = twoCoins();
     const payments: Payment[] = [];
-    pay(p, 500, lots, payments, [{ currency: "GOLD" }]);
-    expect(left()).toEqual({ food: 1200, eat: 800, gold: 800, bond: 0 });
-    expect(uncollected(p)).toBe(0);
-    expect(summarize(payments)).toMatchObject({ custom: [], gold: 500, bond: 0 });
+    pay(p, 1000, lots, payments, [EAT]);
+    expect(left()).toEqual({ food: 1200, eat: 0, gold: 1300, bond: -200 });
+    expect(summarize(payments)).toMatchObject({ gold: 0, bond: 200, feeSilver: 20 });
+    expect(p.overspend).toBe(200);
   });
 
-  it("金貨には、同じ期間に確定した債券の取り崩し（手数料なし）を含む", () => {
+  it("金貨を選ぶと、未回収 → 所持 → 同じ期間に確定した債券の取り崩し（手数料なし）の順に払う", () => {
     const { p, lots, left } = twoCoins({ bond: 5000, freeBond: 2000 });
     const payments: Payment[] = [];
-    pay(p, 2000, lots, payments, [{ currency: "GOLD" }]);
+    pay(p, 2000, lots, payments, [GOLD]);
     expect(left()).toEqual({ food: 1200, eat: 800, gold: 0, bond: 4300 });
     expect(summarize(payments)).toMatchObject({ gold: 1300, draw: 700, bond: 0, feeSilver: 0, feeBond: 0 });
     expect(p.overspend).toBe(0);
   });
 
-  it("金貨で足りない分はユーザ通貨から払う。債券（手数料あり）を使うのは、使える通貨を使い切ったときだけ", () => {
-    const a = twoCoins();
-    const pa: Payment[] = [];
-    pay(a.p, 2000, a.lots, pa, [{ currency: "GOLD" }]);
-    expect(a.left()).toEqual({ food: 500, eat: 800, gold: 0, bond: 0 });
-    expect(summarize(pa)).toMatchObject({ gold: 1300, bond: 0, feeSilver: 0 });
-
-    const b = twoCoins();
-    const pb: Payment[] = [];
-    pay(b.p, 4000, b.lots, pb, [{ currency: "GOLD" }]);
-    expect(b.left()).toEqual({ food: 0, eat: 0, gold: 0, bond: -700 });
-    expect(summarize(pb)).toMatchObject({ gold: 1300, bond: 700, feeSilver: 50 });
+  it("足りない分を債券で払うときも、同じ期間に確定した分の取り崩し（手数料なし）が先", () => {
+    const { p, lots, left } = twoCoins({ bond: 5000, freeBond: 300 });
+    const payments: Payment[] = [];
+    pay(p, 1500, lots, payments, [EAT]);
+    expect(left()).toEqual({ food: 1200, eat: 0, gold: 1300, bond: 4300 });
+    expect(summarize(payments)).toMatchObject({ gold: 0, draw: 300, bond: 400, feeSilver: 40 });
   });
 });
 
-describe("AT-095 通貨を併用する（§6.3）", () => {
+describe("AT-095 通貨ごとに額を決める（§6.3）", () => {
+  const mix = [
+    { currency: "CUSTOM", currencyId: "food", amount: 500 },
+    { currency: "CUSTOM", currencyId: "eat", amount: 300 },
+    { currency: "GOLD", amount: 200 },
+  ] as const;
+
   it("通貨ごとに決めた額で払う", () => {
     const { p, lots, left } = twoCoins();
     const payments: Payment[] = [];
-    pay(p, 1000, lots, payments, [
-      { currency: "CUSTOM", currencyId: "food", amount: 500 },
-      { currency: "CUSTOM", currencyId: "eat", amount: 300 },
-      { currency: "GOLD", amount: 200 },
-    ]);
+    pay(p, 1000, lots, payments, [...mix]);
     expect(left()).toEqual({ food: 700, eat: 500, gold: 1100, bond: 0 });
     expect(summarize(payments)).toMatchObject({ gold: 200, bond: 0 });
     expect(summarize(payments).custom).toEqual([
@@ -223,14 +223,12 @@ describe("AT-095 通貨を併用する（§6.3）", () => {
     ]);
   });
 
-  it("決めた額の合計が支払う額に足りない分は、いつもの順で払う", () => {
+  it("決めた額の合計が足りない分は債券で払う", () => {
     const { p, lots, left } = twoCoins();
-    pay(p, 1000, lots, [], [
-      { currency: "CUSTOM", currencyId: "eat", amount: 300 },
-      { currency: "GOLD", amount: 200 },
-    ]);
-    // 残り 500 は期限の近い食費コインから
-    expect(left()).toEqual({ food: 700, eat: 500, gold: 1100, bond: 0 });
+    const payments: Payment[] = [];
+    pay(p, 1000, lots, payments, [mix[1], mix[2]]);
+    expect(left()).toEqual({ food: 1200, eat: 500, gold: 1100, bond: -500 });
+    expect(summarize(payments)).toMatchObject({ gold: 200, bond: 500, feeSilver: 50 });
   });
 
   it("残高を超える額を決めても、残高までしか使わない（マイナスにしない）", () => {
@@ -239,19 +237,16 @@ describe("AT-095 通貨を併用する（§6.3）", () => {
       { currency: "CUSTOM", currencyId: "eat", amount: 2000 },
       { currency: "GOLD", amount: 1000 },
     ]);
-    expect(left()).toEqual({ food: 0, eat: 0, gold: 300, bond: 0 });
+    expect(left()).toEqual({ food: 1200, eat: 0, gold: 300, bond: -1200 });
   });
 
-  it("払い戻すと、併用した通貨がそれぞれ元に戻る", () => {
+  it("払い戻すと、それぞれの通貨と債券・手数料が元に戻る", () => {
     const { p, lots, left } = twoCoins();
     const payments: Payment[] = [];
-    pay(p, 1000, lots, payments, [
-      { currency: "CUSTOM", currencyId: "food", amount: 500 },
-      { currency: "CUSTOM", currencyId: "eat", amount: 300 },
-      { currency: "GOLD", amount: 200 },
-    ]);
-    refund(p, 1000, payments, (id) => ({ lot: lots.find((l) => l.id === id) }));
+    pay(p, 1500, lots, payments, [...mix]);
+    refund(p, 1500, payments, (id) => ({ lot: lots.find((l) => l.id === id) }));
     expect(left()).toEqual({ food: 1200, eat: 800, gold: 1300, bond: 0 });
+    expect(p.silver).toBe(100);
     expect(payments).toEqual([]);
   });
 });
@@ -261,8 +256,7 @@ describe("AT-096 支払いに使える通貨の一覧（§6.3）", () => {
     const { p, lots } = twoCoins({ bond: 5000, freeBond: 2000 });
     expect(payableSources(p, lots, ["eat", "food"])).toEqual([
       { currency: "CUSTOM", currencyId: "eat", available: 800 },
-      // いつもの順で最初に使うのは、期限の近い食費コイン
-      { currency: "CUSTOM", currencyId: "food", available: 1200, first: true },
+      { currency: "CUSTOM", currencyId: "food", available: 1200 },
       { currency: "GOLD", currencyId: null, available: 3300, draw: 2000 },
     ]);
   });

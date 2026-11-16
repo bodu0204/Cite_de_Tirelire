@@ -1,6 +1,6 @@
 // 購入の精算と払い戻し（docs/bond-and-custom-currency.md §6）。
 // 支払い順：（像の積立金貨は呼び出し側）→ ジャンルが一致するユーザ通貨 → 未回収の金貨 → 所持金貨 → 債券（マイナス可）＋ 銀貨の手数料。
-// 使う通貨を指定したときは、その通貨を先に使い、残りを上の順で払う（§6.3）。
+// 使う通貨を選んだときは、選んだ通貨だけを使い、足りない分は債券で払う（§6.3）。
 // 払い戻しは逆順：債券 → 所持金貨 → ユーザ通貨（元のロットへ）。手数料は債券の支払い合計から計算し直す。
 import { bondFee, bondResourceEligible } from "./bond";
 import { MICRO_PER_GOLD } from "./config";
@@ -93,7 +93,7 @@ export interface PaySource {
   currency: "GOLD" | "CUSTOM";
   /** CUSTOM のときの通貨 */
   currencyId?: string | null;
-  /** 使う額。省略すると、その通貨で払えるだけ払う */
+  /** 使う額。省略すると、その通貨で払えるだけ払う（省略した通貨どうしはいつもの順） */
   amount?: number | null;
 }
 
@@ -104,8 +104,6 @@ export interface SourceBalance {
   available: number;
   /** 金貨：available のうち、同じ期間に確定した債券の取り崩し（手数料なし）の分 */
   draw?: number;
-  /** いつもの順で最初に使う通貨（選ぶ欄の初期の選択） */
-  first?: boolean;
 }
 
 /** 同じ期間に確定して債券に入れた分のうち、手数料なしで取り崩せる額 */
@@ -113,7 +111,7 @@ const freeDraw = (p: Pick<Purse, "mine" | "bond">) => Math.max(0, Math.min(p.min
 
 /**
  * 支払いに使える通貨の一覧：ユーザ通貨（order の順）→ 金貨。払える額が 0 のものは含めない。
- * lots は使えるロット（ジャンルが一致するもの）を支払い順に並べたもの。いつもの順で最初に使う通貨に first を付ける。
+ * lots は使えるロット（ジャンルが一致するもの）。
  */
 export function payableSources(p: Pick<Purse, "mine" | "gold" | "bond">, lots: Lot[], order: string[]): SourceBalance[] {
   const custom = new Map<string, number>();
@@ -125,9 +123,6 @@ export function payableSources(p: Pick<Purse, "mine" | "gold" | "bond">, lots: L
   const draw = freeDraw(p);
   const gold = Number(p.mine.uncollected / MICRO_PER_GOLD) + Math.max(0, p.gold) + draw;
   if (gold > 0) out.push({ currency: "GOLD", currencyId: null, available: gold, draw });
-  const firstId = lots.find((l) => l.remaining > 0)?.currencyId ?? null;
-  const first = out.find((s) => s.currencyId === firstId);
-  if (first) first.first = true;
   return out;
 }
 
@@ -148,6 +143,17 @@ function payLots(p: Purse, want: number, lots: Lot[], payments: Payment[]): numb
   return want - rest;
 }
 
+/** 同じ期間に確定して債券に入れた分を、want まで手数料なしで取り崩す（使い過ぎではない）。取り崩した額を返す */
+function payDraw(p: Purse, want: number, payments: Payment[]): number {
+  const draw = Math.min(want, freeDraw(p));
+  if (draw <= 0) return 0;
+  p.bond -= draw;
+  p.mine = { ...p.mine, freeBond: (p.mine.freeBond ?? 0) - draw };
+  move(p, { currency: "BOND", delta: -draw, reason: "purchase_draw" });
+  addPayment(payments, { currency: "BOND", kind: "draw", amount: draw });
+  return draw;
+}
+
 /** 金貨から want まで払う：未回収 → 所持 → 同じ期間に確定した債券の取り崩し。払った額を返す */
 function payGold(p: Purse, want: number, payments: Payment[]): number {
   if (want <= 0) return 0;
@@ -156,34 +162,36 @@ function payGold(p: Purse, want: number, payments: Payment[]): number {
   p.gold -= g.fromHeld;
   move(p, { currency: "GOLD", delta: -g.fromHeld, reason: "purchase_settle" });
   addPayment(payments, { currency: "GOLD", kind: "pay", amount: g.fromUncollected + g.fromHeld });
-  // 同じ期間に確定して債券に入れた分は、手数料なしで取り崩す（使い過ぎではない）
-  const draw = Math.min(g.rest, freeDraw(p));
-  if (draw > 0) {
-    p.bond -= draw;
-    p.mine = { ...p.mine, freeBond: (p.mine.freeBond ?? 0) - draw };
-    move(p, { currency: "BOND", delta: -draw, reason: "purchase_draw" });
-    addPayment(payments, { currency: "BOND", kind: "draw", amount: draw });
-  }
-  return want - (g.rest - draw);
+  return want - g.rest + payDraw(p, g.rest, payments);
 }
 
 /**
  * amount を支払う。lots は使えるロット（ジャンルが一致するもの）を支払い順に並べたもの。
  * payments（この購入の支払い内訳）に追記する。
- * sources を渡すと、その通貨を並べた順に先に使い（額の指定があればその額まで、残高までしか使わない）、残りをいつもの順で払う。
- * 債券（足りない分）を使うのは、使える通貨をすべて使い切ったときだけ。
+ * sources を渡すと、そこに並べた通貨だけを使う（§6.3）：額の指定がある通貨はその額まで（残高までしか使わない）、
+ * 額の指定がない通貨はいつもの順（ユーザ通貨 → 金貨）で払えるだけ払う。並べなかった通貨は使わない。
+ * 足りない分は債券で払う（同じ期間に確定した分の取り崩しが先で、超えた分に手数料がかかる）。
+ * sources を渡さなければ、使える通貨をすべて使う（いつもの順）。
  */
-export function pay(p: Purse, amount: number, lots: Lot[], payments: Payment[], sources: PaySource[] = []) {
+export function pay(p: Purse, amount: number, lots: Lot[], payments: Payment[], sources?: PaySource[] | null) {
   let rest = amount;
-  for (const s of sources) {
-    if (rest <= 0) break;
-    const want = Math.max(0, Math.min(rest, s.amount ?? rest));
-    if (s.currency === "GOLD") rest -= payGold(p, want, payments);
-    else rest -= payLots(p, want, lots.filter((l) => l.currencyId === s.currencyId), payments);
+  let open = lots;
+  let gold = true;
+  if (sources) {
+    for (const s of sources) {
+      if (s.amount === undefined || s.amount === null) continue;
+      const want = Math.max(0, Math.min(rest, s.amount));
+      if (s.currency === "GOLD") rest -= payGold(p, want, payments);
+      else rest -= payLots(p, want, lots.filter((l) => l.currencyId === s.currencyId), payments);
+    }
+    const free = sources.filter((s) => s.amount === undefined || s.amount === null);
+    open = lots.filter((l) => free.some((s) => s.currency === "CUSTOM" && s.currencyId === l.currencyId));
+    gold = free.some((s) => s.currency === "GOLD");
   }
-  // 残りはいつもの順：ユーザ通貨 → 金貨 → 債券（足りない分）
-  rest -= payLots(p, rest, lots, payments);
-  rest -= payGold(p, rest, payments);
+  rest -= payLots(p, rest, open, payments);
+  if (gold) rest -= payGold(p, rest, payments);
+  // 足りない分は債券から：手数料なしで取り崩せる分 → 使い過ぎ（手数料あり）
+  rest -= payDraw(p, rest, payments);
   if (rest > 0) {
     p.bond -= rest;
     p.overspend += rest;

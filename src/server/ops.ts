@@ -284,11 +284,11 @@ const PAY_SOURCES_MAX = 50;
 
 /**
  * 使う通貨の指定（payWith）を読む（docs/bond-and-custom-currency.md §6.3）。
- * 指定した順に先に使い、残りはいつもの順で払う。額を省くと、その通貨で払えるだけ払う。
+ * 並べた通貨だけを使い、足りない分は債券で払う。額を省くと、その通貨で払えるだけ払う。指定がなければ null（使える通貨をすべて使う）。
  * このジャンルに使えない通貨・払える額を超える指定・合計が精算する額を超える指定は断る。
  */
-function payChoice(ctx: GameCtx, raw: unknown, categoryId: string | null, sources: SourceBalance[], amount: number): PaySource[] {
-  if (raw === undefined || raw === null) return [];
+function payChoice(ctx: GameCtx, raw: unknown, categoryId: string | null, sources: SourceBalance[], amount: number): PaySource[] | null {
+  if (raw === undefined || raw === null) return null;
   if (!Array.isArray(raw) || raw.length > PAY_SOURCES_MAX) fail("invalid", "使う通貨の指定が不正です");
   const seen = new Set<string>();
   let sum = 0;
@@ -314,7 +314,7 @@ function payChoice(ctx: GameCtx, raw: unknown, categoryId: string | null, source
   return out;
 }
 
-/** 購入額を精算する（使う通貨の指定があればその通貨 → ユーザ通貨 → 未回収 → 所持金貨 → 債券＋手数料） */
+/** 購入額を精算する（ユーザ通貨 → 未回収 → 所持金貨 → 債券＋手数料。使う通貨の指定があれば、その通貨だけ → 債券＋手数料） */
 function settle(ctx: GameCtx, amount: number, categoryId: string | null, payments: Payment[], refId: string, payWith?: unknown) {
   if (amount <= 0) return;
   const from = ctx.ledger.length;
@@ -370,7 +370,7 @@ async function subscriptionFor(ctx: GameCtx, body: Body) {
 
 /**
  * 支出の記録（docs/record-input-redesign.md §6）。
- * - 普通の支出：精算順（ユーザ通貨 → 未回収 → 所持金貨 → 債券＋手数料）で払う。payWith で使う通貨を指定できる（先に使う通貨と、その額）
+ * - 普通の支出：精算順（ユーザ通貨 → 未回収 → 所持金貨 → 債券＋手数料）で払う。payWith で使う通貨を選べる（選んだ通貨だけを使い、足りない分は債券）
  * - サブスクの支払い：登録額（ベース）は採掘から差し引き済みなので精算しない。登録額との差を差分として解消する
  * - ほしい物：価格（ベース）を 像の積立金貨 → 精算順 で払い、価格との差を差分として解消する（余った積立も債券 → おまかせ交換へ）
  */
@@ -452,10 +452,11 @@ export async function recordPurchases(ctx: GameCtx, body: Body) {
 
 /**
  * 記録前の支払い内訳のプレビュー。状態は変えない。
- * sources はこの支出に使える通貨と払える額（使う通貨を選ぶ・併用するときの選択肢。払う前の残り）
+ * sources はこの支出に使える通貨と払える額（使う通貨を選ぶときの選択肢。払う前の残り）。
+ * 金額がまだ入っていなくても（amount を省くか 0）、sources だけは返す
  */
 export async function quotePurchase(ctx: GameCtx, body: Body) {
-  const amount = int(body.amount, "購入金額", { min: 1, max: 100_000_000 });
+  const amount = body.amount === undefined || body.amount === null || body.amount === "" ? 0 : int(body.amount, "購入金額", { min: 0, max: 100_000_000 });
   const input = { date: date(body.date, "購入日"), isSubscription: bool(body.isSubscription) };
   const categoryId = body.categoryId ? str(body.categoryId, "ジャンル") : null;
   if (!ctx.season || !settleable(ctx, input)) {
@@ -468,6 +469,7 @@ export async function quotePurchase(ctx: GameCtx, body: Body) {
   const lots = eligibleLots(ctx, copies, categoryId);
   const purse = { mine: ctx.mine!, gold: ctx.balances.gold, silver: ctx.balances.silver, bond: ctx.balances.bond, bondCap: 0, moves: [], overspend: 0 };
   const sources = payableSources(purse, lots, ctx.defs.map((d) => d.id));
+  if (amount <= 0) return { settleable: true, payment: summarize([]), sources, after: null };
   pay(purse, amount - reserved, lots, payments, payChoice(ctx, body.payWith, categoryId, sources, amount - reserved));
   return {
     settleable: true,
