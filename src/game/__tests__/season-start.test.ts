@@ -15,7 +15,7 @@ const M = 60000;
 const SEP1 = zonedTimeToUtc(2026, 9, 1, TZ);
 const plan = (budget = M) => new BudgetPlan(budget, [], [], TZ);
 
-describe("AT-095・096 すでにある貯金の分け方", () => {
+describe("AT-098・096 すでにある貯金の分け方", () => {
   it("債券の上限（3M）までは持ち込みの備え、超える分は持ち込みの貯金", () => {
     expect(splitCarried(120_000, M)).toEqual({ reserve: 120_000, savings: 0 });
     expect(splitCarried(1_000_000, M)).toEqual({ reserve: bondCap(M), savings: 1_000_000 - bondCap(M) });
@@ -39,7 +39,7 @@ describe("AT-095・096 すでにある貯金の分け方", () => {
   });
 });
 
-describe("AT-097 持ち込みの備えの範囲内は借金として扱わない", () => {
+describe("AT-100 持ち込みの備えの範囲内は借金として扱わない", () => {
   it("債券が −持ち込みの備え 以上なら強制の債券化をしない。下回るとする", () => {
     const cap = bondCap(M);
     expect(bondShare(-15_000, 0, cap, 120_000)).toBe(0);
@@ -69,7 +69,7 @@ describe("AT-097 持ち込みの備えの範囲内は借金として扱わない
   });
 });
 
-describe("AT-095・098 放置計算での備えLvと利息", () => {
+describe("AT-098・098 放置計算での備えLvと利息", () => {
   const world = (bond: number, carried: number): World => ({
     purse: { mine: newMine(SEP1, TZ), gold: 0, silver: 0, bond, bondCap: 0, carried, moves: [], overspend: 0 },
     city: createCity(SEP1, M),
@@ -97,7 +97,7 @@ describe("AT-095・098 放置計算での備えLvと利息", () => {
   });
 });
 
-describe("AT-101・102 今期の残りの自由予算", () => {
+describe("AT-104・102 今期の残りの自由予算", () => {
   const cal = monthCal(TZ);
   // 30日の期間の20日目に開始：按分は 2万円
   const start = SEP1 + 20 * DAY;

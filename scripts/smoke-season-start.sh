@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# シーズン開始時の設定のスモークテスト（docs/season-start-settings.md §13、AT-094〜104）。
+# シーズン開始時の設定のスモークテスト（docs/season-start-settings.md §13、AT-097〜104）。
 # 使い方: BASE=http://localhost:3000 PSQL="psql -h localhost -p 5433 -U tirelire tirelire" bash scripts/smoke-season-start.sh
 set -euo pipefail
 BASE=${BASE:-http://localhost:3000}
@@ -17,20 +17,20 @@ TODAY=$(TZ=Asia/Tokyo date +%F)
 AGO40=$(TZ=Asia/Tokyo date -d "$TODAY -40 days" +%F)
 DAY=$((10#$(TZ=Asia/Tokyo date +%d)))
 
-echo "== AT-094 budget and goal only: same as before (no carried reserve, prorated dividend, no name)"
+echo "== AT-097 budget and goal only: same as before (no carried reserve, prorated dividend, no name)"
 signup plain
 req GET /api/season/draft | j '[o.first, o.number, o.incomeDayNow, o.previous, o.savingsAccounts]'
 req POST /api/season '{"goalAmount":20000,"monthlyBudget":60000}' >/dev/null
 req GET /api/state | j '[o.season.name, o.season.carried.reserve, o.season.carried.savings, o.season.inDebt, o.dev.reserveLevel, o.currencies.bond]'
 sql "SELECT \"startRemaining\" IS NULL, \"mineWindows\"::text, \"mineCut\" FROM \"Season\" WHERE id = $(active)"
 
-echo "== AT-095 existing savings 120,000 (M=60,000): bond 0, reserve Lv3, savings/rate/tech/fund stay 0"
+echo "== AT-098 existing savings 120,000 (M=60,000): bond 0, reserve Lv3, savings/rate/tech/fund stay 0"
 signup carry
 req POST /api/season '{"goalAmount":100000,"goalName":"北海道旅行","monthlyBudget":60000,"existingSavings":120000}' >/dev/null
 req GET /api/state | j '[o.season.name, o.season.carried, o.dev.reserveLevel, o.dev.nextReserveAt, o.currencies.bond, o.season.savings, o.season.rate, o.tech.level, o.dev.fund, o.dev.interestPerDay]'
 req GET /api/state | j 'o.log.filter(e=>e.type==="SEASON_STARTED").map(e=>e.payload)'
 
-echo "== AT-097 overspend within the carried reserve: bond negative, not in debt, no forced bond share"
+echo "== AT-100 overspend within the carried reserve: bond negative, not in debt, no forced bond share"
 req POST /api/purchases "{\"amount\":15000,\"date\":\"$TODAY\",\"name\":\"家電\"}" | j '[o.settled, o.payment && o.payment.bond]'
 req GET /api/state | j '[o.currencies.bond < 0, o.season.inDebt, o.season.carried.drawn > 0, o.mine.bond.status, o.mine.bond.share, o.dev.reserveLevel, o.dev.interestPerDay]'
 echo "   beyond the carried reserve: in debt, forced"
@@ -38,20 +38,20 @@ sql "UPDATE \"Season\" SET bond = -130000 WHERE id = $(active)" >/dev/null
 req GET /api/state | j '[o.season.inDebt, o.season.carried.drawn, o.mine.bond.status, o.mine.bond.share, o.dev.reserveLevel]'
 sql "UPDATE \"Season\" SET bond = 0 WHERE id = $(active)" >/dev/null
 
-echo "== AT-100 goal name: change, clear, too long"
+echo "== AT-103 goal name: change, clear, too long"
 req PATCH /api/season '{"goalName":"  沖縄  旅行 "}' >/dev/null; req GET /api/state | j 'o.season.name'
 req PATCH /api/season '{"goalName":"あいうえおかきくけこさしすせそたちつてとな"}' | j 'o.error.message'
 req PATCH /api/season '{"goalName":""}' >/dev/null; req GET /api/state | j 'o.season.name'
 req PATCH /api/season '{"goalName":"沖縄旅行"}' >/dev/null
 
-echo "== AT-096 / RC-11 correct existing savings within 24h: over 3M splits into reserve + savings; after 24h it is locked"
+echo "== AT-099 / RC-11 correct existing savings within 24h: over 3M splits into reserve + savings; after 24h it is locked"
 req PATCH /api/season '{"existingSavings":1000000}' >/dev/null
 req GET /api/state | j '[o.season.carried.reserve, o.season.carried.savings, o.dev.reserveLevel, o.season.savings, o.season.rate]'
 sql "UPDATE \"Season\" SET \"startedAt\" = \"startedAt\" - interval '25 hours' WHERE id = $(active)" >/dev/null
 req PATCH /api/season '{"existingSavings":5}' | j 'o.error.message'
 req PATCH /api/season '{"goalName":"沖縄旅行2"}' | j 'o.ok'
 
-echo "== AT-099 complete, then the next start screen offers the previous savings; carry over or not"
+echo "== AT-102 complete, then the next start screen offers the previous savings; carry over or not"
 sql "UPDATE \"Season\" SET bond = 30000, \"citySpentGold\" = 80000 WHERE id = $(active)" >/dev/null
 req GET /api/state | j '[o.season.status, o.season.savings]'
 req POST /api/season/complete >/dev/null
@@ -68,7 +68,7 @@ req GET /api/season/draft | j 'o.previous.amount'
 req POST /api/season '{"goalAmount":50000}' >/dev/null
 req GET /api/state | j '[o.season.number, o.season.carried.reserve, o.season.carried.fromPrevious]'
 
-echo "== AT-101 remaining budget below the prorated amount: the rest of the period pays that much"
+echo "== AT-104 remaining budget below the prorated amount: the rest of the period pays that much"
 signup rem
 D=$(req GET "/api/season/draft?budget=60000")
 echo "$D" | j '[o.prorated > 0, o.prorated <= 60000, o.net]'
@@ -78,7 +78,7 @@ req POST /api/season '{"goalAmount":20000}' | j 'o.error.code'
 echo "   over the monthly budget is rejected"
 signup rem2
 req POST /api/season '{"goalAmount":20000,"monthlyBudget":60000,"remainingBudget":60001}' | j 'o.error.message'
-echo "== AT-102 remaining budget above the prorated amount: a window to the end of the period"
+echo "== AT-105 remaining budget above the prorated amount: a window to the end of the period"
 P=$(req GET "/api/season/draft?budget=60000" | j 'o.prorated')
 if [ "$P" -lt 60000 ]; then
   req POST /api/season '{"goalAmount":20000,"monthlyBudget":60000,"remainingBudget":60000}' >/dev/null
@@ -87,7 +87,7 @@ else
   echo "(today is the income day: the prorated amount is the whole budget; skipped)"
 fi
 
-echo "== AT-103 income day on the first season applies at once; later seasons from the next income day"
+echo "== AT-106 income day on the first season applies at once; later seasons from the next income day"
 signup pay
 ND=$(( DAY % 28 + 1 ))
 req GET "/api/season/draft?budget=60000&incomeDay=$ND" | j '[o.incomeDay, o.incomeDayNow, new Date(o.period.end + 9*3600e3).getUTCDate()]'
@@ -102,7 +102,7 @@ req GET "/api/season/draft?incomeDay=$ND2" | j '[o.first, o.incomeDayNow]'
 req POST /api/season "{\"goalAmount\":20000,\"incomeDay\":$ND2}" >/dev/null
 sql "SELECT \"incomeDay\", jsonb_array_length(\"incomeEras\") FROM \"User\" WHERE email = '$EMAIL'"
 
-echo "== AT-104 accounts registered before the start show balances; savings accounts feed the default"
+echo "== AT-107 accounts registered before the start show balances; savings accounts feed the default"
 signup acc
 req GET /api/accounts | j 'o.items.map(a=>[a.name,a.kind,a.balance])'
 BANK=$(req POST /api/accounts "{\"name\":\"口座A\",\"kind\":\"BANK\",\"openingBalance\":300000,\"openingDate\":\"$TODAY\"}" | j 'o.id' | tr -d '"')
