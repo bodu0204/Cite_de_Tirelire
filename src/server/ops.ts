@@ -26,7 +26,7 @@ import { creditGains } from "@/game/fund";
 import { budgetOverruns, describeOverruns, startOfDay, type Overrun } from "@/game/currency";
 import { goldMineLevel, silverMineLevel } from "@/game/levels";
 import { collect, floorMinute, microToGold, newMine, remainingMining, withStartRemaining } from "@/game/mine";
-import { lotOrder, pay, summarize, type Lot, type Payment } from "@/game/settle";
+import { lotOrder, pay, payableSources, summarize, type Lot, type Payment, type PaySource, type SourceBalance } from "@/game/settle";
 import { changePayday, dayKey, isValidTimeZone, monthCal, parseDateInTz, periodKey, periodRange, type PeriodCal } from "@/game/time";
 import { snapBuilding, type Gains, type StockKey } from "@/game/types";
 import {
@@ -397,11 +397,47 @@ function eligibleLots(ctx: GameCtx, lots: Lot[], categoryId: string | null): Lot
     .sort(lotOrder((id) => order.get(id) ?? 0));
 }
 
-/** 購入額を精算する（ユーザ通貨 → 未回収 → 所持金貨 → 債券＋手数料） */
-function settle(ctx: GameCtx, amount: number, categoryId: string | null, payments: Payment[], refId: string) {
+/** 1つの支出で指定できる通貨の数 */
+const PAY_SOURCES_MAX = 50;
+
+/**
+ * 使う通貨の指定（payWith）を読む（docs/bond-and-custom-currency.md §6.3）。
+ * 並べた通貨だけを使い、足りない分は債券で払う。額を省くと、その通貨で払えるだけ払う。指定がなければ null（使える通貨をすべて使う）。
+ * このジャンルに使えない通貨・払える額を超える指定・合計が精算する額を超える指定は断る。
+ */
+function payChoice(ctx: GameCtx, raw: unknown, categoryId: string | null, sources: SourceBalance[], amount: number): PaySource[] | null {
+  if (raw === undefined || raw === null) return null;
+  if (!Array.isArray(raw) || raw.length > PAY_SOURCES_MAX) fail("invalid", "使う通貨の指定が不正です");
+  const seen = new Set<string>();
+  let sum = 0;
+  const out = (raw as Body[]).map((r): PaySource => {
+    if (!r || typeof r !== "object") fail("invalid", "使う通貨の指定が不正です");
+    const currency = oneOf(r.currency, ["GOLD", "CUSTOM"] as const, "使う通貨");
+    const currencyId = currency === "CUSTOM" ? str(r.currencyId, "使う通貨") : null;
+    if (seen.has(currencyId ?? currency)) fail("invalid", "同じ通貨を2回指定しています");
+    seen.add(currencyId ?? currency);
+    const def = currencyId ? ctx.defs.find((d) => d.id === currencyId) : null;
+    if (currencyId && !def) fail("not_found", "ユーザ通貨が見つかりません", 404);
+    if (def && !(categoryId && def.categoryIds.includes(categoryId))) fail("invalid", `${def.name}はこのジャンルの支出には使えません`);
+    const name = def?.name ?? "金貨";
+    const available = sources.find((s) => s.currency === currency && s.currencyId === currencyId)?.available ?? 0;
+    if (available <= 0) fail("insufficient", `${name}の残高がありません`);
+    if (r.amount === undefined || r.amount === null) return { currency, currencyId };
+    const want = int(r.amount, `${name}で払う額`, { min: 1, max: 100_000_000 });
+    if (want > available) fail("insufficient", `${name}が足りません（払えるのは ${available.toLocaleString("ja-JP")} までです）`);
+    sum += want;
+    return { currency, currencyId, amount: want };
+  });
+  if (sum > amount) fail("invalid", "使う通貨の合計が、支払う金額を超えています");
+  return out;
+}
+
+/** 購入額を精算する（ユーザ通貨 → 未回収 → 所持金貨 → 債券＋手数料。使う通貨の指定があれば、その通貨だけ → 債券＋手数料） */
+function settle(ctx: GameCtx, amount: number, categoryId: string | null, payments: Payment[], refId: string, payWith?: unknown) {
   if (amount <= 0) return;
   const from = ctx.ledger.length;
-  withPurse(ctx, (p) => pay(p, amount, eligibleLots(ctx, ctx.lots, categoryId), payments));
+  const lots = eligibleLots(ctx, ctx.lots, categoryId);
+  withPurse(ctx, (p) => pay(p, amount, lots, payments, payChoice(ctx, payWith, categoryId, payableSources(p, lots, ctx.defs.map((d) => d.id)), amount)));
   ctx.mine!.settledThisMonth += amount;
   tagLedger(ctx, from, refId);
 }
@@ -452,7 +488,7 @@ async function subscriptionFor(ctx: GameCtx, body: Body) {
 
 /**
  * 支出の記録（docs/record-input-redesign.md §6）。
- * - 普通の支出：精算順（ユーザ通貨 → 未回収 → 所持金貨 → 債券＋手数料）で払う
+ * - 普通の支出：精算順（ユーザ通貨 → 未回収 → 所持金貨 → 債券＋手数料）で払う。payWith で使う通貨を選べる（選んだ通貨だけを使い、足りない分は債券）
  * - サブスクの支払い：登録額（ベース）は採掘から差し引き済みなので精算しない。登録額との差を差分として解消する
  * - ほしい物：価格（ベース）を 像の積立金貨 → 精算順 で払い、価格との差を差分として解消する（余った積立も債券 → おまかせ交換へ）
  */
@@ -502,7 +538,7 @@ export async function recordPurchase(ctx: GameCtx, body: Body) {
       }
     }
     settledAmount = settleBase - reservedApplied;
-    settle(ctx, settledAmount, cat.categoryId, payments, purchase.id);
+    settle(ctx, settledAmount, cat.categoryId, payments, purchase.id, body.payWith);
     await savePayments(ctx, purchase.id, payments);
     await ctx.tx.purchase.update({
       where: { id: purchase.id },
@@ -532,23 +568,31 @@ export async function recordPurchases(ctx: GameCtx, body: Body) {
   return { items };
 }
 
-/** 記録前の支払い内訳のプレビュー。状態は変えない */
+/**
+ * 記録前の支払い内訳のプレビュー。状態は変えない。
+ * sources はこの支出に使える通貨と払える額（使う通貨を選ぶときの選択肢。払う前の残り）。
+ * 金額がまだ入っていなくても（amount を省くか 0）、sources だけは返す
+ */
 export async function quotePurchase(ctx: GameCtx, body: Body) {
-  const amount = int(body.amount, "購入金額", { min: 1, max: 100_000_000 });
+  const amount = body.amount === undefined || body.amount === null || body.amount === "" ? 0 : int(body.amount, "購入金額", { min: 0, max: 100_000_000 });
   const input = { date: date(body.date, "購入日"), isSubscription: bool(body.isSubscription) };
   const categoryId = body.categoryId ? str(body.categoryId, "ジャンル") : null;
   if (!ctx.season || !settleable(ctx, input)) {
-    return { settleable: false, payment: summarize([]), after: null };
+    return { settleable: false, payment: summarize([]), sources: [], after: null };
   }
   const wish = body.wishItemId ? await wishFor(ctx, body) : null;
   const reserved = wish ? Math.min(await reservedFor(ctx, wish.id), amount) : 0;
   const payments: Payment[] = reserved > 0 ? [{ currency: "RESERVED", kind: "pay", amount: reserved }] : [];
-  const lots = ctx.lots.map((l) => ({ ...l }));
+  const copies = ctx.lots.map((l) => ({ ...l }));
+  const lots = eligibleLots(ctx, copies, categoryId);
   const purse = { mine: ctx.mine!, gold: ctx.balances.gold, silver: ctx.balances.silver, bond: ctx.balances.bond, bondCap: 0, moves: [], overspend: 0 };
-  pay(purse, amount - reserved, eligibleLots(ctx, lots, categoryId), payments);
+  const sources = payableSources(purse, lots, ctx.defs.map((d) => d.id));
+  if (amount <= 0) return { settleable: true, payment: summarize([]), sources, after: null };
+  pay(purse, amount - reserved, lots, payments, payChoice(ctx, body.payWith, categoryId, sources, amount - reserved));
   return {
     settleable: true,
     payment: summarize(payments),
+    sources,
     after: { gold: purse.gold, uncollected: Number(purse.mine.uncollected / 1_000_000n), silver: purse.silver, bond: purse.bond },
   };
 }
