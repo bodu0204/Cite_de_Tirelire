@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# シーズン開始時の設定のスモークテスト（docs/season-start-settings.md §13、AT-097〜104）。
+# シーズン開始時の設定のスモークテスト（docs/season-start-settings.md §13、AT-097〜107）。
 # 使い方: BASE=http://localhost:3000 PSQL="psql -h localhost -p 5433 -U tirelire tirelire" bash scripts/smoke-season-start.sh
 set -euo pipefail
 BASE=${BASE:-http://localhost:3000}

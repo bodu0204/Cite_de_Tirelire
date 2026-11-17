@@ -243,4 +243,4 @@
 | 置き場所の登録 | 開始画面に設定と同じ `AccountsCard` を置く（別のフォーム）。置き場所を変えると初期値を取り直す |
 | 引き落とし予定の注意（OA-06） | 開始残高に未払いがあり、まだ引き落としを確定していないカードの、最初の予定にだけ出す（`openingUnpaid`） |
 | 目標の名前 | 20文字まで。空白は1つにまとめる。銀行の画面で変える（`PATCH /api/season`） |
-| テスト | 単体：[season-start.test.ts](../src/game/__tests__/season-start.test.ts)（AT-098〜098・101・102）。API：`scripts/smoke-season-start.sh`（AT-097〜104） |
+| テスト | 単体：[season-start.test.ts](../src/game/__tests__/season-start.test.ts)（AT-098〜101・104・105）。API：`scripts/smoke-season-start.sh`（AT-097〜107） |
