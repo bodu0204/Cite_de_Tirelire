@@ -70,6 +70,8 @@ model Season {
   userId      String
   number      Int
   goalAmount  Int
+  /// 目標の名前（null は「シーズン N」。docs/season-start-settings.md §6）
+  goalName    String?
   status      SeasonStatus @default(ACTIVE)
   startedAt   DateTime     @default(now())
   reachedAt   DateTime?
@@ -106,6 +108,16 @@ model Season {
   mineFreeBond       Int       @default(0)
   /// 当期のユーザ通貨の未発生分から減らす額（src/game/idle.ts の CustomCut の配列）
   customCuts         Json      @default("[]")
+
+  /// 持ち込みの備え（円。開始時に申告したすでにある貯金のうち、債券の上限 3M までの分。docs/season-start-settings.md §4）。
+  /// 備えLvに足し、債券が −これ 以上の間は借金として扱わない。利息・建設資金・貯金額には数えない
+  reserveCarried      Int     @default(0)
+  /// 持ち込みの貯金（円。すでにある貯金のうち 3M を超える分。表示だけ）
+  carriedSavings      Int     @default(0)
+  /// 貯金を持ち越した元のシーズン（null はなし）
+  carriedFromSeasonId String?
+  /// 開始時に入れた今期の残りの自由予算（null は按分のまま）
+  startRemaining      Int?
 
   /// 都市に使った金貨の累計（円）：金貨で資源・都市資金を得た額。現実で使わなかった＝貯金になったお金。
   /// 貯金額 ＝ 債券 ＋ これ（docs/record-input-redesign.md §7.1）。貯金管理の記録では戻さない

@@ -1,8 +1,9 @@
 "use client";
 
-import { useSeasonView } from "@/components/GameProvider";
+import { useState } from "react";
+import { useGame, useSeasonView } from "@/components/GameProvider";
 import { SavingsGauge, TechGauge, WishSavingsGauge } from "@/components/home/Gauges";
-import { Card, LinkButton, Stat } from "@/components/ui";
+import { Button, Card, Field, LinkButton, NumberInput, Stat } from "@/components/ui";
 import { BANK_LEVEL_THRESHOLDS } from "@/game/config";
 import { goldMineBonus, silverMineBonus } from "@/game/levels";
 import { fmt, formatDate, yen } from "@/lib/api";
@@ -33,10 +34,89 @@ function SavingsChart({ points, goal }: { points: { at: number; value: number }[
   );
 }
 
+const GOAL_NAME_MAX = 20;
+
+/** 目標の名前（いつでも無料で変えられる。docs/season-start-settings.md GN-04） */
+function GoalName({ name, number }: { name: string | null; number: number }) {
+  const { act, toast, busy } = useGame();
+  const [edit, setEdit] = useState(false);
+  const [value, setValue] = useState(name ?? "");
+  if (!edit) {
+    return (
+      <p className="mt-1 text-sm">
+        目標：<span className="font-medium">{name ?? `シーズン${number}`}</span>
+        <button
+          className="ml-2 text-xs text-muted underline"
+          onClick={() => {
+            setValue(name ?? "");
+            setEdit(true);
+          }}
+        >
+          {name ? "名前を変える" : "名前をつける"}
+        </button>
+      </p>
+    );
+  }
+  return (
+    <form
+      className="mt-2 flex flex-wrap items-center gap-2"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        if (!(await act("/api/season", { goalName: value }, "PATCH"))) return;
+        toast(value.trim() ? "目標の名前を変えました" : "目標の名前を外しました");
+        setEdit(false);
+      }}
+    >
+      <input aria-label="目標の名前" className="min-w-0 flex-1" value={value} maxLength={GOAL_NAME_MAX} onChange={(e) => setValue(e.target.value)} placeholder="例：北海道旅行" />
+      <Button type="submit" disabled={busy}>
+        保存
+      </Button>
+      <button type="button" className="text-xs text-muted underline" onClick={() => setEdit(false)}>
+        やめる
+      </button>
+    </form>
+  );
+}
+
+/** すでにある貯金の訂正（開始から24時間以内だけ。docs/season-start-settings.md RC-11） */
+function CarriedEdit({ total }: { total: number }) {
+  const { act, toast, busy } = useGame();
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState(String(total));
+  if (!open) {
+    return (
+      <button className="mt-2 text-xs text-muted underline" onClick={() => setOpen(true)}>
+        すでにある貯金の額を直す（開始から24時間以内）
+      </button>
+    );
+  }
+  return (
+    <form
+      className="mt-3 space-y-2"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        if (!(await act("/api/season", { existingSavings: Number(value || 0) }, "PATCH"))) return;
+        toast("すでにある貯金を直しました");
+        setOpen(false);
+      }}
+    >
+      <Field label="すでにある貯金（円）">
+        <NumberInput value={value} onValueChange={setValue} />
+      </Field>
+      <Button type="submit" disabled={busy}>
+        保存
+      </Button>
+    </form>
+  );
+}
+
 export default function BankPage() {
   const v = useSeasonView();
   if (!v) return <p className="text-muted">進行中のシーズンがありません。</p>;
   const s = v.season;
+  const c = s.carried;
+  const carriedTotal = c.reserve + c.savings;
+  const canEditCarried = v.serverNow < c.editableUntil;
   let net = 0;
   const points = [{ at: s.startedAt, value: 0 }, ...s.savingsTimeline.map((e) => ({ at: e.at, value: (net += e.delta) }))];
   const nextBank = s.bankLevel < 6 ? BANK_LEVEL_THRESHOLDS[s.bankLevel] : null;
@@ -48,6 +128,7 @@ export default function BankPage() {
         <p className="mt-1 text-sm text-muted">
           街の中心の銀行は、現実の貯金目標を表す施設です。達成率に応じて成長し、金貨・銀貨から資源への交換効率が上がります。金貨の配当と、記録の報酬の銀貨も銀行から受け取ります。
         </p>
+        <GoalName name={s.name} number={s.number} />
       </div>
       <Card>
         <div className="space-y-4">
@@ -60,7 +141,7 @@ export default function BankPage() {
           <dt className="text-muted">債券以外（ゲーム内で使った金貨）</dt>
           <dd className="text-right">{yen(s.citySpent)}</dd>
           <dt className="text-muted">債券</dt>
-          <dd className={`text-right ${s.bond < 0 ? "text-danger" : ""}`}>
+          <dd className={`text-right ${s.inDebt ? "text-danger" : ""}`}>
             {s.bond < 0 ? "−" : "+"}
             {yen(Math.abs(s.bond))}
           </dd>
@@ -73,8 +154,42 @@ export default function BankPage() {
           貯金額は、ゲーム内で使った金貨（建設資金・銀貨への交換。金貨は使っても現実のお金は出ていきません）と債券の合計です。債券を現実の支払いに使うと貯金額は減ります。銀行Lv・技術Lv・目標達成はこの額で決まります。
         </p>
       </Card>
+      {(carriedTotal > 0 || canEditCarried) && (
+        <Card title="すでにある貯金と備え">
+          <dl className="num grid grid-cols-[1fr_auto] gap-y-1 text-sm">
+            <dt className="text-muted">持ち込みの備え（自由予算の3か月分まで）</dt>
+            <dd className="text-right">{yen(c.reserve)}</dd>
+            {c.savings > 0 && (
+              <>
+                <dt className="text-muted">持ち込みの貯金（それを超える分）</dt>
+                <dd className="text-right">{yen(c.savings)}</dd>
+              </>
+            )}
+            <dt className="text-muted">このシーズンの貯金額</dt>
+            <dd className="text-right">{yen(s.savings)}</dd>
+            <dt className="border-t border-line pt-1 font-medium">貯金の合計</dt>
+            <dd className="border-t border-line pt-1 text-right font-semibold">{yen(carriedTotal + s.savings)}</dd>
+            <dt className="pt-2 text-muted">備え（債券 ＋ 持ち込みの備え）</dt>
+            <dd className="pt-2 text-right">
+              {yen(Math.max(0, s.bond + c.reserve))}・備えLv{v.dev.reserveLevel}
+            </dd>
+          </dl>
+          {c.drawn > 0 && (
+            <p className={`mt-2 rounded-lg px-3 py-2 text-xs ${s.inDebt ? "bg-danger/10" : "bg-surface-2"}`}>
+              {s.inDebt
+                ? `持ち込みの備え ${yen(c.reserve)} を使い切り、さらに ${yen(-s.bond - c.reserve)} 足りていません。戻るまで配当の20%以上が債券に回ります。`
+                : `持ち込みの備えから ${yen(c.drawn)} 取り崩し中です（残り ${yen(c.reserve - c.drawn)}）。この範囲では配当の強制の債券化は起きません。`}
+            </p>
+          )}
+          <p className="mt-2 text-xs text-muted">
+            {c.fromPrevious ? "前の街から持ち越した貯金です。" : "シーズンを始めるときに入れた、すでにある貯金です。"}
+            持ち込みの備えは備えLvに数えますが、利息・建設資金・達成率・技術Lvには数えません。街はこのシーズンに貯めた分で育ちます。
+          </p>
+          {canEditCarried && <CarriedEdit total={carriedTotal} />}
+        </Card>
+      )}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <Stat label="貯金目標" value={yen(s.goal)} sub={`シーズン${s.number}`} />
+        <Stat label="貯金目標" value={yen(s.goal)} sub={s.name ?? `シーズン${s.number}`} />
         <Stat label="貯金額" value={yen(s.savings)} sub={`最高 ${yen(s.max)}`} />
         <Stat label="銀行" value={s.bankLevel >= 6 ? "完成" : `Lv${s.bankLevel}`} sub={nextBank !== null ? `次は達成率${nextBank}%` : undefined} />
         <Stat label="交換ボーナス" value={`+${Math.round(s.bankBonus * 100)}%`} sub="金貨・銀貨とも" />

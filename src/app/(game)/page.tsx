@@ -169,8 +169,9 @@ export default function HomePage() {
               <span className="flex-1">
                 債券
                 {v.dev.interestPerDay > 0 && <span className="ml-1 text-xs text-muted">利息 +{fmt(Math.floor(v.dev.interestPerDay))}円/日</span>}
+                {v.season.carried.drawn > 0 && !v.season.inDebt && <span className="ml-1 text-xs text-muted">持ち込みの備えから取り崩し中</span>}
               </span>
-              <span className={v.currencies.bond < 0 ? "font-semibold text-danger" : ""}>{fmt(v.currencies.bond)}</span>
+              <span className={v.season.inDebt ? "font-semibold text-danger" : ""}>{fmt(v.currencies.bond)}</span>
             </li>
             {(allCurrencies ? v.currencies.custom : v.currencies.custom.slice(0, CUSTOM_SHOWN)).map((c) => (
               <li key={c.id} className="flex items-center gap-2">

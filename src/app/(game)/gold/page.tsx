@@ -93,8 +93,13 @@ export default function DividendPage() {
       <Card title={<span className="flex items-center gap-1.5"><BondIcon size={16} />配当の債券化</span>}>
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <span className="text-sm text-muted">債券</span>
-          <span className={`num font-pixel text-2xl ${v.currencies.bond < 0 ? "text-danger" : ""}`}>{fmt(v.currencies.bond)}</span>
+          <span className={`num font-pixel text-2xl ${v.season.inDebt ? "text-danger" : ""}`}>{fmt(v.currencies.bond)}</span>
         </div>
+        {v.season.carried.drawn > 0 && !v.season.inDebt && (
+          <p className="mt-1 text-xs">
+            持ち込みの備えから {yen(v.season.carried.drawn)} 取り崩し中です（残り {yen(v.season.carried.reserve - v.season.carried.drawn)}）。この範囲では配当の強制の債券化は起きません。債券が0に戻るまで利息はつきません。
+          </p>
+        )}
         <p className="mt-1 text-xs text-muted">
           配当の一部を債券に回します。債券に入った分は同じ額の建設資金になり、債券は急な出費（金貨が足りない購入）を肩代わりします。持っている間は毎日利息が建設資金として街に入ります（今 +{yen(Math.floor(v.dev.interestPerDay))}/日・備えLv{v.dev.reserveLevel}）。上限 {fmt(bond.cap)}（自由予算の3か月分）に達したら自動で止まります。
         </p>

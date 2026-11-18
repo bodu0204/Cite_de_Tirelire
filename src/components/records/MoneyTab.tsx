@@ -77,6 +77,11 @@ function Bills({ data, onDone }: { data: AccountsData; onDone: () => void }) {
                   {name(b.debitAccountId)} → {b.cardName}（記録から計算 {yen(b.amount)}）
                 </span>
               </div>
+              {b.openingUnpaid > 0 && (
+                <p className="mb-2 rounded-lg bg-surface-2 px-3 py-2 text-xs">
+                  登録したときの未払い {yen(b.openingUnpaid)}（登録前の利用）が、この引き落としに含まれているか確かめてください。含まれていれば、金額に足してから確定します。
+                </p>
+              )}
               <div className="flex flex-wrap items-center gap-2">
                 <NumberInput aria-label={`${b.cardName}の請求額（円）`} className="w-32" value={value} onValueChange={(x) => setAmounts((p) => ({ ...p, [b.id]: x }))} />
                 <span className="text-sm">円</span>

@@ -64,6 +64,8 @@ export interface BondSplit {
   rate: number;
   /** 債券化が止まる額 */
   cap: number;
+  /** 持ち込みの備え（債券が −carried 以上の間は強制しない。docs/season-start-settings.md RC-07） */
+  carried?: number;
 }
 
 export const floorMinute = (t: number) => Math.floor(t / MINUTE) * MINUTE;
@@ -112,6 +114,9 @@ export function accrue(
   const changes = opts.plan.changePoints();
   const rate = opts.bond?.rate ?? 0;
   const cap = opts.bond?.cap ?? 0;
+  const carried = opts.bond?.carried ?? 0;
+  // これを下回る間は借金（強制の債券化）。持ち込みの備えがなければ 0
+  const floor = -carried;
   let bond = opts.bond?.balance ?? 0;
   let toBond = 0;
 
@@ -130,11 +135,11 @@ export function accrue(
     const net = BigInt(opts.plan.netAt(t));
     const len = BigInt(end - start);
     while (t < segEnd) {
-      const share = BigInt(bondShare(bond, rate, cap));
+      const share = BigInt(bondShare(bond, rate, cap, carried));
       let stepEnd = segEnd;
-      // 債券が 0（マイナスの返済）か上限に届くまでの残り（µG）
+      // 債券が借金の境目（マイナスの返済）か上限に届くまでの残り（µG）
       let need: bigint | null = null;
-      if (share > 0n) need = BigInt((bond < 0 ? 0 : cap) - bond) * MICRO_PER_GOLD - m.bondFraction;
+      if (share > 0n) need = BigInt((bond < floor ? floor : cap) - bond) * MICRO_PER_GOLD - m.bondFraction;
       if (need !== null && net > 0n) {
         const ms = ceilDiv(need * 100n * len, net * MICRO_PER_GOLD * share);
         stepEnd = Math.min(segEnd, t + Number(ceilDiv(ms, BigInt(MINUTE))) * MINUTE);
@@ -154,7 +159,7 @@ export function accrue(
         m.cut -= c;
       }
       let part = (mined * share) / 100n;
-      if (need !== null && bond >= 0 && part > need) part = need;
+      if (need !== null && bond >= floor && part > need) part = need;
       m.bondFraction += part;
       const whole = Number(m.bondFraction / MICRO_PER_GOLD);
       m.bondFraction %= MICRO_PER_GOLD;
@@ -234,4 +239,20 @@ export function remainingMining(mine: MineState, plan: MinePlan, cal: PeriodCal,
     else otherWindows += rest;
   }
   return { natural, dividendWindows, otherWindows };
+}
+
+/** シーズン開始時の「今期の残りの自由予算」の上乗せの印（収入の記録ではない） */
+export const START_WINDOW_ID = "season_start";
+
+/**
+ * シーズン開始時に入れた「今期の残りの自由予算」remaining（G）を、最初の収入期間の配当に合わせる（docs/season-start-settings.md RB-03）。
+ * 按分の額（at から期間の終わりまでの B − S − C の採掘）より多ければ差を期間の終わりまで均等に上乗せし、少なければ残りの採掘から減らす
+ */
+export function withStartRemaining(mine: MineState, plan: MinePlan, cal: PeriodCal, at: number, remaining: number): MineState {
+  const from = floorMinute(at);
+  const { end } = periodRange(from, cal);
+  const diff = BigInt(Math.max(0, Math.floor(remaining))) * MICRO_PER_GOLD - remainingMining(mine, plan, cal, from).natural;
+  if (diff > 0n && end > from) return { ...mine, windows: [...(mine.windows ?? []), { incomeId: START_WINDOW_ID, dividend: true, start: from, end, total: diff }] };
+  if (diff < 0n) return { ...mine, cut: (mine.cut ?? 0n) - diff };
+  return mine;
 }

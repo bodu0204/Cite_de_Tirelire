@@ -1,6 +1,6 @@
 // ゲーム操作。すべて withGame の中（同期済み・ロック済み）で呼ばれる。
 import { Prisma } from "@prisma/client";
-import { bondCap, bondResourceEligible } from "@/game/bond";
+import { bondCap, bondResourceEligible, splitCarried } from "@/game/bond";
 import { createCity, seasonBase } from "@/game/city/init";
 import { cityNeeds } from "@/game/city/sim";
 import { buildingLabel, DECOR_KINDS, DECOR_LABELS, TIMELAPSE_FX } from "@/game/catalog";
@@ -25,9 +25,9 @@ import { quoteBondGains, quoteNeedsExchange, quoteResourceExchange, totalGains, 
 import { creditGains } from "@/game/fund";
 import { budgetOverruns, describeOverruns, startOfDay, type Overrun } from "@/game/currency";
 import { goldMineLevel, silverMineLevel } from "@/game/levels";
-import { collect, newMine } from "@/game/mine";
+import { collect, floorMinute, microToGold, newMine, remainingMining, withStartRemaining } from "@/game/mine";
 import { lotOrder, pay, payableSources, summarize, type Lot, type Payment, type PaySource, type SourceBalance } from "@/game/settle";
-import { changePayday, dayKey, isValidTimeZone, parseDateInTz, periodKey } from "@/game/time";
+import { changePayday, dayKey, isValidTimeZone, monthCal, parseDateInTz, periodKey, periodRange, type PeriodCal } from "@/game/time";
 import { snapBuilding, type Gains, type StockKey } from "@/game/types";
 import {
   addCurrency,
@@ -44,7 +44,7 @@ import {
   type GameCtx,
 } from "./game";
 import { resolveCategory } from "./categories";
-import { grantPaymentReward, setPurchaseAccount, spendAccountFor } from "./accounts";
+import { accountBalances, ensureAccounts, grantPaymentReward, setPurchaseAccount, spendAccountFor } from "./accounts";
 import { resolveDiff } from "./resolve";
 import { bool, date, int, oneOf, optDate, optStr, str } from "./validate";
 
@@ -59,15 +59,102 @@ function requireOpen(ctx: GameCtx) {
 
 // ---- シーズン ----
 
+/** 目標の名前の長さの上限（文字。docs/season-start-settings.md GN-01） */
+export const GOAL_NAME_MAX = 20;
+/** 持ち込みの貯金を直せる時間（開始から。RC-11） */
+export const CARRIED_EDIT_MS = 24 * 60 * 60 * 1000;
+
+const given = (v: unknown) => v !== undefined && v !== null && v !== "";
+
+function goalNameOf(v: unknown): string | null {
+  const name = str(v, "目標の名前", { max: 100, optional: true }).replace(/\s+/g, " ");
+  if ([...name].length > GOAL_NAME_MAX) fail("invalid", `目標の名前は${GOAL_NAME_MAX}文字以内で入力してください`);
+  return name || null;
+}
+
+/**
+ * シーズン開始時の収入日の区切り（docs/season-start-settings.md PD-02・03）。
+ * シーズンが1つもなければ選んだ日ですぐに区切り、2回目以降は設定と同じく次の収入日から効かせる
+ */
+function startCal(ctx: GameCtx, day: number, first: boolean): PeriodCal {
+  if (first) return monthCal(ctx.user.timezone, day);
+  return day === ctx.user.incomeDay ? ctx.cal : changePayday(ctx.cal, day, ctx.now);
+}
+
+/** 完了したシーズンの貯金（次のシーズンに持ち越せる額。CO-02）：持ち込んだ分 ＋ そのシーズンの貯金額。0 未満は 0 */
+const carryOverOf = (s: { bond: number; citySpentGold: number; reserveCarried: number; carriedSavings: number }) =>
+  Math.max(0, s.reserveCarried + s.carriedSavings + s.bond + s.citySpentGold);
+
+const lastCompleted = (ctx: GameCtx) => ctx.tx.season.findFirst({ where: { userId: ctx.user.id, status: "COMPLETED" }, orderBy: { number: "desc" } });
+
+/**
+ * 開始画面の初期値（docs/season-start-settings.md §3・RB-02・CO-01・RC-03）。
+ * budget・incomeDay は入力中の値（なければ今の設定）。按分の額と期間の残りは、その値で始めたときのもの
+ */
+export async function seasonDraft(ctx: GameCtx, q: { budget?: string | null; incomeDay?: string | null }) {
+  const count = await ctx.tx.season.count({ where: { userId: ctx.user.id } });
+  const first = count === 0;
+  const budget = given(q.budget) ? int(q.budget, "月間自由予算", { max: 10_000_000 }) : ctx.user.monthlyBudget;
+  const day = given(q.incomeDay) ? int(q.incomeDay, "収入日", { min: 1, max: 31 }) : ctx.user.incomeDay;
+  const cal = startCal(ctx, day, first);
+  const plan = budgetPlan({ ...ctx, cal }, { budget });
+  const from = floorMinute(ctx.now);
+  const period = periodRange(from, cal);
+  const prorated = Math.floor(microToGold(remainingMining(newMine(from, cal), plan, cal, from).natural));
+  const prev = await lastCompleted(ctx);
+  // 貯金用の置き場所の残高の合計（RC-03・OA-07）
+  const accounts = (await ensureAccounts(ctx)).filter((a) => a.isSavings && !a.archivedAt);
+  const bal = accounts.length ? await accountBalances(ctx) : new Map<string, number>();
+  const savingsAccounts = Math.max(0, Math.round(accounts.reduce((s, a) => s + (bal.get(a.id) ?? 0), 0)));
+  return {
+    first,
+    number: count + 1,
+    budget,
+    incomeDay: day,
+    /** 収入日がすぐ効くか（初回だけ） */
+    incomeDayNow: first,
+    period: { start: period.start, end: period.end },
+    /** 今期の残りの按分の額（G）と、月あたりの配当（B − S − C） */
+    prorated,
+    net: plan.netAt(from),
+    bondCap: bondCap(budget),
+    previous: prev && !ctx.season ? { id: prev.id, number: prev.number, goalName: prev.goalName, amount: carryOverOf(prev) } : null,
+    savingsAccounts,
+  };
+}
+
 export async function startSeason(ctx: GameCtx, body: Body) {
   if (ctx.season) fail("season_exists", "進行中のシーズンがあります", 409);
   const goal = int(body.goalAmount, "貯金目標額", { min: 1000, max: 100_000_000 });
-  if (body.monthlyBudget !== undefined) {
-    ctx.user = await ctx.tx.user.update({ where: { id: ctx.user.id }, data: { monthlyBudget: int(body.monthlyBudget, "月間自由予算", { max: 10_000_000 }) } });
+  const goalName = goalNameOf(body.goalName);
+  const count = await ctx.tx.season.count({ where: { userId: ctx.user.id } });
+  const user: Prisma.UserUpdateInput = {};
+  if (body.monthlyBudget !== undefined) user.monthlyBudget = int(body.monthlyBudget, "月間自由予算", { max: 10_000_000 });
+  if (given(body.incomeDay)) {
+    // 収入日（PD-01〜03）：初回はすぐに、2回目以降は次の収入日から
+    const day = int(body.incomeDay, "収入日", { min: 1, max: 31 });
+    const cal = startCal(ctx, day, count === 0);
+    if (cal !== ctx.cal) {
+      user.incomeDay = day;
+      user.incomeEras = erasJson(cal) as unknown as Prisma.InputJsonValue;
+    }
   }
-  const tz = ctx.user.timezone;
-  const number = (await ctx.tx.season.count({ where: { userId: ctx.user.id } })) + 1;
-  const mine = newMine(ctx.now, ctx.cal);
+  if (Object.keys(user).length) {
+    ctx.user = await ctx.tx.user.update({ where: { id: ctx.user.id }, data: user });
+    ctx.cal = calOf(ctx.user);
+  }
+  const number = count + 1;
+  let mine = newMine(ctx.now, ctx.cal);
+  // 今期の残りの自由予算（RB-01〜04）：按分の額との差を、最初の収入期間の配当だけに入れる
+  let startRemaining: number | null = null;
+  if (given(body.remainingBudget)) {
+    startRemaining = int(body.remainingBudget, "今期の残りの自由予算", { max: Math.max(0, ctx.user.monthlyBudget) });
+    mine = withStartRemaining(mine, budgetPlan(ctx), ctx.cal, ctx.now, startRemaining);
+  }
+  // すでにある貯金（§4・§5）：債券の上限（3M）までは持ち込みの備え、超える分は持ち込みの貯金
+  const existing = given(body.existingSavings) ? int(body.existingSavings, "すでにある貯金", { max: 2_000_000_000 }) : 0;
+  const carried = splitCarried(existing, ctx.user.monthlyBudget);
+  const prev = existing > 0 && bool(body.carryOver) ? await lastCompleted(ctx) : null;
   // 基準額（値段と発展Lv・技術Lvの単位）はシーズン開始時の月間自由予算と目標額で決め、シーズン中は変えない（PRC-05・PRC-06）
   const city = createCity(ctx.now, seasonBase(ctx.user.monthlyBudget, goal));
   const season = await ctx.tx.season.create({
@@ -75,9 +162,14 @@ export async function startSeason(ctx: GameCtx, body: Body) {
       userId: ctx.user.id,
       number,
       goalAmount: goal,
+      goalName,
       startedAt: new Date(ctx.now),
       gold: 0,
       silver: 0,
+      reserveCarried: carried.reserve,
+      carriedSavings: carried.savings,
+      carriedFromSeasonId: prev?.id ?? null,
+      startRemaining,
       mineLastAccrualAt: new Date(mine.lastAccrualAt),
       mineMonthKey: mine.monthKey,
     },
@@ -97,12 +189,38 @@ export async function startSeason(ctx: GameCtx, body: Body) {
   ctx.cuts = [];
   addCurrency(ctx, "GOLD", INITIAL_GOLD, "season_start");
   addCurrency(ctx, "SILVER", INITIAL_SILVER, "season_start");
-  ctx.events.push({ at: ctx.now, type: "SEASON_STARTED", auto: false, important: true, payload: { goal, number } });
+  ctx.events.push({
+    at: ctx.now,
+    type: "SEASON_STARTED",
+    auto: false,
+    important: true,
+    payload: { goal, number, ...(goalName ? { name: goalName } : {}), ...(existing > 0 ? { carried: existing, fromPrevious: !!prev } : {}) },
+  });
   await syncSpecials(ctx);
   await ctx.tx.citySnapshot.create({
     data: { seasonId: season.id, kind: "START", at: new Date(ctx.now), state: city as unknown as Prisma.InputJsonValue },
   });
   return { seasonId: season.id };
+}
+
+/**
+ * 進行中のシーズンの変更（docs/season-start-settings.md GN-04・RC-11）：目標の名前はいつでも、
+ * すでにある貯金は開始から24時間以内だけ直せる（誤入力のため）
+ */
+export function updateSeason(ctx: GameCtx, body: Body) {
+  requireOpen(ctx);
+  const season = ctx.season!;
+  if (body.goalName !== undefined) ctx.seasonPatch.goalName = goalNameOf(body.goalName);
+  if (body.existingSavings !== undefined) {
+    if (ctx.now - season.startedAt.getTime() > CARRIED_EDIT_MS) fail("locked", "すでにある貯金を直せるのは、シーズン開始から24時間以内です", 409);
+    const carried = splitCarried(int(body.existingSavings, "すでにある貯金", { max: 2_000_000_000 }), ctx.user.monthlyBudget);
+    ctx.seasonPatch.reserveCarried = carried.reserve;
+    ctx.seasonPatch.carriedSavings = carried.savings;
+    // この操作の残り（表示）にもすぐ効かせる
+    ctx.season = { ...season, reserveCarried: carried.reserve, carriedSavings: carried.savings };
+  }
+  if (body.goalName !== undefined) ctx.season = { ...ctx.season!, goalName: ctx.seasonPatch.goalName as string | null };
+  return { ok: true };
 }
 
 export async function completeSeason(ctx: GameCtx) {

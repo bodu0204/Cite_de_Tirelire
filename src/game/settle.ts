@@ -46,6 +46,8 @@ export interface Purse {
   bond: number;
   /** 債券化（採掘・ユーザ通貨の余り）が止まる額 */
   bondCap: number;
+  /** 持ち込みの備え（備えLvに足し、債券が −carried 以上の間は強制の債券化をしない。docs/season-start-settings.md §4） */
+  carried?: number;
   moves: Move[];
   /** 当月に不足分として債券から払った額の増減 */
   overspend: number;

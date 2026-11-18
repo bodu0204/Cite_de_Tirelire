@@ -9,6 +9,7 @@ import { useList } from "@/lib/useList";
 interface SeasonRow {
   id: string;
   number: number;
+  goalName: string | null;
   goalAmount: number;
   startedAt: string;
   reachedAt: string | null;
@@ -34,8 +35,10 @@ export default function TimelapseListPage() {
               <li key={s.id}>
                 <Link href={`/timelapse/${s.id}`} className="flex items-center justify-between gap-3 py-3 hover:opacity-80">
                   <span>
-                    <span className="font-pixel">シーズン{s.number}</span>
-                    <span className="ml-2 text-sm text-muted">目標 {yen(s.goalAmount)}</span>
+                    <span className="font-pixel">{s.goalName ?? `シーズン${s.number}`}</span>
+                    <span className="ml-2 text-sm text-muted">
+                      {s.goalName && `シーズン${s.number}・`}目標 {yen(s.goalAmount)}
+                    </span>
                   </span>
                   <span className="text-xs text-muted">
                     {formatDate(new Date(s.startedAt).getTime(), tz)}〜{s.reachedAt ? formatDate(new Date(s.reachedAt).getTime(), tz) : ""} ▶

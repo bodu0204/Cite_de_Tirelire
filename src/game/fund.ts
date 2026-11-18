@@ -76,7 +76,7 @@ export function bondInterestPerDay(bond: number, cap: number): number {
   return Math.max(0, Math.min(bond, cap)) * BOND_INTEREST_PER_DAY;
 }
 
-/** 備えLv（0〜4）：債券残高が月間自由予算の 0.5 / 1 / 2 / 3 か月分（RSV-03） */
+/** 備えLv（0〜4）：備え（債券残高 ＋ 持ち込みの備え。呼ぶ側で足す）が月間自由予算の 0.5 / 1 / 2 / 3 か月分（RSV-03） */
 export function reserveLevel(bond: number, monthlyBudget: number): number {
   if (monthlyBudget <= 0 || bond <= 0) return 0;
   return RESERVE_LEVEL_MONTHS.filter((m) => bond >= m * monthlyBudget).length;

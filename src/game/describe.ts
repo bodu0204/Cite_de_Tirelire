@@ -132,7 +132,9 @@ export function describeEvent(e: DescribableEvent): string {
     case "SAVINGS_MILESTONE":
       return `貯金目標の${p.percent}%を達成しました！`;
     case "SEASON_STARTED":
-      return `シーズン${p.number}が始まりました（目標 ${yen(p.goal as number)}）`;
+      return `${p.name ? `「${p.name}」` : `シーズン${p.number}`}が始まりました（目標 ${yen(p.goal as number)}）${
+        (p.carried as number) > 0 ? `。${p.fromPrevious ? "前の街から" : ""}貯金 ${yen(p.carried as number)} を持ち込みました` : ""
+      }`;
     case "SEASON_COMPLETED":
       return "貯金目標を達成し、街が完成しました！";
     default:

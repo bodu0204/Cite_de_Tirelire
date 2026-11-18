@@ -1,5 +1,5 @@
 // クライアントへ返す状態（ホーム画面・各施設画面で共通）。
-import { bondCap, bondMiningStatus, bondShare } from "@/game/bond";
+import { bondCap, bondMiningStatus, bondShare, carriedDrawn } from "@/game/bond";
 import { highestUnlockedTier, LINE_IDS, LINES, unlocksAtTech } from "@/game/catalog";
 import { computeMetrics } from "@/game/city/economy";
 import { basePlotLimit, habitPlots, nextHabitPlotIn, plotLimit, plotsUsed, savingDaysOf, unlockedTileCount } from "@/game/city/layout";
@@ -28,7 +28,7 @@ import { dayKey, periodRange } from "@/game/time";
 import type { CityState, Gains } from "@/game/types";
 import { currencySummaries } from "./currencies";
 import { budgetPlan, monthlyEquivalent, savingsOf, type GameCtx } from "./game";
-import { extraRewardWhere, facilityLevels } from "./ops";
+import { CARRIED_EDIT_MS, extraRewardWhere, facilityLevels } from "./ops";
 import { seasonSavingsMoves } from "./accounts";
 
 export interface AwayStats {
@@ -147,7 +147,10 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
   const overspends = await tx.monthlyOverspend.findMany({ where: { seasonId: season.id }, orderBy: { monthKey: "desc" } });
   const bond = ctx.balances.bond;
   const cap = bondCap(user.monthlyBudget);
-  const reserve = reserveLevel(bond, user.monthlyBudget);
+  // 備え ＝ 債券 ＋ 持ち込みの備え（docs/season-start-settings.md RC-04）
+  const carried = season.reserveCarried;
+  const reserve = reserveLevel(bond + carried, user.monthlyBudget);
+  const nextReserve = nextReserveAt(reserve, user.monthlyBudget);
   const plan = budgetPlan(ctx);
   const custom = currencySummaries(ctx);
   const needs = cityNeeds(city, metrics);
@@ -160,6 +163,8 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
     season: {
       id: season.id,
       number: season.number,
+      /** 目標の名前（なければ null。画面では「シーズン N」と呼ぶ） */
+      name: season.goalName,
       status: (ctx.seasonPatch.status as string | undefined) ?? season.status,
       goal: season.goalAmount,
       startedAt: season.startedAt.getTime(),
@@ -168,6 +173,19 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
       savings: saved.amount,
       citySpent: saved.citySpent,
       bond,
+      /**
+       * すでにある貯金（開始時に申告。docs/season-start-settings.md §4）：reserve は持ち込みの備え（債券の上限まで。備えLvに足す）、
+       * savings は超える分（表示だけ）、drawn は持ち込みの備えから取り崩している額、editableUntil までは直せる
+       */
+      carried: {
+        reserve: carried,
+        savings: season.carriedSavings,
+        drawn: carriedDrawn(bond, carried),
+        editableUntil: season.startedAt.getTime() + CARRIED_EDIT_MS,
+        fromPrevious: !!season.carriedFromSeasonId,
+      },
+      /** 債券が借金の扱い（強制の債券化）か：持ち込みの備えを超えるマイナス */
+      inDebt: bond < -carried,
       /** 貯金額の最高到達額（技術Lv） */
       max: saved.max,
       rate: saved.rate,
@@ -212,9 +230,9 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
       bond: {
         rate: user.bondMiningRate,
         cap,
-        status: bondMiningStatus(bond, user.bondMiningRate, cap),
+        status: bondMiningStatus(bond, user.bondMiningRate, cap, carried),
         /** 今の採掘のうち債券へ回る割合（%） */
-        share: bondShare(bond, user.bondMiningRate, cap),
+        share: bondShare(bond, user.bondMiningRate, cap, carried),
       },
       /** 記録による確定（docs/savings-driven-growth.md REC-01）：最後に確定した時刻、まだ確定していない配当、手数料なしで取り崩せる債券 */
       confirmedAt: mine.confirmedAt ?? null,
@@ -280,7 +298,8 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
       fund: city.treasury,
       interestPerDay: bondInterestPerDay(bond, cap),
       reserveLevel: reserve,
-      nextReserveAt: nextReserveAt(reserve, user.monthlyBudget),
+      /** 次の備えLvになる債券残高（持ち込みの備えを引いた額） */
+      nextReserveAt: nextReserve === null ? null : nextReserve - carried,
       earlyBonusRate: earlyBonusRate(city, ctx.now),
       /** 開拓期ボーナスでまだ増やせる額（円） */
       earlyBonusRoom: earlyBonusRoom(city),

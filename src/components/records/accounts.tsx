@@ -31,6 +31,8 @@ export interface CardBill {
   dueDate: string;
   amount: number;
   debitAccountId: string | null;
+  /** 開始残高の未払い（最初の引き落とし予定だけ。それ以外は 0。docs/season-start-settings.md OA-06） */
+  openingUnpaid: number;
 }
 
 export interface ExtraReward {
