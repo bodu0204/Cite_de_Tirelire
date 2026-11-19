@@ -168,12 +168,13 @@ export async function previewCurrency(ctx: GameCtx, body: Body) {
   const def = asLite(id ?? "new", input, cur?.sortOrder ?? Number.MAX_SAFE_INTEGER, cur?.createdAt.getTime() ?? ctx.now);
   const defs = cur ? ctx.defs.map((d) => (d.id === id ? def : d)) : [...ctx.defs, def];
   const plan = budgetPlan(ctx, { defs });
-  const alone = budgetPlan(ctx, { defs: [def], budget: Number.MAX_SAFE_INTEGER, subs: [] });
+  const alone = budgetPlan(ctx, { defs: [def], income: Number.MAX_SAFE_INTEGER, subs: [] });
   const tz = ctx.user.timezone;
   const thisMonth = periodRange(ctx.now, ctx.cal);
   const months = [thisMonth.start, thisMonth.end].map((t) => {
     const m = plan.monthSummary(t);
-    return { monthKey: dayKey(t, tz).slice(0, 7), budget: plan.budget, subs: m.subs, custom: m.custom, thisCurrency: alone.monthSummary(t).custom, mining: m.net };
+    // budget は自由予算（手取り月収 − 固定費）
+    return { monthKey: dayKey(t, tz).slice(0, 7), budget: m.budget, subs: m.subs, custom: m.custom, thisCurrency: alone.monthSummary(t).custom, mining: m.net };
   });
   return { next: nextOccurrences(def, ctx.now, tz, 5), months, overruns: budgetOverruns(plan, ctx.now) };
 }

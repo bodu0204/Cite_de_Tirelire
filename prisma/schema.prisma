@@ -13,8 +13,8 @@ model User {
   id                     String   @id @default(cuid())
   email                  String   @unique
   passwordHash           String
-  /// 月間自由予算（円）
-  monthlyBudget          Int      @default(0)
+  /// 手取り月収（円）。M：債券の上限（3M）・備えLv・基準額の物差し。自由予算は 手取り月収 − 固定費（docs/take-home-and-fixed-costs.md）
+  monthlyIncome          Int      @default(0)
   timezone               String   @default("Asia/Tokyo")
   /// 採掘の債券化率（%、0〜100、10刻み）
   bondMiningRate         Int      @default(0)
@@ -44,7 +44,6 @@ model User {
   accounts           MoneyAccount[]
   transfers          Transfer[]
   cardBills          CardBill[]
-  outsideRecords     OutsideRecord[]
   accountAdjustments AccountAdjustment[]
 }
 
@@ -286,7 +285,7 @@ enum AccountKind {
 }
 
 /// お金の置き場所（docs/money-accounts.md §4）。口座・財布（現金）・クレカ・電子マネー。
-/// 残高 ＝ 開始残高 ＋ 開始日以後の 収入 − 支出 ± 振替 ± 予算外の入出金 ± 照合の調整（src/game/ledger.ts）
+/// 残高 ＝ 開始残高 ＋ 開始日以後の 収入 − 支出 ± 振替 ± 照合の調整（src/game/ledger.ts）
 model MoneyAccount {
   id             String         @id @default(cuid())
   userId         String
@@ -361,22 +360,6 @@ model CardBill {
 
   @@unique([cardId, dueDate])
   @@index([userId, status])
-}
-
-/// 予算外の入出金（家賃・固定費の引き落とし、給料のうち自由予算でない分など）。置き場所の残高だけを動かし、ゲームには使わない
-model OutsideRecord {
-  id        String   @id @default(cuid())
-  userId    String
-  accountId String
-  date      String
-  name      String
-  /// 入金は＋、出金は−（取り消すと 0）
-  amount    Int
-  memo      String?
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId, date])
 }
 
 /// 照合での置き場所ごとの残高の調整（docs/money-accounts.md §9）。誤差の合計は CashAdjustment
@@ -490,20 +473,32 @@ enum BillingCycle {
   YEARLY
 }
 
+enum SubscriptionKind {
+  SUBSCRIPTION
+  FIXED
+}
+
+/// サブスクと固定費（docs/take-home-and-fixed-costs.md §5）。どちらも月額を配当から引き、支払いは支出タブの行から記録する
 model Subscription {
-  id        String        @id @default(cuid())
-  userId    String
-  name      String
-  amount    Int
-  cycle     BillingCycle  @default(MONTHLY)
-  startDate String
-  endDate   String?
-  memo      String?
-  /// 出どころ（支出タブのサブスクの行の初期値。docs/money-accounts.md RS-03）
-  accountId String?
-  createdAt DateTime      @default(now())
-  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  account   MoneyAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  id             String           @id @default(cuid())
+  userId         String
+  /// SUBSCRIPTION：自由予算の内訳で、公園が建つ。FIXED：固定費。手取り月収から先に引き、公園は建たない
+  kind           SubscriptionKind @default(SUBSCRIPTION)
+  name           String
+  amount         Int
+  cycle          BillingCycle     @default(MONTHLY)
+  startDate      String
+  endDate        String?
+  /// 支払日（1〜31。その月にない日は末日）。入れると、その日が来てから支払いの行を出す（月額だけ。null は期間の初めから）
+  payDay         Int?
+  /// 「この回は記録しない」にした期間（"YYYY-MM"）
+  skippedPeriods String[]         @default([])
+  memo           String?
+  /// 出どころ（支出タブの行の初期値。docs/money-accounts.md RS-03）
+  accountId      String?
+  createdAt      DateTime         @default(now())
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account        MoneyAccount?    @relation(fields: [accountId], references: [id], onDelete: SetNull)
 
   @@index([userId])
 }

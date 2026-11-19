@@ -21,7 +21,7 @@ async function main() {
   const now = Date.now();
   const start = now - 12 * DAY;
   const user = await prisma.user.create({
-    data: { email: EMAIL, passwordHash: await hashPassword("password123"), monthlyBudget: 60000, timezone: TZ },
+    data: { email: EMAIL, passwordHash: await hashPassword("password123"), monthlyIncome: 60000, timezone: TZ },
   });
   const sub = await prisma.subscription.create({
     data: { userId: user.id, name: "動画配信", amount: 1490, cycle: "MONTHLY", startDate: dayKey(start - 30 * DAY, TZ) },

@@ -3,16 +3,20 @@
 import { useEffect, useRef, useState } from "react";
 import { AccountsCard } from "../AccountsCard";
 import { useGame } from "../GameProvider";
+import { FixedCostsInline } from "../Recurring";
 import { Button, Card, Field, LinkButton, NumberInput } from "../ui";
 import { BOND_CAP_MONTHS } from "@/game/config";
 import { splitCarried } from "@/game/bond";
 import { reserveLevel } from "@/game/fund";
 import { api, fmt, formatDate, yen } from "@/lib/api";
 
-/** 開始画面の初期値（GET /api/season/draft。docs/season-start-settings.md §11.3） */
+/** 開始画面の初期値（GET /api/season/draft。docs/season-start-settings.md §11.3、docs/take-home-and-fixed-costs.md §9） */
 interface Draft {
   first: boolean;
   number: number;
+  /** 月間固定費（登録済みの固定費の月額換算の合計）と、自由予算（手取り月収 − 固定費） */
+  fixed: number;
+  budget: number;
   incomeDayNow: boolean;
   period: { start: number; end: number };
   prorated: number;
@@ -25,13 +29,13 @@ interface Draft {
 const DAYS = Array.from({ length: 31 }, (_, i) => i + 1);
 const GOAL_NAME_MAX = 20;
 
-/** Phase 1：シーズン開始時の設定（docs/season-start-settings.md）。必須は月間自由予算と貯金目標だけ */
+/** Phase 1：シーズン開始時の設定（docs/season-start-settings.md）。必須は手取り月収と貯金目標だけ（docs/take-home-and-fixed-costs.md ST-11） */
 export function Onboarding() {
   const { view, act, busy } = useGame();
   const tz = view?.user.timezone ?? "Asia/Tokyo";
   const [name, setName] = useState("");
   const [goal, setGoal] = useState("");
-  const [budget, setBudget] = useState(String(view?.user.monthlyBudget || ""));
+  const [income, setIncome] = useState(String(view?.user.monthlyIncome || ""));
   const [incomeDay, setIncomeDay] = useState(String(view?.user.incomeDay ?? 1));
   const [remaining, setRemaining] = useState("");
   const [existing, setExisting] = useState("");
@@ -42,13 +46,13 @@ export function Onboarding() {
   const touched = useRef(false);
   const again = view?.hasArchive;
 
-  // 按分の額・期間の残りは、入力中の予算と収入日で出し直す（RB-02・PD-04）
+  // 自由予算・按分の額・期間の残りは、入力中の手取り月収・収入日と、登録した固定費で出し直す（RB-02・PD-04・ST-13）
   useEffect(() => {
     let live = true;
     const timer = setTimeout(async () => {
       try {
         const q = new URLSearchParams({ incomeDay });
-        if (budget) q.set("budget", budget);
+        if (income) q.set("income", income);
         const d = await api<Draft>(`/api/season/draft?${q}`);
         if (live) setDraft(d);
       } catch {
@@ -59,7 +63,7 @@ export function Onboarding() {
       live = false;
       clearTimeout(timer);
     };
-  }, [budget, incomeDay, reloadKey]);
+  }, [income, incomeDay, reloadKey]);
 
   // すでにある貯金の初期値：前の街の貯金、なければ貯金用の置き場所の残高の合計（CO-01・RC-03）
   const previous = draft?.previous ?? null;
@@ -68,13 +72,17 @@ export function Onboarding() {
     if (!touched.current && draft) setExisting(suggested > 0 ? String(suggested) : "");
   }, [draft, suggested]);
 
-  const b = Number(budget || 0);
-  const cap = b * BOND_CAP_MONTHS;
-  const split = splitCarried(Number(existing || 0), b);
-  const startReserve = reserveLevel(split.reserve, b);
+  // M：手取り月収。債券の上限（3M）・備えLv の物差しで、固定費では下げない（FB-02）
+  const m = Number(income || 0);
+  const fixed = draft?.fixed ?? 0;
+  // 自由予算 ＝ 手取り月収 − 固定費（FB-01）
+  const free = Math.max(0, m - fixed);
+  const cap = m * BOND_CAP_MONTHS;
+  const split = splitCarried(Number(existing || 0), m);
+  const startReserve = reserveLevel(split.reserve, m);
   const daysLeft = draft ? Math.max(1, Math.ceil((draft.period.end - Date.now()) / 86_400_000)) : null;
   const rem = remaining === "" ? null : Number(remaining);
-  const remOver = rem !== null && rem > b;
+  const remOver = rem !== null && rem > free;
   const gold = rem ?? draft?.prorated ?? null;
 
   return (
@@ -93,7 +101,7 @@ export function Onboarding() {
           act("/api/season", {
             goalAmount: Number(goal),
             goalName: name,
-            monthlyBudget: b,
+            monthlyIncome: m,
             incomeDay: Number(incomeDay),
             ...(rem !== null ? { remainingBudget: rem } : {}),
             existingSavings: Number(existing || 0),
@@ -106,7 +114,7 @@ export function Onboarding() {
             <Field label="目標の名前（任意）" hint="何のための貯金かを書いておくと、街とタイムラプスの題になります。あとから変えられます。">
               <input value={name} maxLength={GOAL_NAME_MAX} onChange={(e) => setName(e.target.value)} placeholder="例：北海道旅行" />
             </Field>
-            <Field label="今回の貯金目標（円）" hint="今の預金残高ではなく、これから新しく貯める金額。">
+            <Field label="今回の貯金目標（円）" hint="今の預金残高ではなく、これから新しく貯める金額（先取り貯金を含む）。">
               <NumberInput required value={goal} onValueChange={setGoal} placeholder="100000" />
             </Field>
           </div>
@@ -114,9 +122,24 @@ export function Onboarding() {
 
         <Card title="毎月のお金">
           <div className="space-y-4">
-            <Field label="月間自由予算（円）" hint="固定費や予定している貯金を除いた、毎月自由に使える金額。銀行がこの額を1か月かけて金貨に変えます。">
-              <NumberInput required value={budget} onValueChange={setBudget} placeholder="60000" />
+            <Field
+              label="手取り月収（円）"
+              hint="毎月、口座に入る金額（手取り）。固定費を引いた残りが自由予算になり、銀行が1か月かけて金貨に変えます。ボーナスなど毎月でない収入は含めません（臨時の収入として記録します）。月によって変わる人は、少ない月の額を入れてください。"
+            >
+              <NumberInput required value={income} onValueChange={setIncome} placeholder="250000" />
             </Field>
+            <FixedCostsInline tz={tz} reloadKey={reloadKey} onChange={() => setReloadKey((k) => k + 1)} />
+            {m > 0 && (
+              <dl className="num grid grid-cols-[1fr_auto] gap-y-1 rounded-lg bg-surface-2 px-3 py-2 text-sm">
+                <dt className="text-muted">手取り月収</dt>
+                <dd className="text-right">{yen(m)}</dd>
+                <dt className="text-muted">固定費</dt>
+                <dd className="text-right">−{yen(fixed)}</dd>
+                <dt className="border-t border-line pt-1 font-medium">自由予算</dt>
+                <dd className="border-t border-line pt-1 text-right font-semibold">{yen(free)}</dd>
+              </dl>
+            )}
+            {m > 0 && fixed > m && <p className="text-xs text-danger">固定費が手取り月収を超えています。自由予算と金貨の配当は0になります。</p>}
             <Field
               label="毎月の収入が入る日"
               hint={
@@ -137,13 +160,13 @@ export function Onboarding() {
               label="今期の残りの自由予算（円・任意）"
               hint={
                 draft
-                  ? `次の収入日（${formatDate(draft.period.end, tz)}）まで あと${daysLeft}日。入れなければ、残りの日数で割った ${yen(draft.prorated)} が配当されます。もう多く使った・まだあまり使っていないときは、実際の残りを入れてください。`
-                  : "次の収入日までに自由に使える額。入れなければ、残りの日数で割った額が配当されます。"
+                  ? `次の収入日（${formatDate(draft.period.end, tz)}）まで あと${daysLeft}日。入れなければ、残りの日数で割った ${yen(draft.prorated)} が配当されます。もう多く使った・まだあまり使っていないときは、実際の残り（これから払う固定費は除いた額）を入れてください。`
+                  : "次の収入日までに自由に使える額（これから払う固定費は除いた額）。入れなければ、残りの日数で割った額が配当されます。"
               }
             >
               <NumberInput value={remaining} onValueChange={setRemaining} placeholder={draft ? String(draft.prorated) : ""} />
             </Field>
-            {remOver && <p className="text-xs text-danger">今期の残りは月間自由予算（{yen(b)}）までの額を入れてください。</p>}
+            {remOver && <p className="text-xs text-danger">今期の残りは自由予算（{yen(free)}）までの額を入れてください。</p>}
           </div>
         </Card>
 
@@ -188,9 +211,9 @@ export function Onboarding() {
                 貯金用の置き場所の残高 {yen(draft.savingsAccounts)} を入れる
               </button>
             )}
-            {Number(existing || 0) > 0 && b > 0 && (
+            {Number(existing || 0) > 0 && m > 0 && (
               <dl className="num grid grid-cols-[1fr_auto] gap-y-1 rounded-lg bg-surface-2 px-3 py-2 text-sm">
-                <dt className="text-muted">持ち込みの備え（自由予算の{BOND_CAP_MONTHS}か月分 {yen(cap)} まで）</dt>
+                <dt className="text-muted">持ち込みの備え（手取り月収の{BOND_CAP_MONTHS}か月分 {yen(cap)} まで）</dt>
                 <dd className="text-right">{yen(split.reserve)}</dd>
                 {split.savings > 0 && (
                   <>
@@ -231,7 +254,7 @@ export function Onboarding() {
             )}
           </li>
         </ul>
-        <Button type="submit" form="season-start" className="w-full" disabled={busy || !goal || Number(goal) < 1000 || !budget || remOver}>
+        <Button type="submit" form="season-start" className="w-full" disabled={busy || !goal || Number(goal) < 1000 || !income || remOver}>
           街をつくる
         </Button>
       </Card>

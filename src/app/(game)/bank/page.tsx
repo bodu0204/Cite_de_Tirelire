@@ -157,7 +157,7 @@ export default function BankPage() {
       {(carriedTotal > 0 || canEditCarried) && (
         <Card title="すでにある貯金と備え">
           <dl className="num grid grid-cols-[1fr_auto] gap-y-1 text-sm">
-            <dt className="text-muted">持ち込みの備え（自由予算の3か月分まで）</dt>
+            <dt className="text-muted">持ち込みの備え（手取り月収の3か月分まで）</dt>
             <dd className="text-right">{yen(c.reserve)}</dd>
             {c.savings > 0 && (
               <>

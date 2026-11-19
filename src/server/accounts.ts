@@ -1,11 +1,13 @@
 // お金の置き場所と振替（docs/money-accounts.md）。
-// 置き場所ごとに残高を持ち、収入・支出・振替・予算外の入出金・照合で動かす。ゲームの通貨を動かすのは、照合の誤差の合計の解消だけ。
+// 置き場所ごとに残高を持ち、収入・支出・振替・照合で動かす。ゲームの通貨を動かすのは、照合の誤差の合計の解消だけ。
+// 予算外の入出金はなくした（給料は月の収入、固定費は固定費の支払いで記録する。docs/take-home-and-fixed-costs.md §8）。
 import type { MoneyAccount, Purchase } from "@prisma/client";
 import { billsByDue, unpaidSince, type CardTerms } from "@/game/billing";
 import { REWARD_EXTRA, REWARD_EXTRA_DAILY_CAP } from "@/game/config";
 import { fail } from "@/game/errors";
 import { balances, ledgerMoves, savingsMoves } from "@/game/ledger";
 import { dayKey } from "@/game/time";
+import { recurringRows } from "./adjustments";
 import { confirmRecords, type GameCtx } from "./game";
 import { EXTRA_REWARD_PREFIXES, grantReward } from "./ops";
 import { previewDiff, resolveDiff } from "./resolve";
@@ -70,14 +72,13 @@ export async function accountBalances(ctx: GameCtx, list?: MoneyAccount[], until
   const userId = ctx.user.id;
   const from = accounts.reduce((m, a) => (a.openingDate < m ? a.openingDate : m), "9999-12-31");
   const where = { userId, date: { gte: from } };
-  const [incomes, purchases, transfers, outside, adjustments] = await Promise.all([
+  const [incomes, purchases, transfers, adjustments] = await Promise.all([
     ctx.tx.income.findMany({ where, select: { accountId: true, date: true, amount: true } }),
     ctx.tx.purchase.findMany({ where: { ...where, deletedAt: null }, select: { accountId: true, date: true, amount: true } }),
     ctx.tx.transfer.findMany({ where, select: { fromAccountId: true, toAccountId: true, date: true, amount: true } }),
-    ctx.tx.outsideRecord.findMany({ where, select: { accountId: true, date: true, amount: true } }),
     ctx.tx.accountAdjustment.findMany({ where, select: { accountId: true, date: true, diff: true } }),
   ]);
-  return balances(accounts, ledgerMoves({ incomes, purchases, transfers, outside, adjustments }, defaultsOf(ctx, accounts)), until);
+  return balances(accounts, ledgerMoves({ incomes, purchases, transfers, adjustments }, defaultsOf(ctx, accounts)), until);
 }
 
 /** よく使う振替の組（直近に使った出元・入れ先、3つまで。TR-04） */
@@ -116,6 +117,8 @@ export async function listAccounts(ctx: GameCtx) {
     total: live.reduce((s, a) => s + a.balance, 0),
     pairs: await recentPairs(ctx, new Set(live.map((a) => a.id))),
     bills: await pendingBills(ctx, list),
+    /** 当期までの未記録の固定費・サブスクの支払いの行の数（照合の前に保存を促す。docs/take-home-and-fixed-costs.md FC-18） */
+    unrecorded: (await recurringRows(ctx)).length,
     reward: await extraRewardStatus(ctx),
   };
 }
@@ -214,7 +217,6 @@ export async function deleteAccount(ctx: GameCtx, id: string) {
     (await ctx.tx.income.count({ where: { accountId: id } })) +
     (await ctx.tx.subscription.count({ where: { accountId: id } })) +
     (await ctx.tx.transfer.count({ where: { userId, OR: [{ fromAccountId: id }, { toAccountId: id }] } })) +
-    (await ctx.tx.outsideRecord.count({ where: { accountId: id } })) +
     (await ctx.tx.accountAdjustment.count({ where: { accountId: id } })) +
     (await ctx.tx.moneyAccount.count({ where: { debitAccountId: id } }));
   if (used > 0) fail("in_use", "この置き場所を使った記録があるため削除できません。「使わない」にしてください", 409);
@@ -373,37 +375,6 @@ export async function dismissCardBill(ctx: GameCtx, id: string) {
   return { id };
 }
 
-// ---- 予算外の入出金 ----
-
-/** 予算外の入出金（家賃・固定費の引き落とし、給料のうち自由予算でない分など）。置き場所の残高だけを動かし、報酬もない */
-export async function recordOutside(ctx: GameCtx, body: Body) {
-  const a = await resolveAccount(ctx, body.accountId);
-  const dir = oneOf(body.direction, ["in", "out"] as const, "入金・出金");
-  const amount = int(body.amount, "金額", { min: 1, max: 100_000_000 });
-  const r = await ctx.tx.outsideRecord.create({
-    data: {
-      userId: ctx.user.id,
-      accountId: a.id,
-      date: date(body.date ?? today(ctx), "日付"),
-      name: str(body.name, "内容", { max: 100 }),
-      amount: dir === "in" ? amount : -amount,
-      memo: optStr(body.memo, "メモ"),
-    },
-  });
-  return { id: r.id };
-}
-
-/** 金額だけ変えられる（0 で取り消し）。向きは元のまま */
-export async function editOutside(ctx: GameCtx, id: string, body: Body) {
-  const r = await ctx.tx.outsideRecord.findFirst({ where: { id, userId: ctx.user.id } });
-  if (!r) fail("not_found", "記録が見つかりません", 404);
-  if (Object.keys(body).some((k) => k !== "amount")) fail("invalid", "登録した予算外の入出金は金額だけ変更できます");
-  const amount = int(body.amount, "金額", { min: 0, max: 100_000_000 });
-  const sign = r!.amount < 0 || (r!.amount === 0 && body.direction === "out") ? -1 : 1;
-  await ctx.tx.outsideRecord.update({ where: { id }, data: { amount: sign * amount } });
-  return { id };
-}
-
 // ---- 照合（残高を合わせる。§9） ----
 
 async function reconcileInput(ctx: GameCtx, body: Body) {
@@ -424,7 +395,7 @@ async function reconcileInput(ctx: GameCtx, body: Body) {
   });
   const total = rows.reduce((s, r) => s + r.diff, 0);
   const pending = await ctx.tx.cardBill.count({ where: { userId: ctx.user.id, status: "PENDING" } });
-  return { rows, total, partial: rows.length < list.filter((a) => !a.archivedAt).length, pendingBills: pending };
+  return { rows, total, partial: rows.length < list.filter((a) => !a.archivedAt).length, pendingBills: pending, unrecorded: (await recurringRows(ctx)).length };
 }
 
 /** 照合のプレビュー：置き場所ごとの誤差と、誤差の合計の解消の内訳（RC-02・03・05・09） */

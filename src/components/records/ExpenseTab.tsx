@@ -459,12 +459,16 @@ function PurchaseForm({ onDone, tz, accounts, defaultId }: { onDone: () => void;
 
 interface SubRow {
   subscriptionId: string;
+  /** 固定費か、サブスクか（docs/take-home-and-fixed-costs.md §5） */
+  kind: "SUBSCRIPTION" | "FIXED";
   name: string;
   amount: number;
   cycle: string;
   periodKey: string;
   date: string;
   accountId: string | null;
+  /** 直近2回の支払いがどちらも登録額と違うとき、直近の支払いの額（登録額の変更の案内） */
+  suggest: number | null;
 }
 interface WishRow {
   id: string;
@@ -484,7 +488,7 @@ function DiffNote({ base, amount }: { base: number; amount: number }) {
   );
 }
 
-/** サブスク・ほしい物：設定から作ったベースを保存ボタンひとつで記録する（docs/record-input-redesign.md §6.2・§6.3） */
+/** 固定費・サブスク・ほしい物：登録から作ったベースを保存ボタンひとつで記録する（docs/record-input-redesign.md §6.2・§6.3、docs/take-home-and-fixed-costs.md §5.3） */
 function BaseRows({ onDone, tz, accounts, defaultId }: { onDone: () => void; tz: string; accounts: Account[]; defaultId: string | null }) {
   const { act, toast, busy } = useGame();
   const [base, setBase] = useState<{ subscriptions: SubRow[]; wishes: WishRow[] } | null>(null);
@@ -520,8 +524,28 @@ function BaseRows({ onDone, tz, accounts, defaultId }: { onDone: () => void; tz:
     onDone();
   };
   const all = [...base.subscriptions.map(subBody), ...base.wishes.map(wishBody)];
-  if (!all.length) return <Empty>未記録のサブスクの支払い・全額貯まったほしい物はありません</Empty>;
-  const row = (key: string, label: ReactNode, sub: ReactNode, baseAmount: number, body: () => Record<string, unknown>) => {
+  if (!all.length) return <Empty>未記録の固定費・サブスクの支払い、全額貯まったほしい物はありません</Empty>;
+  /** この回は記録しない（開始前に払った分・置き場所の開始残高にもう入っている分。FC-15） */
+  const skip = async (s: SubRow) => {
+    if (!confirm(`${Number(s.periodKey.slice(5, 7))}月の${s.name}を記録しないことにしますか？\n開始前に払った分や、置き場所の開始残高にもう入っている分に使います。残高も通貨も動きません（「固定費・サブスク」の画面で戻せます）。`)) return;
+    if (await act(`/api/subscriptions/${s.subscriptionId}/skip`, { periodKey: s.periodKey })) {
+      toast("この回は記録しないことにしました");
+      await load();
+      onDone();
+    }
+  };
+  /** 差分が続いたとき：登録額を直近の支払いの額に変える（EX-05・FC-17）。今この時点からの配当に反映される */
+  const adopt = async (s: SubRow) => {
+    if (s.suggest === null) return;
+    if (await act(`/api/subscriptions/${s.subscriptionId}`, { amount: s.suggest }, "PATCH")) {
+      toast(`${s.name}の登録額を ${yen(s.suggest)} に変更しました`);
+      // 入力中の額は新しい登録額に戻す
+      setAmounts((a) => Object.fromEntries(Object.entries(a).filter(([k]) => !k.startsWith(`s:${s.subscriptionId}:`))));
+      await load();
+      onDone();
+    }
+  };
+  const row = (key: string, label: ReactNode, sub: ReactNode, baseAmount: number, body: () => Record<string, unknown>, onSkip?: () => void, hint?: ReactNode) => {
     const amount = Number(amounts[key] || 0);
     const method = accounts.find((m) => m.id === payOf(key));
     return (
@@ -544,12 +568,22 @@ function BaseRows({ onDone, tz, accounts, defaultId }: { onDone: () => void; tz:
           </Button>
         </div>
         <DiffNote base={baseAmount} amount={amount} />
-        {accounts.length > 1 && (
+        {hint}
+        {(accounts.length > 1 || onSkip) && (
           <div className="mt-1 text-xs">
-            <button type="button" className="text-muted underline" aria-expanded={openPay === key} onClick={() => setOpenPay(openPay === key ? null : key)}>
-              出どころ：{method?.name ?? "いつもの置き場所"}
-            </button>
-            {openPay === key && (
+            <div className="flex flex-wrap gap-x-4 gap-y-1">
+              {accounts.length > 1 && (
+                <button type="button" className="text-muted underline" aria-expanded={openPay === key} onClick={() => setOpenPay(openPay === key ? null : key)}>
+                  出どころ：{method?.name ?? "いつもの置き場所"}
+                </button>
+              )}
+              {onSkip && (
+                <button type="button" className="text-muted underline" disabled={busy} onClick={onSkip}>
+                  この回は記録しない
+                </button>
+              )}
+            </div>
+            {accounts.length > 1 && openPay === key && (
               <div className="mt-1.5">
                 <AccountPicker label="出どころ" accounts={accounts} value={payOf(key) ?? ""} defaultId={defaultId} onChange={(id) => setPays((p) => ({ ...p, [key]: id }))} reward />
               </div>
@@ -563,7 +597,22 @@ function BaseRows({ onDone, tz, accounts, defaultId }: { onDone: () => void; tz:
     <div className="space-y-2">
       <ul className="space-y-2">
         {base.subscriptions.map((s) =>
-          row(`s:${s.subscriptionId}:${s.periodKey}`, `${Number(s.periodKey.slice(5, 7))}月 ${s.name}`, `サブスク（登録額 ${yen(s.amount)}${s.cycle === "YEARLY" ? "・年額" : ""}）`, s.amount, () => subBody(s)),
+          row(
+            `s:${s.subscriptionId}:${s.periodKey}`,
+            `${Number(s.periodKey.slice(5, 7))}月 ${s.name}`,
+            `${s.kind === "FIXED" ? "固定費" : "サブスク"}（登録額 ${yen(s.amount)}${s.cycle === "YEARLY" ? "・年額" : ""}）`,
+            s.amount,
+            () => subBody(s),
+            () => skip(s),
+            s.suggest !== null && (
+              <p className="mt-1 text-xs">
+                直近2回の支払いが登録額と違います（前回 {yen(s.suggest)}）。
+                <button type="button" className="ml-1 underline" disabled={busy} onClick={() => adopt(s)}>
+                  登録額を {yen(s.suggest)} に変更
+                </button>
+              </p>
+            ),
+          ),
         )}
         {base.wishes.map((w) => row(`w:${w.id}`, w.name, `ほしい物（価格 ${yen(w.price)}・積立 ${fmt(w.reserved)}G）`, w.price, () => wishBody(w)))}
       </ul>
@@ -587,7 +636,7 @@ function BaseRows({ onDone, tz, accounts, defaultId }: { onDone: () => void; tz:
         </Button>
       )}
       <p className="text-xs text-muted">
-        サブスクの登録額はすでに配当から差し引かれているので精算しません。登録額・価格より安ければ＋差分（債券 → おまかせ交換）、高ければ−差分（債券から）として解消します。ほしい物は積立が全額貯まったものだけが並び、積立金貨から価格を精算します。
+        固定費・サブスクの登録額はすでに配当から差し引かれているので精算しません。登録額・価格より安ければ＋差分（債券 → おまかせ交換）、高ければ−差分（債券から）として解消します。支払日を決めた固定費・サブスクは、その日が来ると並びます。ほしい物は積立が全額貯まったものだけが並び、積立金貨から価格を精算します。
       </p>
     </div>
   );
@@ -601,7 +650,7 @@ export function ExpenseTab({ onDone, tz, reloadKey }: { onDone: () => void; tz: 
   return (
     <div className="space-y-4">
       {v && (
-        <Card title="サブスク・ほしい物">
+        <Card title="固定費・サブスク・ほしい物">
           <BaseRows onDone={onDone} tz={tz} accounts={active} defaultId={defaultId} />
         </Card>
       )}

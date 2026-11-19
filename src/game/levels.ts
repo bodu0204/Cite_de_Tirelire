@@ -62,7 +62,7 @@ export function bankLevelBand(goal: number, lv: number): { from: number; next: n
 
 /**
  * 技術Lv：貯金額の最高到達額で決まる（D-7。債券を使って貯金額が下がっても下がらない）。
- * 閾値は基準額（月間自由予算と目標額の小さいほう）の倍数（docs/savings-driven-growth.md PRC-03）
+ * 閾値は基準額（手取り月収と目標額の小さいほう）の倍数（docs/savings-driven-growth.md PRC-03）
  */
 export function techLevel(maxSavings: number, base: number): number {
   return levelFrom(TECH_THRESHOLDS, maxSavings / Math.max(1, base));

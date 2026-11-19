@@ -128,7 +128,7 @@ describe("AT-104・105 今期の残りの自由予算", () => {
     expect(microToGold(m.uncollected)).toBeCloseTo(17_500, 0);
   });
 
-  it("残り 0円なら、最初の期間は配当されない。次の期間は月間自由予算のとおり", () => {
+  it("残り 0円なら、最初の期間は配当されない。次の期間は自由予算のとおり", () => {
     let m = withStartRemaining(newMine(start, cal), plan(), cal, start, 0);
     m = accrue(m, { plan: plan(), tz: cal, until: end }).mine;
     expect(microToGold(m.uncollected)).toBeCloseTo(0, 0);

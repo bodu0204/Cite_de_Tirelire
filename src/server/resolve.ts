@@ -41,7 +41,7 @@ function surplusExchange(ctx: GameCtx, amount: number, silver: number) {
 /** ＋差分の解消のプレビュー（状態は変えない） */
 export function previewSurplus(ctx: GameCtx, d: number): ResolutionView {
   requireSeason(ctx);
-  const cap = bondCap(ctx.user.monthlyBudget);
+  const cap = bondCap(ctx.user.monthlyIncome);
   const bond = ctx.balances.bond;
   const toBond = Math.min(d, Math.max(0, cap - bond));
   const resourced = bondResourceEligible(bond, toBond, cap);

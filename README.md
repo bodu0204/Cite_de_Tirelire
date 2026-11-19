@@ -40,6 +40,7 @@ npm run dev                   # http://localhost:3000
 | `BASE=http://localhost:3000 bash scripts/smoke.sh` | APIの通しテスト（登録→シーズン→記録→交換→建設→目標達成→タイムラプス→削除） |
 | `BASE=http://localhost:3000 bash scripts/smoke-accounts.sh` | お金の置き場所・振替・引き落とし予定・照合のAPIテスト（docs/money-accounts.md の AT-083〜093） |
 | `BASE=http://localhost:3000 bash scripts/smoke-season-start.sh` | シーズン開始時の設定のAPIテスト（docs/season-start-settings.md の AT-097〜107） |
+| `BASE=http://localhost:3000 bash scripts/smoke-fixed-costs.sh` | 手取り月収と固定費のAPIテスト（docs/take-home-and-fixed-costs.md の AT-108〜122） |
 | `node scripts/make-icons.mjs`                      | PWAアイコンの再生成                                |
 
 
@@ -51,7 +52,9 @@ npm run dev                   # http://localhost:3000
 src/game/        ゲームエンジン（純粋なTypeScript。DB・UIに依存しない）
   config.ts        バランス値の正本（意図は docs/savings-driven-growth.md・docs/saving-habit-balance.md）
   catalog.ts       建物の系統×段階（技術Lv・発展Lvの解放条件、生産・消費・建設費）
-  mine.ts          金貨の配当（10^-6G単位の固定小数点、月境界・サブスク区切り）と購入の精算
+  mine.ts          金貨の配当（10^-6G単位の固定小数点、月境界・固定費とサブスクの区切り）と購入の精算
+  currency.ts      ユーザ通貨の発生と、配当の計画（自由予算 ＝ 手取り月収 − 固定費、配当 ＝ 自由予算 − サブスク − ユーザ通貨）
+  recurring.ts     固定費・サブスクの支払いの行（支払日・「この回は記録しない」。docs/take-home-and-fixed-costs.md）
   confirm.ts       記録による貯金の確定（債券・建設資金へ。記録のない日は7日後に自動で確定）
   fund.ts          建設資金・開拓期ボーナス・債券の利息・備えLv
   habit.ts         貯金日とこまめボーナス（こまめに貯金するほど区画の上限が増える）

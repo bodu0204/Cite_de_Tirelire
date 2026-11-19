@@ -12,9 +12,9 @@ function initialRoads(): { x: number; y: number }[] {
   return out;
 }
 
-/** 基準額：月間自由予算と目標額の小さいほう（docs/savings-driven-growth.md PRC-06）。0 以下なら 1 */
-export function seasonBase(monthlyBudget: number, goal: number): number {
-  return Math.max(1, Math.min(monthlyBudget, goal));
+/** 基準額：手取り月収（M）と目標額の小さいほう（docs/savings-driven-growth.md PRC-06）。0 以下なら 1 */
+export function seasonBase(monthlyIncome: number, goal: number): number {
+  return Math.max(1, Math.min(monthlyIncome, goal));
 }
 
 /**

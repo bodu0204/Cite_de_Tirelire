@@ -9,7 +9,7 @@ export async function GET(req: NextRequest) {
       where: { id: userId },
       select: {
         email: true,
-        monthlyBudget: true,
+        monthlyIncome: true,
         timezone: true,
         createdAt: true,
         bondMiningRate: true,
@@ -23,7 +23,6 @@ export async function GET(req: NextRequest) {
         accounts: true,
         transfers: true,
         cardBills: true,
-        outsideRecords: true,
         accountAdjustments: true,
         currencyDefs: true,
         wishItems: { include: { contributions: true } },

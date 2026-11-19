@@ -103,7 +103,7 @@ export interface CityState {
   happiness: number;
   /** 発展pt ＝ 完成した計画の累計額 ÷ 基準額 × 1000（GRW-04） */
   devPoints: number;
-  /** 基準額（円）：シーズン開始時の月間自由予算と目標額の小さいほう。値段と発展Lv・技術Lvの閾値の単位（PRC-05・PRC-06） */
+  /** 基準額（円）：シーズン開始時の手取り月収（M）と目標額の小さいほう。値段と発展Lv・技術Lvの閾値の単位（PRC-05・PRC-06） */
   base: number;
   /** 完成した計画の累計額（円） */
   completed: number;

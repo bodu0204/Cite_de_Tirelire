@@ -20,13 +20,13 @@ DAY=$((10#$(TZ=Asia/Tokyo date +%d)))
 echo "== AT-097 budget and goal only: same as before (no carried reserve, prorated dividend, no name)"
 signup plain
 req GET /api/season/draft | j '[o.first, o.number, o.incomeDayNow, o.previous, o.savingsAccounts]'
-req POST /api/season '{"goalAmount":20000,"monthlyBudget":60000}' >/dev/null
+req POST /api/season '{"goalAmount":20000,"monthlyIncome":60000}' >/dev/null
 req GET /api/state | j '[o.season.name, o.season.carried.reserve, o.season.carried.savings, o.season.inDebt, o.dev.reserveLevel, o.currencies.bond]'
 sql "SELECT \"startRemaining\" IS NULL, \"mineWindows\"::text, \"mineCut\" FROM \"Season\" WHERE id = $(active)"
 
 echo "== AT-098 existing savings 120,000 (M=60,000): bond 0, reserve Lv3, savings/rate/tech/fund stay 0"
 signup carry
-req POST /api/season '{"goalAmount":100000,"goalName":"北海道旅行","monthlyBudget":60000,"existingSavings":120000}' >/dev/null
+req POST /api/season '{"goalAmount":100000,"goalName":"北海道旅行","monthlyIncome":60000,"existingSavings":120000}' >/dev/null
 req GET /api/state | j '[o.season.name, o.season.carried, o.dev.reserveLevel, o.dev.nextReserveAt, o.currencies.bond, o.season.savings, o.season.rate, o.tech.level, o.dev.fund, o.dev.interestPerDay]'
 req GET /api/state | j 'o.log.filter(e=>e.type==="SEASON_STARTED").map(e=>e.payload)'
 
@@ -57,7 +57,7 @@ req GET /api/state | j '[o.season.status, o.season.savings]'
 req POST /api/season/complete >/dev/null
 req GET /api/seasons | j 'o.items.map(s=>[s.number, s.goalName])'
 req GET /api/season/draft | j '[o.first, o.number, o.incomeDayNow, o.previous && [o.previous.number, o.previous.goalName, o.previous.amount]]'
-req POST /api/season '{"goalAmount":50000,"monthlyBudget":60000,"existingSavings":1110000,"carryOver":true}' >/dev/null
+req POST /api/season '{"goalAmount":50000,"monthlyIncome":60000,"existingSavings":1110000,"carryOver":true}' >/dev/null
 req GET /api/state | j '[o.season.number, o.season.name, o.season.carried, o.currencies.bond, o.season.savings, o.dev.reserveLevel]'
 req GET /api/state | j 'o.log.filter(e=>e.type==="SEASON_STARTED").map(e=>e.payload)'
 echo "   negative bond is not carried"
@@ -70,18 +70,18 @@ req GET /api/state | j '[o.season.number, o.season.carried.reserve, o.season.car
 
 echo "== AT-104 remaining budget below the prorated amount: the rest of the period pays that much"
 signup rem
-D=$(req GET "/api/season/draft?budget=60000")
+D=$(req GET "/api/season/draft?income=60000")
 echo "$D" | j '[o.prorated > 0, o.prorated <= 60000, o.net]'
-req POST /api/season '{"goalAmount":20000,"monthlyBudget":60000,"remainingBudget":100}' >/dev/null
+req POST /api/season '{"goalAmount":20000,"monthlyIncome":60000,"remainingBudget":100}' >/dev/null
 sql "SELECT \"startRemaining\", \"mineCut\" > 0, \"mineWindows\"::text FROM \"Season\" WHERE id = $(active)"
 req POST /api/season '{"goalAmount":20000}' | j 'o.error.code'
 echo "   over the monthly budget is rejected"
 signup rem2
-req POST /api/season '{"goalAmount":20000,"monthlyBudget":60000,"remainingBudget":60001}' | j 'o.error.message'
+req POST /api/season '{"goalAmount":20000,"monthlyIncome":60000,"remainingBudget":60001}' | j 'o.error.message'
 echo "== AT-105 remaining budget above the prorated amount: a window to the end of the period"
-P=$(req GET "/api/season/draft?budget=60000" | j 'o.prorated')
+P=$(req GET "/api/season/draft?income=60000" | j 'o.prorated')
 if [ "$P" -lt 60000 ]; then
-  req POST /api/season '{"goalAmount":20000,"monthlyBudget":60000,"remainingBudget":60000}' >/dev/null
+  req POST /api/season '{"goalAmount":20000,"monthlyIncome":60000,"remainingBudget":60000}' >/dev/null
   sql "SELECT \"startRemaining\", \"mineCut\", jsonb_array_length(\"mineWindows\"), (\"mineWindows\"->0->>'incomeId'), abs((\"mineWindows\"->0->>'total')::bigint / 1000000 - (60000 - $P)) <= 2 FROM \"Season\" WHERE id = $(active)"
 else
   echo "(today is the income day: the prorated amount is the whole budget; skipped)"
@@ -90,9 +90,9 @@ fi
 echo "== AT-106 income day on the first season applies at once; later seasons from the next income day"
 signup pay
 ND=$(( DAY % 28 + 1 ))
-req GET "/api/season/draft?budget=60000&incomeDay=$ND" | j '[o.incomeDay, o.incomeDayNow, new Date(o.period.end + 9*3600e3).getUTCDate()]'
+req GET "/api/season/draft?income=60000&incomeDay=$ND" | j '[o.incomeDay, o.incomeDayNow, new Date(o.period.end + 9*3600e3).getUTCDate()]'
 echo "   expected income day: $ND"
-req POST /api/season "{\"goalAmount\":20000,\"monthlyBudget\":60000,\"incomeDay\":$ND}" >/dev/null
+req POST /api/season "{\"goalAmount\":20000,\"monthlyIncome\":60000,\"incomeDay\":$ND}" >/dev/null
 req GET /api/state | j '[o.user.incomeDay, o.income.day, new Date(o.income.end + 9*3600e3).getUTCDate(), new Date(o.income.start + 9*3600e3).getUTCDate()]'
 sql "SELECT \"incomeEras\"::text FROM \"User\" WHERE email = '$EMAIL'"
 sql "UPDATE \"Season\" SET bond = 30000 WHERE id = $(active)" >/dev/null
@@ -109,7 +109,7 @@ BANK=$(req POST /api/accounts "{\"name\":\"口座A\",\"kind\":\"BANK\",\"opening
 req POST /api/accounts "{\"name\":\"貯金\",\"kind\":\"BANK\",\"openingBalance\":250000,\"openingDate\":\"$TODAY\",\"isSavings\":true}" >/dev/null
 req POST /api/accounts "{\"name\":\"クレカA\",\"kind\":\"CARD\",\"openingBalance\":42000,\"openingDate\":\"$TODAY\",\"closingDay\":$(( DAY > 1 ? DAY - 1 : 31 )),\"paymentDay\":$DAY,\"paymentMonths\":1,\"debitAccountId\":\"$BANK\"}" >/dev/null
 req GET /api/season/draft | j '[o.savingsAccounts, o.bondCap]'
-req POST /api/season '{"goalAmount":20000,"monthlyBudget":60000,"existingSavings":250000}' >/dev/null
+req POST /api/season '{"goalAmount":20000,"monthlyIncome":60000,"existingSavings":250000}' >/dev/null
 req GET /api/accounts | j '[o.items.map(a=>[a.name,a.balance]), o.total]'
 req GET /api/state | j '[o.season.carried.reserve, o.season.carried.savings, o.dev.reserveLevel]'
 echo "== OA-06 the first pending bill of a card with an opening unpaid balance carries a note"

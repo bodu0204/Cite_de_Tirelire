@@ -1,5 +1,5 @@
 // 収入の記録（docs/record-input-redesign.md §5）。
-// 月の収入：雛形（B と通貨配分設定）の分はこれまでどおり採掘・ユーザ通貨の発生で配当し、雛形との差分だけをここで配当する。
+// 月の収入：雛形（手取り月収 M と通貨配分設定。docs/take-home-and-fixed-costs.md §7）の分はこれまでどおり採掘・ユーザ通貨の発生で配当し、雛形との差分だけをここで配当する。
 //   ＋差分は振り分け（初期値は通貨配分設定の割合）、−差分は当期の未配当分（残りの採掘 → ユーザ通貨の未発生分）から減らし、足りなければ債券。
 // 臨時の収入：全額を振り分ける（初期値は即時貯蓄＝債券 → おまかせ交換）。
 import type { Income } from "@prisma/client";
@@ -73,7 +73,7 @@ function periodIssue(ctx: GameCtx, def: CurrencyDefLite, p: PeriodInfo): number 
 
 /**
  * プリセットの振り分け（§5.5 の表）。
- * ratio：額 × その期間の各ユーザ通貨の発生額 ÷ B をその通貨の残りの発生日に、残りを金貨としてその期間の終わりまで毎分（過去の期間は即時。債券化率の分は債券）。
+ * ratio：額 × その期間の各ユーザ通貨の発生額 ÷ B（自由予算 ＝ 手取り月収 − 固定費。FB-07）をその通貨の残りの発生日に、残りを金貨としてその期間の終わりまで毎分（過去の期間は即時。債券化率の分は債券）。
  */
 export function presetRows(ctx: GameCtx, preset: Preset, amount: number, period: PeriodInfo | null): AllocationRow[] {
   if (amount <= 0) return [];
@@ -82,7 +82,8 @@ export function presetRows(ctx: GameCtx, preset: Preset, amount: number, period:
   const p = period ?? currentPeriod(ctx);
   const tz = ctx.user.timezone;
   const live = p.end > ctx.now;
-  const budget = ctx.user.monthlyBudget;
+  // 割合の分母は自由予算（固定費には配らない）
+  const budget = budgetPlan(ctx).budgetAt(live ? ctx.now : p.start);
   const rows: AllocationRow[] = [];
   let rest = amount;
   if (budget > 0) {
@@ -302,20 +303,20 @@ async function cancelPending(ctx: GameCtx, incomeId: string, d: number): Promise
 
 // ---- 一覧・雛形 ----
 
-/** 未記録の期間の一覧（ベースは今の B）と、記録済みの収入 */
+/** 未記録の期間の一覧（ベースは今の手取り月収 M。MI-01・MI-04）と、記録済みの収入 */
 export async function incomeBase(ctx: GameCtx) {
-  if (!ctx.season) return { periods: [], budget: ctx.user.monthlyBudget, current: null };
+  if (!ctx.season) return { periods: [], income: ctx.user.monthlyIncome, current: null };
   const recorded = new Set(
     (await ctx.tx.income.findMany({ where: { userId: ctx.user.id, kind: "MONTHLY" }, select: { monthKey: true } })).map((i) => i.monthKey),
   );
   const cur = currentPeriod(ctx);
   const tz = ctx.user.timezone;
   return {
-    budget: ctx.user.monthlyBudget,
+    income: ctx.user.monthlyIncome,
     current: cur.key,
     periods: seasonPeriods(ctx)
       .filter((p) => !recorded.has(p.key))
-      .map((p) => ({ key: p.key, startDate: dayKey(p.start, tz), endDate: dayKey(p.end - 1, tz), base: ctx.user.monthlyBudget, current: p.key === cur.key })),
+      .map((p) => ({ key: p.key, startDate: dayKey(p.start, tz), endDate: dayKey(p.end - 1, tz), base: ctx.user.monthlyIncome, current: p.key === cur.key })),
   };
 }
 
@@ -349,7 +350,7 @@ async function recordMonthly(ctx: GameCtx, body: Body) {
   if (!period) fail("invalid", "この期間の月の収入は記録できません");
   if (await ctx.tx.income.findFirst({ where: { userId: ctx.user.id, kind: "MONTHLY", monthKey: key } })) fail("already", `${monthlyName(key)}は記録済みです`, 409);
   const amount = int(body.amount, "月の収入", { min: 0, max: 100_000_000 });
-  const base = ctx.user.monthlyBudget;
+  const base = ctx.user.monthlyIncome;
   const diff = amount - base;
   const rows = diff > 0 ? (body.allocation !== undefined ? parseRows(ctx, body.allocation, diff) : presetRows(ctx, "ratio", diff, period!)) : [];
   const income = await ctx.tx.income.create({
@@ -422,7 +423,7 @@ export async function quoteIncome(ctx: GameCtx, body: Body) {
   const kind = oneOf(body.kind, ["MONTHLY", "EXTRA"] as const, "収入の種類");
   const amount = int(body.amount, "金額", { min: 0, max: 100_000_000 });
   const period = kind === "MONTHLY" ? (seasonPeriods(ctx).find((p) => p.key === body.monthKey) ?? fail("invalid", "この期間の月の収入は記録できません")) : null;
-  const base = kind === "MONTHLY" ? ctx.user.monthlyBudget : 0;
+  const base = kind === "MONTHLY" ? ctx.user.monthlyIncome : 0;
   const diff = amount - base;
   const total = Math.max(0, diff);
   const preset = body.preset ? oneOf(body.preset, ["save", "gold", "ratio"] as const, "プリセット") : kind === "MONTHLY" ? "ratio" : "save";

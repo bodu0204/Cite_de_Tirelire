@@ -1,8 +1,8 @@
 // 債券：急な出費に備えるお金。足りない支払いを肩代わりし、持っている間は毎日利息（建設資金）が街に入る（fund.ts。RSV-02）。
 import { BOND_CAP_MONTHS, BOND_FEE_CAP, BOND_FEE_RATE, BOND_FORCED_RATE } from "./config";
 
-/** 債券化が止まる額（3M） */
-export const bondCap = (monthlyBudget: number) => Math.max(0, monthlyBudget) * BOND_CAP_MONTHS;
+/** 債券化が止まる額（3M。M は手取り月収。docs/take-home-and-fixed-costs.md FB-02） */
+export const bondCap = (monthlyIncome: number) => Math.max(0, monthlyIncome) * BOND_CAP_MONTHS;
 
 /** 債券を used 使ったときの銀貨の手数料（500 以下は10%、超えたら一律 50S） */
 export function bondFee(used: number): number {
@@ -39,9 +39,9 @@ export function bondResourceEligible(bond: number, amount: number, cap: number):
  * シーズン開始時に申告した「すでにある貯金」を分ける（docs/season-start-settings.md RC-02）。
  * 債券の上限（3M）までは持ち込みの備え（債券の下に敷くクッション）、超える分は持ち込みの貯金（表示だけ）
  */
-export function splitCarried(existing: number, monthlyBudget: number): { reserve: number; savings: number } {
+export function splitCarried(existing: number, monthlyIncome: number): { reserve: number; savings: number } {
   const total = Math.max(0, Math.floor(existing));
-  const reserve = Math.min(total, bondCap(monthlyBudget));
+  const reserve = Math.min(total, bondCap(monthlyIncome));
   return { reserve, savings: total - reserve };
 }
 

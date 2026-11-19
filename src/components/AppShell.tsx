@@ -15,7 +15,7 @@ const NAV: { href: string; label: string; short?: string; icon: ReactNode }[] = 
   { href: "/exchange", label: "貯金・資源交換", short: "交換", icon: "⇄" },
   { href: "/currencies", label: "通貨", icon: "🪙" },
   { href: "/wishes", label: "ほしい物", icon: "🗿" },
-  { href: "/subscriptions", label: "サブスク", icon: "🌳" },
+  { href: "/subscriptions", label: "固定費・サブスク", icon: "🌳" },
   { href: "/timelapse", label: "タイムラプス", icon: "▶" },
   { href: "/settings", label: "設定", icon: "⚙" },
 ];

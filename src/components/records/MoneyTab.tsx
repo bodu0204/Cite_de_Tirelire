@@ -1,6 +1,7 @@
 "use client";
 
-// お金の管理（docs/money-accounts.md）：置き場所と残高、クレカの引き落とし予定、振替、予算外の入出金、残高を合わせる（照合）
+// お金の管理（docs/money-accounts.md）：置き場所と残高、クレカの引き落とし予定、振替、残高を合わせる（照合）。
+// 予算外の入出金はなくした（docs/take-home-and-fixed-costs.md §8）
 import { useEffect, useState } from "react";
 import { useGame, useSeasonView } from "@/components/GameProvider";
 import { Button, Card, Empty, Field, NumberInput } from "@/components/ui";
@@ -207,62 +208,6 @@ function TransferForm({ data, tz, onDone }: { data: AccountsData; tz: string; on
   );
 }
 
-/** 予算外の入出金：家賃・固定費の引き落とし、給料のうち自由予算でない分など。残高だけを動かし、ゲームには使わない */
-function OutsideForm({ data, tz, onDone }: { data: AccountsData; tz: string; onDone: () => void }) {
-  const { act, toast, busy } = useGame();
-  const live = data.items.filter((a) => !a.archivedAt);
-  const [f, setF] = useState({ accountId: "", direction: "out", amount: "", date: todayIn(tz), name: "" });
-  const accountId = f.accountId || data.defaults.income || "";
-  return (
-    <Card title="予算外の入出金">
-      <p className="mb-3 text-xs text-muted">
-        自由予算の外のお金（家賃・固定費の引き落とし、給料のうち自由予算でない分など）を記録します。置き場所の残高だけが動き、ゲームの通貨・報酬はありません。記録しないと、残高を合わせるときに誤差として債券に入ってしまいます。
-      </p>
-      <form
-        className="space-y-3"
-        onSubmit={async (e) => {
-          e.preventDefault();
-          const r = await act("/api/outside", { ...f, accountId, amount: Number(f.amount) });
-          if (!r) return;
-          toast("予算外の入出金を記録しました");
-          setF((x) => ({ ...x, amount: "", name: "" }));
-          onDone();
-        }}
-      >
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="置き場所">
-            <select required value={accountId} onChange={(e) => setF({ ...f, accountId: e.target.value })}>
-              {live.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="入金・出金">
-            <select value={f.direction} onChange={(e) => setF({ ...f, direction: e.target.value })}>
-              <option value="out">出金</option>
-              <option value="in">入金</option>
-            </select>
-          </Field>
-          <Field label="金額（円）">
-            <NumberInput required value={f.amount} onValueChange={(x) => setF({ ...f, amount: x })} />
-          </Field>
-          <Field label="日付">
-            <input type="date" required value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} />
-          </Field>
-        </div>
-        <Field label="内容">
-          <input required maxLength={100} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="例：家賃・給料（自由予算以外）" />
-        </Field>
-        <Button type="submit" variant="secondary" className="w-full" disabled={busy || !accountId || Number(f.amount) <= 0 || !f.name.trim()}>
-          予算外の入出金を記録
-        </Button>
-      </form>
-    </Card>
-  );
-}
-
 interface ReconcileQuote {
   rows: { accountId: string; name: string; kind: Account["kind"]; computed: number; actual: number; diff: number }[];
   total: number;
@@ -300,10 +245,15 @@ function Reconcile({ data, onDone }: { data: AccountsData; onDone: () => void })
   return (
     <Card title="残高を合わせる">
       <p className="mb-3 text-xs text-muted">
-        財布の中身・口座のアプリ・カード会社の画面で確かめた、実際の残高を入れてください（クレカは今の未払い）。置き場所どうしのずれ（振替の記録し忘れ）はゲームに影響せず、誤差の合計（収入・支出の記録漏れ）だけが債券で解消されます。報酬はありません。
+        財布の中身・口座のアプリ・カード会社の画面で確かめた、実際の残高を入れてください（クレカは今の未払い）。置き場所どうしのずれ（振替の記録し忘れ）はゲームに影響せず、誤差の合計（収入・支出の記録漏れ）だけが債券で解消されます。報酬はありません。立替・貸し借りなどは、出たときに支出、入ったときに臨時の収入として記録しておくと誤差になりません。
       </p>
       {data.bills.length > 0 && (
         <p className="mb-2 rounded-lg bg-danger/10 px-3 py-2 text-xs">確定していない引き落とし予定があります。先に確定してから合わせると、口座とクレカの残高が合います。</p>
+      )}
+      {data.unrecorded > 0 && (
+        <p className="mb-2 rounded-lg bg-danger/10 px-3 py-2 text-xs">
+          未記録の固定費・サブスクの支払いがあります（{data.unrecorded}件）。先に支出タブで保存してください。記録しないまま合わせると、引き落とされた額が誤差として債券からも引かれ、配当と二重に引かれます。
+        </p>
       )}
       <ul className="space-y-2">
         {live.map((a) => {
@@ -374,7 +324,6 @@ export function MoneyTab({ tz, reloadKey, onDone }: { tz: string; reloadKey: num
       <Balances data={data} />
       <Bills data={data} onDone={done} />
       <TransferForm data={data} tz={tz} onDone={done} />
-      <OutsideForm data={data} tz={tz} onDone={done} />
       <Reconcile key={reloadKey} data={data} onDone={done} />
       {data.items.filter((a) => !a.archivedAt).length < 2 && <Empty>置き場所が2つ以上になると、振替を記録できます</Empty>}
     </div>

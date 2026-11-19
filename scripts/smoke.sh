@@ -14,7 +14,7 @@ TODAY=$(TZ=Asia/Tokyo date +%F)
 
 echo "== signup";        req POST /api/auth/signup "{\"email\":\"$EMAIL\",\"password\":\"password123\",\"timezone\":\"Asia/Tokyo\"}"
 echo "== state (no season)"; req GET /api/state | j 'o.season'
-echo "== start season";  req POST /api/season '{"goalAmount":20000,"monthlyBudget":60000,"preset":"balanced"}'
+echo "== start season";  req POST /api/season '{"goalAmount":20000,"monthlyIncome":60000,"preset":"balanced"}'
 echo "== state";         req GET /api/state | j '[o.season.status, o.currencies, o.tech.level, o.dev.level, o.city.buildings.length, o.mine.ratePerMinute.toFixed(3)]'
 echo "== subscription";  req POST /api/subscriptions "{\"name\":\"動画配信\",\"amount\":1000,\"cycle\":\"MONTHLY\",\"startDate\":\"2020-01-01\"}"
 echo "== wish";          W=$(req POST /api/wishes '{"name":"ヘッドホン","price":8000,"priority":1}' | j 'o.id'); echo $W
@@ -31,7 +31,7 @@ echo "== preview";       req POST /api/currencies/preview "{\"name\":\"食費コ
 echo "== create custom currency"; CUR=$(req POST /api/currencies "{\"name\":\"食費コイン\",\"icon\":\"🍙\",\"categoryIds\":[\"$CAT\"],\"rules\":[{\"kind\":\"weekly\",\"every\":1,\"weekdays\":[1],\"amount\":7000},{\"kind\":\"minute\",\"monthlyAmount\":3100}],\"remainder\":\"TO_BOND\",\"remainderDays\":3}" | j 'o.id'); echo $CUR
 req GET /api/state | j '[o.mine.breakdown, o.currencies.custom]'
 echo "== bad icon rejected"; req POST /api/currencies "{\"name\":\"x\",\"icon\":\"ab\",\"categoryIds\":[\"$CAT\"],\"rules\":[{\"kind\":\"minute\",\"monthlyAmount\":100}]}"
-echo "== lowering the budget below S + C is rejected"; req PATCH /api/settings '{"monthlyBudget":30000}' | j 'o.error && [o.error.code, o.error.details.overruns.length]'
+echo "== lowering the budget below S + C is rejected"; req PATCH /api/settings '{"monthlyIncome":30000}' | j 'o.error && [o.error.code, o.error.details.overruns.length]'
 echo "== subscription over budget only warns"; SUB2=$(req POST /api/subscriptions "{\"name\":\"高いサブスク\",\"amount\":30000,\"startDate\":\"2020-01-01\"}"); echo "$SUB2" | j '[!!o.id, o.warning]'
 req DELETE /api/subscriptions/$(echo "$SUB2" | j 'o.id') >/dev/null
 echo "== bond mining rate"; req PATCH /api/settings '{"bondMiningRate":30}'; req GET /api/state | j '[o.user.bondMiningRate, o.mine.bond]'
@@ -70,7 +70,7 @@ echo "== wish contribution counts as wish savings"; req POST /api/wishes/$W/cont
 req GET /api/state | j '[o.wishSavings, o.season.savings]'
 echo "== wish purchase before fully saved is rejected"; req POST /api/purchases "{\"wishItemId\":\"$W\",\"date\":\"$TODAY\",\"amount\":8000}" | j 'o.error && o.error.code'
 
-echo "== income base: unrecorded periods with base B"; req GET /api/incomes/base | j '[o.budget, o.current, o.periods.map(p=>[p.key,p.base,p.current])]'
+echo "== income base: unrecorded periods with base M (take-home income)"; req GET /api/incomes/base | j '[o.income, o.current, o.periods.map(p=>[p.key,p.base,p.current])]'
 MK=$(req GET /api/incomes/base | j 'o.current')
 echo "== quote monthly +3000 (ratio preset)"; req POST /api/incomes/quote "{\"kind\":\"MONTHLY\",\"monthKey\":\"$MK\",\"amount\":63000}" | j '[o.diff, o.preset, o.rows]'
 echo "== record monthly +3000"; INC=$(req POST /api/incomes "{\"kind\":\"MONTHLY\",\"monthKey\":\"$MK\",\"amount\":63000}"); echo "$INC" | j '[o.diff, o.reward]'

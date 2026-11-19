@@ -141,7 +141,7 @@ function MonthlyIncomes({ onDone, accountId }: { onDone: () => void; accountId: 
         </Button>
       )}
       <p className="text-xs text-muted">
-        ベースは今の月間自由予算です。雛形の分はこれまでどおり金貨とユーザ通貨で配当され、差分だけが追加で配当されます。記録しない月も雛形で配当は続きます。報酬は1件 {REWARD_PURCHASE}S（月ごとに1回）。
+        ベースは今の手取り月収です。振り込まれた額をそのまま入れてください。雛形の分はこれまでどおり金貨とユーザ通貨で配当され、差分だけが追加で配当されます。記録しない月も雛形で配当は続きます。報酬は1件 {REWARD_PURCHASE}S（月ごとに1回）。
       </p>
     </div>
   );
@@ -210,13 +210,16 @@ export function IncomeTab({ onDone }: { onDone: () => void }) {
       {active.length > 1 && (
         <Card>
           <AccountPicker label="入金先" accounts={active} value={accountId ?? ""} defaultId={data?.defaults.income} onChange={setPicked} exclude={(a) => a.kind === "CARD"} />
-          <p className="mt-1 text-xs text-muted">月の収入・臨時の収入が入る置き場所です。給料のうち自由予算でない分は「お金の管理」の予算外の入出金で記録します。</p>
+          <p className="mt-1 text-xs text-muted">月の収入・臨時の収入が入る置き場所です。</p>
         </Card>
       )}
       <Card title="月の収入">
         {v ? <MonthlyIncomes onDone={onDone} accountId={accountId} /> : <p className="text-sm text-muted">進行中のシーズンがないため、月の収入は記録できません。</p>}
       </Card>
       <Card title="臨時の収入">
+        <p className="mb-3 text-xs text-muted">
+          ボーナス・お祝いなど、毎月でない収入を記録します。立替の戻り・貸したお金の返済・預かったお金も、入ったときにここで記録します（出たときは支出として記録）。振り分けで「全額を金貨に即時」を選ぶと、金貨で払った分が金貨で戻ります。
+        </p>
         <ExtraIncomeForm onDone={onDone} accountId={accountId} />
       </Card>
     </div>

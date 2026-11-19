@@ -76,14 +76,14 @@ export function bondInterestPerDay(bond: number, cap: number): number {
   return Math.max(0, Math.min(bond, cap)) * BOND_INTEREST_PER_DAY;
 }
 
-/** 備えLv（0〜4）：備え（債券残高 ＋ 持ち込みの備え。呼ぶ側で足す）が月間自由予算の 0.5 / 1 / 2 / 3 か月分（RSV-03） */
-export function reserveLevel(bond: number, monthlyBudget: number): number {
-  if (monthlyBudget <= 0 || bond <= 0) return 0;
-  return RESERVE_LEVEL_MONTHS.filter((m) => bond >= m * monthlyBudget).length;
+/** 備えLv（0〜4）：備え（債券残高 ＋ 持ち込みの備え。呼ぶ側で足す）が手取り月収の 0.5 / 1 / 2 / 3 か月分（RSV-03） */
+export function reserveLevel(bond: number, monthlyIncome: number): number {
+  if (monthlyIncome <= 0 || bond <= 0) return 0;
+  return RESERVE_LEVEL_MONTHS.filter((m) => bond >= m * monthlyIncome).length;
 }
 
 /** 次の備えLvになる債券残高（最大なら null） */
-export function nextReserveAt(level: number, monthlyBudget: number): number | null {
+export function nextReserveAt(level: number, monthlyIncome: number): number | null {
   const m = RESERVE_LEVEL_MONTHS[level];
-  return m === undefined ? null : Math.round(m * monthlyBudget);
+  return m === undefined ? null : Math.round(m * monthlyIncome);
 }

@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { balances, ledgerMoves, savingsMoves, type LedgerRecords } from "../ledger";
 
-const empty: LedgerRecords = { incomes: [], purchases: [], transfers: [], outside: [], adjustments: [] };
+const empty: LedgerRecords = { incomes: [], purchases: [], transfers: [], adjustments: [] };
 const accounts = [
   { id: "bankA", openingBalance: 100_000, openingDate: "2026-11-01" },
   { id: "walletA", openingBalance: 5_000, openingDate: "2026-11-01" },
@@ -40,10 +40,28 @@ describe("置き場所の残高", () => {
     expect(r).toEqual({ bankA: 75_000, walletA: 15_000, cardA: 0, savings: 0 });
   });
 
-  it("予算外の入出金・照合の調整も残高を動かす。until でその日までに絞れる", () => {
-    const r = { outside: [{ accountId: "bankA", date: "2026-11-27", amount: -70_000 }], adjustments: [{ accountId: "walletA", date: "2026-11-05", diff: -800 }] };
+  it("照合の調整も残高を動かす。until でその日までに絞れる", () => {
+    const r = { purchases: [{ accountId: "bankA", date: "2026-11-27", amount: 70_000 }], adjustments: [{ accountId: "walletA", date: "2026-11-05", diff: -800 }] };
     expect(bal(r)).toMatchObject({ bankA: 30_000, walletA: 4_200 });
     expect(bal(r, "2026-11-20")).toMatchObject({ bankA: 100_000, walletA: 4_200 });
+  });
+
+  it("AT-119 月の収入・固定費の支払い・支出・振替だけで残高が合う（予算外の入出金はない。docs/take-home-and-fixed-costs.md §8）", () => {
+    const r = bal({
+      // 手取り月収は振り込まれた額のまま1件。家賃は固定費の支払い（支出と同じ形の記録）
+      incomes: [{ accountId: "bankA", date: "2026-11-25", amount: 250_000 }],
+      purchases: [
+        { accountId: "bankA", date: "2026-11-27", amount: 80_000 },
+        { accountId: null, date: "2026-11-26", amount: 1_200 },
+      ],
+      transfers: [{ fromAccountId: "bankA", toAccountId: "savings", date: "2026-11-25", amount: 30_000 }],
+    });
+    expect(r).toEqual({ bankA: 240_000, walletA: 3_800, cardA: -12_000, savings: 30_000 });
+  });
+
+  it("AT-120 立替を支出、その戻りを臨時の収入で同じ置き場所に記録すると、残高は元に戻る", () => {
+    const r = bal({ purchases: [{ accountId: "walletA", date: "2026-11-10", amount: 5_000 }], incomes: [{ accountId: "walletA", date: "2026-11-12", amount: 5_000 }] });
+    expect(r).toMatchObject({ walletA: 5_000 });
   });
 });
 

@@ -13,11 +13,14 @@ export async function GET(req: NextRequest) {
       take: 500,
     });
     const resolutions = await prisma.resolution.findMany({ where: { refType: "purchase", refId: { in: items.map((p) => p.id) } }, orderBy: { createdAt: "asc" } });
-    return { items: items.map((p) => ({ ...p, resolutions: resolutions.filter((r) => r.refId === p.id) })) };
+    // 固定費の支払いか（履歴の札。サブスクの支払いと同じ形の記録なので、登録の種類で見分ける。登録を消したあとは null）
+    const kinds = new Map((await prisma.subscription.findMany({ where: { userId }, select: { id: true, kind: true } })).map((s) => [s.id, s.kind]));
+    const fixedOf = (id: string | null) => (id && kinds.has(id) ? kinds.get(id) === "FIXED" : null);
+    return { items: items.map((p) => ({ ...p, isFixedCost: fixedOf(p.subscriptionId), resolutions: resolutions.filter((r) => r.refId === p.id) })) };
   });
 }
 
-/** 支出の記録。items で一括保存できる（サブスク・ほしい物のベースの行） */
+/** 支出の記録。items で一括保存できる（固定費・サブスク・ほしい物のベースの行） */
 export async function POST(req: NextRequest) {
   return gameRoute(req, recordPurchases);
 }
