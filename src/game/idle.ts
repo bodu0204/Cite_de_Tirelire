@@ -84,7 +84,8 @@ export function advance(w: World, opts: AdvanceOpts, events: CityEvent[]): void 
   const { plan, until } = opts;
   const tz = plan.tz;
   const defs = plan.defs;
-  w.purse.bondCap = bondCap(plan.budget);
+  // 債券の上限と備えLv の物差しは手取り月収 M（固定費では下げない。docs/take-home-and-fixed-costs.md FB-02）
+  w.purse.bondCap = bondCap(plan.income);
 
   // 日の発生は区間全体ぶんを先に求めておく（1ティックごとに暦を調べない）
   const from = Math.min(w.purse.mine.lastAccrualAt, ...defs.map((d) => w.accruals.get(d.id)!.lastAccrualAt));
@@ -234,7 +235,7 @@ export function advance(w: World, opts: AdvanceOpts, events: CityEvent[]): void 
     grantBondResources(w.city, levels(), end);
     grantInterest(w.city, w.purse.bond, w.purse.bondCap, end);
     // 備えLv（債券残高 ＋ 持ち込みの備え）は悪い出来事の被害を軽くし、Lvごとに備えの施設が建つ（RSV-03・EVT-04、docs/season-start-settings.md RC-04）
-    w.city.reserveLevel = reserveLevel(w.purse.bond + (w.purse.carried ?? 0), plan.budget);
+    w.city.reserveLevel = reserveLevel(w.purse.bond + (w.purse.carried ?? 0), plan.income);
     syncReserve(w.city, w.city.reserveLevel, end, events);
     // 日が替わったら、前の日に持ち分が増えていれば貯金日に数える（プレイヤーは何も確定しない。HAB-01）
     trackSavingDay(w.city, end, tz, savingsHoldings(w.purse, (w.savingsBase ?? 0) + (w.citySpent ?? 0)), w.purse.bond, events);

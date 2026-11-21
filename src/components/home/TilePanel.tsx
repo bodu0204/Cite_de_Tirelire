@@ -82,7 +82,7 @@ function statueRows(b: Building, w?: StatueInfo): [string, string][] {
 function reserveRows(b: Building, v: ActiveView): [string, string][] {
   const lv = b.tier + 1;
   return [
-    ["備えLv", `${lv}（債券が自由予算の${RESERVE_LEVEL_MONTHS[b.tier]}か月分）`],
+    ["備えLv", `${lv}（債券が手取り月収の${RESERVE_LEVEL_MONTHS[b.tier]}か月分）`],
     ["状態", b.closed ? `閉鎖中（今の備えLv${v.dev.reserveLevel}）` : "稼働中"],
     ["備え", RESERVE_FACILITIES[b.tier]?.effect ?? ""],
   ];

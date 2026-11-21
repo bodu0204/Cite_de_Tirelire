@@ -15,6 +15,8 @@ interface Purchase {
   name: string;
   category: string | null;
   isSubscription: boolean;
+  /** 固定費の支払いか（サブスクの支払いと同じ形の記録。登録を消したあとは null） */
+  isFixedCost?: boolean | null;
   subscriptionId: string | null;
   wishItemId: string | null;
   baseAmount: number | null;
@@ -48,13 +50,6 @@ interface Transfer {
   memo: string | null;
   kind: "MANUAL" | "CARD_PAYMENT";
 }
-interface Outside {
-  id: string;
-  date: string;
-  accountId: string;
-  name: string;
-  amount: number;
-}
 interface Reconciled {
   id: string;
   date: string;
@@ -63,7 +58,7 @@ interface Reconciled {
 }
 
 type Row = { type: "income"; item: Income } | { type: "purchase"; item: Purchase };
-type Other = { type: "transfer"; item: Transfer } | { type: "outside"; item: Outside } | { type: "adjustment"; item: Reconciled };
+type Other = { type: "transfer"; item: Transfer } | { type: "adjustment"; item: Reconciled };
 
 interface EditQuote {
   diff: number;
@@ -165,13 +160,13 @@ function AccountEditor({ row, accounts, defaults, onDone }: { row: Row; accounts
   );
 }
 
-/** 振替・予算外の入出金の金額の編集（0 で取り消し）。ゲームの通貨は動かない */
+/** 振替の金額の編集（0 で取り消し）。ゲームの通貨は動かない */
 function SimpleAmountEditor({ row, onDone }: { row: Other; onDone: () => void }) {
   const { act, toast, busy } = useGame();
-  const item = row.item as Transfer | Outside;
+  const item = row.item as Transfer;
   const [amount, setAmount] = useState(String(Math.abs(item.amount)));
   const n = Number(amount || 0);
-  const path = row.type === "transfer" ? `/api/transfers/${item.id}` : `/api/outside/${item.id}`;
+  const path = `/api/transfers/${item.id}`;
   return (
     <form
       className="space-y-3"
@@ -207,11 +202,10 @@ export function HistoryTab({ reloadKey }: { reloadKey: number }) {
   const showAccounts = accounts.length > 1;
   const nameOf = (id: string | null) => accounts.find((a) => a.id === id)?.name ?? "—";
   const load = useCallback(async () => {
-    const [inc, pur, tr, out, adj] = await Promise.all([
+    const [inc, pur, tr, adj] = await Promise.all([
       api<{ items: Income[] }>("/api/incomes"),
       api<{ items: Purchase[] }>("/api/purchases"),
       api<{ items: Transfer[] }>("/api/transfers"),
-      api<{ items: Outside[] }>("/api/outside"),
       api<{ items: Reconciled[] }>("/api/adjustments"),
     ]);
     setRows(
@@ -219,7 +213,6 @@ export function HistoryTab({ reloadKey }: { reloadKey: number }) {
         ...inc.items.map((item) => ({ type: "income" as const, item })),
         ...pur.items.map((item) => ({ type: "purchase" as const, item })),
         ...tr.items.map((item) => ({ type: "transfer" as const, item })),
-        ...out.items.map((item) => ({ type: "outside" as const, item })),
         ...adj.items.map((item) => ({ type: "adjustment" as const, item })),
       ].sort((a, b) => b.item.date.localeCompare(a.item.date)),
     );
@@ -232,7 +225,6 @@ export function HistoryTab({ reloadKey }: { reloadKey: number }) {
     if (r.type === "income") return (r.item.accountId ?? defaults.income) === id;
     if (r.type === "purchase") return (r.item.accountId ?? defaults.spend) === id;
     if (r.type === "transfer") return r.item.fromAccountId === id || r.item.toAccountId === id;
-    if (r.type === "outside") return r.item.accountId === id;
     return Array.isArray(r.item.items) && r.item.items.some((x) => x.accountId === id && x.diff !== 0);
   };
   const shown = (rows ?? []).filter((r) => !filter || touches(r, filter));
@@ -257,23 +249,17 @@ export function HistoryTab({ reloadKey }: { reloadKey: number }) {
         </li>
       );
     }
-    const isT = r.type === "transfer";
     return (
       <li key={`${r.type}${r.item.id}`} className="py-2.5 text-sm">
         <div className="flex items-center gap-3">
           <span className="num w-20 shrink-0 text-xs text-muted">{r.item.date}</span>
           <span className={`min-w-0 flex-1 truncate ${line}`}>
-            {isT ? `${nameOf((r.item as Transfer).fromAccountId)} → ${nameOf((r.item as Transfer).toAccountId)}` : (r.item as Outside).name}
-            <span className="ml-1 text-xs text-muted">
-              {isT ? ((r.item as Transfer).kind === "CARD_PAYMENT" ? "引き落とし" : "振替") : `予算外・${nameOf((r.item as Outside).accountId)}`}
-            </span>
-            {isT && (r.item as Transfer).memo && <span className="ml-1 text-xs text-muted">{(r.item as Transfer).memo}</span>}
+            {`${nameOf(r.item.fromAccountId)} → ${nameOf(r.item.toAccountId)}`}
+            <span className="ml-1 text-xs text-muted">{r.item.kind === "CARD_PAYMENT" ? "引き落とし" : "振替"}</span>
+            {r.item.memo && <span className="ml-1 text-xs text-muted">{r.item.memo}</span>}
           </span>
           {canceled && <span className="text-xs text-muted">取り消し</span>}
-          <span className={`num shrink-0 font-medium ${line} ${!isT && r.item.amount > 0 ? "text-dev" : ""}`}>
-            {isT ? "" : r.item.amount >= 0 ? "+" : "−"}
-            {fmt(Math.abs(r.item.amount))}円
-          </span>
+          <span className={`num shrink-0 font-medium ${line}`}>{fmt(Math.abs(r.item.amount))}円</span>
         </div>
         <div className="flex justify-end gap-3 pl-[5.75rem]">
           <button className="text-xs underline" onClick={() => setOtherEdit(r)}>
@@ -284,7 +270,7 @@ export function HistoryTab({ reloadKey }: { reloadKey: number }) {
               className="text-xs text-danger underline"
               onClick={async () => {
                 if (!confirm("この記録を取り消しますか？（金額が0になり、記録は取り消し線で残ります。獲得した銀貨は戻りません）")) return;
-                if (await act(isT ? `/api/transfers/${r.item.id}` : `/api/outside/${r.item.id}`, { amount: 0 }, "PATCH")) {
+                if (await act(`/api/transfers/${r.item.id}`, { amount: 0 }, "PATCH")) {
                   toast("取り消しました");
                   load();
                 }
@@ -322,11 +308,11 @@ export function HistoryTab({ reloadKey }: { reloadKey: number }) {
           {shown.length === 0 && <Empty>この置き場所の記録はありません</Empty>}
           <ul className="divide-y divide-line">
             {shown.map((r) => {
-              if (r.type === "transfer" || r.type === "outside" || r.type === "adjustment") return otherRow(r);
+              if (r.type === "transfer" || r.type === "adjustment") return otherRow(r);
               const canceled = r.item.amount === 0;
               const original = r.item.resolutions.find((x) => x.before != null)?.before ?? null;
               const income = r.type === "income";
-              const label = income ? (r.item.kind === "MONTHLY" ? "月の収入" : "臨時の収入") : r.item.isSubscription ? "サブスク" : r.item.wishItemId ? "ほしい物" : "支出";
+              const label = income ? (r.item.kind === "MONTHLY" ? "月の収入" : "臨時の収入") : r.item.isFixedCost ? "固定費" : r.item.isSubscription ? (r.item.isFixedCost === null && r.item.subscriptionId ? "固定費・サブスク" : "サブスク") : r.item.wishItemId ? "ほしい物" : "支出";
               return (
                 <li key={`${r.type}${r.item.id}`} className="py-2.5 text-sm">
                   <div className="flex items-center gap-3">

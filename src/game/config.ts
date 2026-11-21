@@ -73,11 +73,11 @@ export const INITIAL_TREASURY = 0;
 export const INITIAL_POPULATION = 4;
 
 // ---- 債券（docs/bond-and-custom-currency.md §4） ----
-/** 債券化が止まる額 ＝ 月間自由予算 × この値 */
+/** 債券化が止まる額 ＝ 手取り月収（M）× この値 */
 export const BOND_CAP_MONTHS = 3;
 /** 債券の利息：毎日、債券残高（0〜上限）のこの割合が建設資金として街に入る（RSV-02） */
 export const BOND_INTEREST_PER_DAY = 0.003;
-/** 備えLv1〜4 になる債券残高（月間自由予算の何か月分。RSV-03） */
+/** 備えLv1〜4 になる債券残高（手取り月収の何か月分。RSV-03） */
 export const RESERVE_LEVEL_MONTHS = [0.5, 1, 2, 3];
 /** 債券がマイナスの間に採掘から強制的に債券へ回す割合（%） */
 export const BOND_FORCED_RATE = 20;
@@ -133,7 +133,7 @@ export const FEE_EXCHANGE = 5;
 /** 公園・像のために林を押しのけて敷く道路1マス */
 export const FEE_INSTANT_ROAD = 15;
 
-// ---- 技術Lv（貯金最高到達額 ÷ 基準額。基準額＝月間自由予算と目標額の小さいほう。PRC-03・PRC-06） ----
+// ---- 技術Lv（貯金最高到達額 ÷ 基準額。基準額＝手取り月収と目標額の小さいほう。PRC-03・PRC-06） ----
 export const TECH_THRESHOLDS = [0, 0.05, 0.15, 0.3, 0.6, 1.0, 1.5];
 export const TECH_MULTIPLIER = [1.0, 1.1, 1.25, 1.4, 1.6, 1.8, 2.0];
 export const MAX_TECH = TECH_THRESHOLDS.length;

@@ -291,7 +291,7 @@ export default function ExchangePage() {
                   {speedNow > 0 && speedAfter > speedNow && <span className="ml-1 text-dev">（+{sig2((speedAfter / speedNow - 1) * 100)}%）</span>}
                 </div>
                 <div className="text-[11px] text-muted">
-                  {speedMaxed ? "債券が上限に達しています" : "債券を持っているあいだ、残高の 0.3% が毎日入ります（上限は自由予算の3か月分）"}
+                  {speedMaxed ? "債券が上限に達しています" : "債券を持っているあいだ、残高の 0.3% が毎日入ります（上限は手取り月収の3か月分）"}
                 </div>
               </div>
             )}

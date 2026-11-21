@@ -9,7 +9,7 @@
 //       MODE=habit npx tsx scripts/balance.ts       貯める額 × 貯め方（毎日少しずつ・まとめて）ごとに、1日の工事数・区画・技術の追いつきを比べる
 //                                                    （docs/saving-habit-balance.md。LEGACY=1 で以前の規則と比べる）
 // 条件（環境変数）:
-//   M=100000      月間自由予算（円）
+//   M=100000      手取り月収（円。債券の上限・備えLv・基準額の物差し。docs/take-home-and-fixed-costs.md §6）
 //   GOAL=150000   貯金目標額（円）。基準額 ＝ min(M, GOAL)（PRC-06）
 //   RATE=0.2      毎月の貯金（M に対する割合）
 //   INITIAL=0.05  初日の入金（M に対する割合）

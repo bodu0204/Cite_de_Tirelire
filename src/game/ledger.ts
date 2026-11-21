@@ -21,8 +21,6 @@ export interface LedgerRecords {
   /** 支出（出どころ。null はいつもの置き場所） */
   purchases: { accountId: string | null; date: string; amount: number }[];
   transfers: { fromAccountId: string; toAccountId: string; date: string; amount: number }[];
-  /** 予算外の入出金（入金は＋） */
-  outside: { accountId: string; date: string; amount: number }[];
   /** 照合の調整（実際 − 計算） */
   adjustments: { accountId: string; date: string; diff: number }[];
 }
@@ -43,7 +41,6 @@ export function ledgerMoves(r: LedgerRecords, defaults: { spend: string | null; 
     moves.push({ accountId: t.fromAccountId, date: t.date, delta: -t.amount });
     moves.push({ accountId: t.toAccountId, date: t.date, delta: t.amount });
   }
-  for (const o of r.outside) if (o.amount) moves.push({ accountId: o.accountId, date: o.date, delta: o.amount });
   for (const a of r.adjustments) if (a.diff) moves.push({ accountId: a.accountId, date: a.date, delta: a.diff });
   return moves;
 }

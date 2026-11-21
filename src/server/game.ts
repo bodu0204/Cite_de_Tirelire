@@ -17,6 +17,7 @@ import { fail } from "@/game/errors";
 import { advance, grantBondResources, type Accrual, type CustomCut, type Grant, type World } from "@/game/idle";
 import { achievementRate, bankLevel, goldMineLevel, savingsTotal, silverMineLevel, techLevel } from "@/game/levels";
 import { floorMinute, type GoldWindow, type MineState, type SubWindow } from "@/game/mine";
+import { monthlyEquivalent } from "@/game/recurring";
 import type { Lot, Purse } from "@/game/settle";
 import { dayKey, monthCal, parseDateInTz, type PeriodCal } from "@/game/time";
 import type { CityEvent, CityState } from "@/game/types";
@@ -83,9 +84,10 @@ export function erasJson(cal: PeriodCal): EraJson[] {
   return cal.eras.map((e) => ({ day: e.day, from: n(e.from), prevEnd: n(e.prevEnd) }));
 }
 
-export function monthlyEquivalent(s: Pick<Subscription, "amount" | "cycle">): number {
-  return s.cycle === "YEARLY" ? Math.round(s.amount / 12) : s.amount;
-}
+export { monthlyEquivalent };
+
+/** 固定費か（手取り月収から先に引き、公園は建たない。docs/take-home-and-fixed-costs.md §5） */
+export const isFixed = (s: Pick<Subscription, "kind">) => s.kind === "FIXED";
 
 export function subWindows(subs: Subscription[], tz: string): SubWindow[] {
   return subs.map((s) => ({
@@ -159,10 +161,25 @@ export function defLite(d: CurrencyDef): CurrencyDefLite {
   };
 }
 
-/** 採掘から差し引く額（サブスク・ユーザ通貨）の計画。予算・サブスク・通貨を変えたら作り直す */
-export function budgetPlan(ctx: Pick<GameCtx, "user" | "subs" | "defs" | "cal">, override: { budget?: number; subs?: Subscription[]; defs?: CurrencyDefLite[] } = {}) {
+/**
+ * 採掘から差し引く額（固定費・サブスク・ユーザ通貨）の計画。手取り月収・固定費・サブスク・通貨を変えたら作り直す。
+ * ctx.subs は固定費とサブスクの両方を持つ（kind で分ける）
+ */
+export function budgetPlan(ctx: Pick<GameCtx, "user" | "subs" | "defs" | "cal">, override: { income?: number; subs?: Subscription[]; defs?: CurrencyDefLite[] } = {}) {
   const tz = ctx.user.timezone;
-  return new BudgetPlan(override.budget ?? ctx.user.monthlyBudget, subWindows(override.subs ?? ctx.subs, tz), override.defs ?? ctx.defs, ctx.cal);
+  const all = override.subs ?? ctx.subs;
+  return new BudgetPlan(
+    override.income ?? ctx.user.monthlyIncome,
+    subWindows(all.filter((s) => !isFixed(s)), tz),
+    override.defs ?? ctx.defs,
+    ctx.cal,
+    subWindows(all.filter(isFixed), tz),
+  );
+}
+
+/** その時点の自由予算（手取り月収 − 固定費） */
+export function freeBudget(ctx: Pick<GameCtx, "user" | "subs" | "defs" | "cal" | "now">, at: number = ctx.now): number {
+  return budgetPlan(ctx).budgetAt(at);
 }
 
 export async function loadCurrencyDefs(tx: Tx, userId: string): Promise<CurrencyDef[]> {
@@ -180,7 +197,7 @@ export function withPurse<T>(ctx: GameCtx, fn: (p: Purse) => T): T {
     gold: ctx.balances.gold,
     silver: ctx.balances.silver,
     bond: ctx.balances.bond,
-    bondCap: bondCap(ctx.user.monthlyBudget),
+    bondCap: bondCap(ctx.user.monthlyIncome),
     carried: ctx.season.reserveCarried,
     moves: [],
     overspend: 0,
@@ -232,8 +249,9 @@ export async function statueSources(tx: Tx, userId: string, season: Season): Pro
   });
 }
 
+/** 公園になるのはサブスクだけ（固定費は公園を建てない。FC-09） */
 export function parkSources(subs: Subscription[], tz: string, at: number): ParkSource[] {
-  return subs.map((s) => ({ id: s.id, name: s.name, monthly: monthlyEquivalent(s), active: isSubActive(s, tz, at) }));
+  return subs.filter((s) => !isFixed(s)).map((s) => ({ id: s.id, name: s.name, monthly: monthlyEquivalent(s), active: isSubActive(s, tz, at) }));
 }
 
 /** 公園・像を最新の家計データに合わせる */
@@ -289,7 +307,7 @@ async function load(tx: Tx, userId: string, now: number): Promise<GameCtx> {
   // 以前の街にあった金鉱・銀鉱の建物は取り除く（役割は銀行に移した）
   dropLegacyMines(ctx.city);
   // 貯金で育つ街より前の街は、基準額を決めて発展Lvを保ったまま直す（docs/savings-driven-growth.md）
-  migrateCity(ctx.city, { base: seasonBase(user.monthlyBudget, season.goalAmount), startedAt: season.startedAt.getTime() });
+  migrateCity(ctx.city, { base: seasonBase(user.monthlyIncome, season.goalAmount), startedAt: season.startedAt.getTime() });
   // 貯金日（docs/saving-habit-balance.md HAB-01）を持たない街・記録で数えていた街を、自動で数える形に直す
   migrateSavingDays(ctx.city, { now, startedAt: season.startedAt.getTime(), bond: season.bond ?? 0 });
   ctx.cityVersion = row.version;
@@ -337,7 +355,7 @@ export const newLotId = () => `l${randomUUID().replace(/-/g, "")}`;
 
 /**
  * 記録のない日を自動で確定するときに差し引く、推定の1日の支出（G。docs/savings-driven-growth.md REC-01）。
- * 直近 SPEND_ESTIMATE_DAYS 日の支出（サブスクを除く）の記録から求め、記録が少なければ1日の配当の半分とみなす
+ * 直近 SPEND_ESTIMATE_DAYS 日の支出（サブスク・固定費の支払いを除く）の記録から求め、記録が少なければ1日の配当の半分とみなす
  */
 async function spendEstimate(ctx: GameCtx, plan: BudgetPlan): Promise<number> {
   const since = dayKey(ctx.now - SPEND_ESTIMATE_DAYS * DAY, ctx.user.timezone);

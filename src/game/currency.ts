@@ -164,7 +164,8 @@ export function monthDayTotal(def: CurrencyDefLite, start: number, end: number, 
 }
 
 /**
- * 採掘から差し引く額を時刻ごとに返す（サブスク S とユーザ通貨 C）。
+ * 採掘から差し引く額を時刻ごとに返す（固定費 F・サブスク S・ユーザ通貨 C）。
+ * 自由予算 B ＝ max(0, 手取り月収 M − F)、月あたりの採掘額 ＝ max(0, B − S − C)（docs/take-home-and-fixed-costs.md §6）。
  * C ＝ その月の日の発生の合計（月の間は一定）＋ その時点で有効な毎分ルールの月あたりの量。
  * 月ごとの合計はキャッシュする。
  */
@@ -175,15 +176,32 @@ export class BudgetPlan {
   readonly cal: PeriodCal;
   readonly tz: string;
 
+  /**
+   * income：手取り月収 M（債券の上限 3M・備えLv の物差し。固定費では下げない）。
+   * subs：サブスク（自由予算の内訳）、fixed：固定費（M から先に引く）。どちらも月額換算と有効期間
+   */
   constructor(
-    readonly budget: number,
+    readonly income: number,
     readonly subs: SubWindow[],
     readonly defs: CurrencyDefLite[],
     tzOrCal: string | PeriodCal,
+    readonly fixed: SubWindow[] = [],
   ) {
     this.cal = toCal(tzOrCal);
     this.tz = this.cal.tz;
     this.windows = defs.map((def) => ({ def, w: validWindow(def, this.tz) }));
+  }
+
+  /** 月間固定費 F（その時点で有効な固定費の月額換算の合計） */
+  fixedAt(t: number): number {
+    let s = 0;
+    for (const w of this.fixed) if (activeAt(w, t)) s += w.monthly;
+    return s;
+  }
+
+  /** 自由予算 B ＝ max(0, M − F) */
+  budgetAt(t: number): number {
+    return Math.max(0, this.income - this.fixedAt(t));
   }
 
   subsAt(t: number): number {
@@ -216,47 +234,56 @@ export class BudgetPlan {
 
   /** 月あたりの採掘額 max(0, B − S − C) */
   netAt(t: number): number {
-    return Math.max(0, this.budget - this.subsAt(t) - this.customAt(t));
+    return Math.max(0, this.income - this.fixedAt(t) - this.subsAt(t) - this.customAt(t));
   }
 
-  /** 採掘速度が変わる時刻（サブスクと毎分ルールの開始・終了） */
+  /** 採掘速度が変わる時刻（固定費・サブスクと毎分ルールの開始・終了） */
   changePoints(): number[] {
     const pts: number[] = [];
+    for (const w of this.fixed) pts.push(w.startAt, w.endAt ?? Infinity);
     for (const w of this.subs) pts.push(w.startAt, w.endAt ?? Infinity);
     for (const { def, w } of this.windows) if (minuteRule(def) > 0) pts.push(w.startAt, w.endAt ?? Infinity);
     return pts.filter(Number.isFinite).map((t) => Math.floor(t / MINUTE) * MINUTE).sort((a, b) => a - b);
   }
 
-  /** 月の中で差し引き（S ＋ C）が最大になる時点の内訳と、そのときの月あたりの採掘額 */
-  monthSummary(t: number): { subs: number; custom: number; net: number } {
+  /** 月の中で差し引き（F ＋ S ＋ C）が最大になる時点の内訳と、そのときの自由予算・月あたりの採掘額 */
+  monthSummary(t: number): { fixed: number; budget: number; subs: number; custom: number; net: number } {
     const { start, end } = periodRange(t, this.cal);
     const points = [start, ...this.changePoints().filter((p) => p > start && p < end)];
-    let best = { subs: 0, minutes: 0 };
+    let best = { fixed: 0, subs: 0, minutes: 0 };
     for (const p of points) {
-      const cur = { subs: this.subsAt(p), minutes: this.minutesAt(p) };
-      if (cur.subs + cur.minutes > best.subs + best.minutes) best = cur;
+      const cur = { fixed: this.fixedAt(p), subs: this.subsAt(p), minutes: this.minutesAt(p) };
+      if (cur.fixed + cur.subs + cur.minutes > best.fixed + best.subs + best.minutes) best = cur;
     }
     const custom = this.monthDays(t) + best.minutes;
-    return { subs: best.subs, custom, net: Math.max(0, this.budget - best.subs - custom) };
+    return {
+      fixed: best.fixed,
+      budget: Math.max(0, this.income - best.fixed),
+      subs: best.subs,
+      custom,
+      net: Math.max(0, this.income - best.fixed - best.subs - custom),
+    };
   }
 
-  /** 月の中で差し引き（S ＋ C）が最大になる額 */
+  /** 月の中で差し引き（F ＋ S ＋ C）が最大になる額 */
   maxDeduction(t: number): number {
     const m = this.monthSummary(t);
-    return m.subs + m.custom;
+    return m.fixed + m.subs + m.custom;
   }
 }
 
 export interface Overrun {
   monthKey: string;
-  /** S ＋ C */
+  /** F ＋ S ＋ C */
   deduction: number;
-  /** 自由予算を超える額 */
+  /** 自由予算を超える額（F ＋ S ＋ C − M） */
   over: number;
+  /** 固定費だけで手取り月収を超える額（F − M。超えなければ 0） */
+  fixedOver: number;
 }
 
 /**
- * B − S − C が負になる月。今月から12か月先までの各月と、それより先のカレンダー指定日がある月を確かめる
+ * B − S − C（＝ M − F − S − C）が負になる月。今月から12か月先までの各月と、それより先のカレンダー指定日がある月を確かめる
  * （周期ルールは1年分あれば各曜日が5回ある月を含む）。
  */
 export function budgetOverruns(plan: BudgetPlan, now: number): Overrun[] {
@@ -284,8 +311,9 @@ export function budgetOverruns(plan: BudgetPlan, now: number): Overrun[] {
   }
   const out: Overrun[] = [];
   for (const m of months.sort((a, b) => a - b)) {
-    const deduction = plan.maxDeduction(m);
-    if (deduction > plan.budget) out.push({ monthKey: periodKey(m, cal), deduction, over: deduction - plan.budget });
+    const s = plan.monthSummary(m);
+    const deduction = s.fixed + s.subs + s.custom;
+    if (deduction > plan.income) out.push({ monthKey: periodKey(m, cal), deduction, over: deduction - plan.income, fixedOver: Math.max(0, s.fixed - plan.income) });
   }
   return out;
 }

@@ -48,6 +48,8 @@ export interface AccountsData {
   total: number;
   pairs: { fromAccountId: string; toAccountId: string }[];
   bills: CardBill[];
+  /** 当期までの未記録の固定費・サブスクの支払いの行の数（docs/take-home-and-fixed-costs.md FC-18） */
+  unrecorded: number;
   reward: ExtraReward;
 }
 

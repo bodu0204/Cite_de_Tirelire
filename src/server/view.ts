@@ -27,7 +27,7 @@ import { microToGold, ratePerMinute } from "@/game/mine";
 import { dayKey, periodRange } from "@/game/time";
 import type { CityState, Gains } from "@/game/types";
 import { currencySummaries } from "./currencies";
-import { budgetPlan, monthlyEquivalent, savingsOf, type GameCtx } from "./game";
+import { budgetPlan, isFixed, isSubActive, monthlyEquivalent, savingsOf, type GameCtx } from "./game";
 import { CARRIED_EDIT_MS, extraRewardWhere, facilityLevels } from "./ops";
 import { seasonSavingsMoves } from "./accounts";
 
@@ -102,9 +102,17 @@ function diffGains(a: Gains, b: Gains): Gains {
 
 export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {}) {
   const { user, season, city, mine, tx } = ctx;
+  const plan = budgetPlan(ctx);
   const base = {
     serverNow: ctx.now,
-    user: { email: user.email, monthlyBudget: user.monthlyBudget, timezone: user.timezone, bondMiningRate: user.bondMiningRate, incomeDay: user.incomeDay },
+    user: { email: user.email, monthlyIncome: user.monthlyIncome, timezone: user.timezone, bondMiningRate: user.bondMiningRate, incomeDay: user.incomeDay },
+    /** 毎月のお金（docs/take-home-and-fixed-costs.md §3.1）：手取り月収 M・月間固定費 F（件数つき）・自由予算 B ＝ max(0, M − F) */
+    budget: {
+      income: user.monthlyIncome,
+      fixed: plan.fixedAt(ctx.now),
+      fixedCount: ctx.subs.filter((s) => isFixed(s) && isSubActive(s, user.timezone, ctx.now)).length,
+      free: plan.budgetAt(ctx.now),
+    },
     hasArchive: (await tx.season.count({ where: { userId: user.id, status: "COMPLETED" } })) > 0,
   };
   if (!season || !city || !mine) return { ...base, season: null };
@@ -146,12 +154,12 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
   const nextDev = nextThreshold(DEV_THRESHOLDS, dev);
   const overspends = await tx.monthlyOverspend.findMany({ where: { seasonId: season.id }, orderBy: { monthKey: "desc" } });
   const bond = ctx.balances.bond;
-  const cap = bondCap(user.monthlyBudget);
+  // 債券の上限・備えLv の物差しは手取り月収 M（固定費では下げない。docs/take-home-and-fixed-costs.md FB-02）
+  const cap = bondCap(user.monthlyIncome);
   // 備え ＝ 債券 ＋ 持ち込みの備え（docs/season-start-settings.md RC-04）
   const carried = season.reserveCarried;
-  const reserve = reserveLevel(bond + carried, user.monthlyBudget);
-  const nextReserve = nextReserveAt(reserve, user.monthlyBudget);
-  const plan = budgetPlan(ctx);
+  const reserve = reserveLevel(bond + carried, user.monthlyIncome);
+  const nextReserve = nextReserveAt(reserve, user.monthlyIncome);
   const custom = currencySummaries(ctx);
   const needs = cityNeeds(city, metrics);
 
@@ -202,10 +210,10 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
       ...ctx.balances,
       custom: custom.map((c) => ({ id: c.id, name: c.name, icon: c.icon, categoryIds: c.categoryIds, balance: c.balance, pending: c.pending, nextIssue: c.nextIssue, nextExpiry: c.nextExpiry })),
     },
-    /** マップ上の公園・像の元データ（refId → 名前と詳細） */
+    /** マップ上の公園・像の元データ（refId → 名前と詳細）。公園はサブスクだけ（固定費は建てない） */
     specials: {
       parks: Object.fromEntries(
-        ctx.subs.map((s) => [
+        ctx.subs.filter((s) => !isFixed(s)).map((s) => [
           s.id,
           { name: s.name, amount: s.amount, cycle: s.cycle, monthly: monthlyEquivalent(s), startDate: s.startDate, endDate: s.endDate },
         ]),
@@ -225,8 +233,15 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
     mine: {
       uncollected: microToGold(mine.uncollected),
       ratePerMinute: ratePerMinute(plan, ctx.now, ctx.cal),
-      /** 採掘速度の内訳（月あたり）：max(0, B − S − C) */
-      breakdown: { budget: user.monthlyBudget, subs: plan.subsAt(ctx.now), custom: plan.customAt(ctx.now), net: plan.netAt(ctx.now) },
+      /** 採掘速度の内訳（月あたり）：自由予算 B ＝ max(0, M − F)、配当 ＝ max(0, B − S − C) */
+      breakdown: {
+        income: user.monthlyIncome,
+        fixed: plan.fixedAt(ctx.now),
+        budget: plan.budgetAt(ctx.now),
+        subs: plan.subsAt(ctx.now),
+        custom: plan.customAt(ctx.now),
+        net: plan.netAt(ctx.now),
+      },
       bond: {
         rate: user.bondMiningRate,
         cap,
@@ -245,7 +260,7 @@ export async function buildView(ctx: GameCtx, opts: { markSeen?: boolean } = {})
       totalCollected: mine.totalCollected,
       nextLevelAt: nextThreshold(GOLD_MINE_LEVEL_THRESHOLDS, goldMineLevel(mine.totalCollected)),
       overspends: overspends.map((o) => ({ monthKey: o.monthKey, amount: o.amount })),
-      subscriptionsMonthly: ctx.subs.filter((s) => !s.endDate || s.endDate > dayKey(ctx.now, tz)).reduce((a, s) => a + monthlyEquivalent(s), 0),
+      subscriptionsMonthly: ctx.subs.filter((s) => !isFixed(s) && (!s.endDate || s.endDate > dayKey(ctx.now, tz))).reduce((a, s) => a + monthlyEquivalent(s), 0),
     },
     silverMine: {
       level: silverMineLevel(rewardedRecords),

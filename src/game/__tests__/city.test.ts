@@ -11,7 +11,7 @@ import { createReplay } from "../replay";
 import { snapBuilding, type Building, type CityEvent, type CityState, type Job } from "../types";
 
 const T0 = Date.UTC(2026, 9, 1, 0, 0, 0);
-/** 基準額（月間自由予算と目標額の小さいほう。docs/savings-driven-growth.md PRC-06） */
+/** 基準額（手取り月収と目標額の小さいほう。docs/savings-driven-growth.md PRC-06） */
 const BASE = 100_000;
 
 function run(s: CityState, ms: number) {
@@ -91,7 +91,7 @@ describe("AT-009 貯金で育つ街（docs/savings-driven-growth.md GRW-01・GRW
 });
 
 describe("基準額と以前の街の移行（docs/savings-driven-growth.md PRC-06）", () => {
-  it("基準額は月間自由予算と目標額の小さいほう", () => {
+  it("基準額は手取り月収と目標額の小さいほう", () => {
     expect(seasonBase(100_000, 150_000)).toBe(100_000);
     expect(seasonBase(100_000, 30_000)).toBe(30_000);
     expect(seasonBase(0, 30_000)).toBe(1);

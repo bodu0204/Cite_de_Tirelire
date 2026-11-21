@@ -19,7 +19,7 @@ AGO40=$(TZ=Asia/Tokyo date -d "$TODAY -40 days" +%F)
 DAY=$((10#$(TZ=Asia/Tokyo date +%d)))
 
 req POST /api/auth/signup "{\"email\":\"$EMAIL\",\"password\":\"password123\",\"timezone\":\"Asia/Tokyo\"}" >/dev/null
-req POST /api/season '{"goalAmount":20000,"monthlyBudget":60000}' >/dev/null
+req POST /api/season '{"goalAmount":20000,"monthlyIncome":60000}' >/dev/null
 
 echo "== wallet A exists from the start and is the default spend account"
 req GET /api/accounts | j '[o.items.map(a=>[a.name,a.kind]), o.defaults.spend===o.items[0].id, o.reward]'
@@ -72,11 +72,16 @@ req POST /api/card-bills/$BILL/confirm '{"amount":5000}' | j '[o.reward, !!o.tra
 req POST /api/card-bills/$BILL/confirm '{"amount":5000}' | j 'o.error.code'
 bal
 
-echo "== outside-budget rent: only the balance moves"
+echo "== fixed-cost rent paid at the registered amount: only the balance moves (docs/take-home-and-fixed-costs.md FC-13)"
+RENT=$(req POST /api/subscriptions "{\"kind\":\"FIXED\",\"name\":\"家賃\",\"amount\":50000,\"startDate\":\"$TODAY\",\"accountId\":\"$BANK\"}" | j 'o.id')
 G2=$(req GET /api/state | j 'JSON.stringify([o.currencies.gold,o.currencies.bond,o.season.savings])')
-req POST /api/outside "{\"accountId\":\"$BANK\",\"direction\":\"out\",\"amount\":50000,\"name\":\"家賃\"}" | j '!!o.id'
+PK=$(req GET /api/purchases/base | j "o.subscriptions.find(s=>s.subscriptionId==='$RENT').periodKey")
+req POST /api/purchases "{\"subscriptionId\":\"$RENT\",\"periodKey\":\"$PK\",\"date\":\"$TODAY\",\"amount\":50000}" | j '[o.settled, o.resolution]'
 G3=$(req GET /api/state | j 'JSON.stringify([o.currencies.gold,o.currencies.bond,o.season.savings])')
 same "$G2" "$G3"
+# 固定費は配当から引くので、テストの残りに影響しないよう消す（支払いの記録は残る）
+req DELETE /api/subscriptions/$RENT >/dev/null
+echo "== the out-of-budget record API is gone"; curl -sS -o /dev/null -w '%{http_code}\n' -b "$JAR" "$BASE/api/outside"
 bal
 
 echo "== AT-088 reconcile: forgotten ATM (bank -10000, wallet +10000) -> total 0, game unchanged"
@@ -107,5 +112,5 @@ echo "== AT-090 extra reward cap is separate (100/day)"
 for i in $(seq 1 8); do req POST /api/transfers "{\"fromAccountId\":\"$BANK\",\"toAccountId\":\"$WAL\",\"amount\":100}" | j 'o.reward'; done | tr '\n' ' '; echo
 req GET /api/state | j '[o.silverMine.todayRewarded, o.silverMine.extra]'
 
-echo "== export includes accounts"; curl -sS -b "$JAR" "$BASE/api/export" | j '[o.accounts.length, o.transfers.length, o.cardBills.length, o.outsideRecords.length, o.accountAdjustments.length]'
+echo "== export includes accounts"; curl -sS -b "$JAR" "$BASE/api/export" | j '[o.accounts.length, o.transfers.length, o.cardBills.length, o.outsideRecords === undefined, o.accountAdjustments.length]'
 echo "== cleanup"; req POST /api/account '{"password":"password123"}' | j 'o.ok'

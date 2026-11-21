@@ -88,16 +88,16 @@ const carryOverOf = (s: { bond: number; citySpentGold: number; reserveCarried: n
 const lastCompleted = (ctx: GameCtx) => ctx.tx.season.findFirst({ where: { userId: ctx.user.id, status: "COMPLETED" }, orderBy: { number: "desc" } });
 
 /**
- * 開始画面の初期値（docs/season-start-settings.md §3・RB-02・CO-01・RC-03）。
- * budget・incomeDay は入力中の値（なければ今の設定）。按分の額と期間の残りは、その値で始めたときのもの
+ * 開始画面の初期値（docs/season-start-settings.md §3・RB-02・CO-01・RC-03、docs/take-home-and-fixed-costs.md §9）。
+ * income・incomeDay は入力中の値（なければ今の設定）。固定費は登録済みのもの。按分の額と期間の残りは、その値で始めたときのもの
  */
-export async function seasonDraft(ctx: GameCtx, q: { budget?: string | null; incomeDay?: string | null }) {
+export async function seasonDraft(ctx: GameCtx, q: { income?: string | null; incomeDay?: string | null }) {
   const count = await ctx.tx.season.count({ where: { userId: ctx.user.id } });
   const first = count === 0;
-  const budget = given(q.budget) ? int(q.budget, "月間自由予算", { max: 10_000_000 }) : ctx.user.monthlyBudget;
+  const income = given(q.income) ? int(q.income, "手取り月収", { max: 10_000_000 }) : ctx.user.monthlyIncome;
   const day = given(q.incomeDay) ? int(q.incomeDay, "収入日", { min: 1, max: 31 }) : ctx.user.incomeDay;
   const cal = startCal(ctx, day, first);
-  const plan = budgetPlan({ ...ctx, cal }, { budget });
+  const plan = budgetPlan({ ...ctx, cal }, { income });
   const from = floorMinute(ctx.now);
   const period = periodRange(from, cal);
   const prorated = Math.floor(microToGold(remainingMining(newMine(from, cal), plan, cal, from).natural));
@@ -109,7 +109,10 @@ export async function seasonDraft(ctx: GameCtx, q: { budget?: string | null; inc
   return {
     first,
     number: count + 1,
-    budget,
+    /** 手取り月収 M・月間固定費 F・自由予算 B ＝ max(0, M − F) */
+    income,
+    fixed: plan.fixedAt(from),
+    budget: plan.budgetAt(from),
     incomeDay: day,
     /** 収入日がすぐ効くか（初回だけ） */
     incomeDayNow: first,
@@ -117,7 +120,7 @@ export async function seasonDraft(ctx: GameCtx, q: { budget?: string | null; inc
     /** 今期の残りの按分の額（G）と、月あたりの配当（B − S − C） */
     prorated,
     net: plan.netAt(from),
-    bondCap: bondCap(budget),
+    bondCap: bondCap(income),
     previous: prev && !ctx.season ? { id: prev.id, number: prev.number, goalName: prev.goalName, amount: carryOverOf(prev) } : null,
     savingsAccounts,
   };
@@ -129,7 +132,7 @@ export async function startSeason(ctx: GameCtx, body: Body) {
   const goalName = goalNameOf(body.goalName);
   const count = await ctx.tx.season.count({ where: { userId: ctx.user.id } });
   const user: Prisma.UserUpdateInput = {};
-  if (body.monthlyBudget !== undefined) user.monthlyBudget = int(body.monthlyBudget, "月間自由予算", { max: 10_000_000 });
+  if (body.monthlyIncome !== undefined) user.monthlyIncome = int(body.monthlyIncome, "手取り月収", { max: 10_000_000 });
   if (given(body.incomeDay)) {
     // 収入日（PD-01〜03）：初回はすぐに、2回目以降は次の収入日から
     const day = int(body.incomeDay, "収入日", { min: 1, max: 31 });
@@ -145,18 +148,19 @@ export async function startSeason(ctx: GameCtx, body: Body) {
   }
   const number = count + 1;
   let mine = newMine(ctx.now, ctx.cal);
-  // 今期の残りの自由予算（RB-01〜04）：按分の額との差を、最初の収入期間の配当だけに入れる
+  // 今期の残りの自由予算（RB-01〜04）：按分の額との差を、最初の収入期間の配当だけに入れる。上限は自由予算（手取り月収 − 固定費。FB-08）
   let startRemaining: number | null = null;
   if (given(body.remainingBudget)) {
-    startRemaining = int(body.remainingBudget, "今期の残りの自由予算", { max: Math.max(0, ctx.user.monthlyBudget) });
-    mine = withStartRemaining(mine, budgetPlan(ctx), ctx.cal, ctx.now, startRemaining);
+    const plan = budgetPlan(ctx);
+    startRemaining = int(body.remainingBudget, "今期の残りの自由予算", { max: plan.budgetAt(ctx.now) });
+    mine = withStartRemaining(mine, plan, ctx.cal, ctx.now, startRemaining);
   }
-  // すでにある貯金（§4・§5）：債券の上限（3M）までは持ち込みの備え、超える分は持ち込みの貯金
+  // すでにある貯金（§4・§5）：債券の上限（3M。M は手取り月収）までは持ち込みの備え、超える分は持ち込みの貯金
   const existing = given(body.existingSavings) ? int(body.existingSavings, "すでにある貯金", { max: 2_000_000_000 }) : 0;
-  const carried = splitCarried(existing, ctx.user.monthlyBudget);
+  const carried = splitCarried(existing, ctx.user.monthlyIncome);
   const prev = existing > 0 && bool(body.carryOver) ? await lastCompleted(ctx) : null;
-  // 基準額（値段と発展Lv・技術Lvの単位）はシーズン開始時の月間自由予算と目標額で決め、シーズン中は変えない（PRC-05・PRC-06）
-  const city = createCity(ctx.now, seasonBase(ctx.user.monthlyBudget, goal));
+  // 基準額（値段と発展Lv・技術Lvの単位）はシーズン開始時の手取り月収と目標額で決め、シーズン中は変えない（PRC-05・PRC-06・FB-05）
+  const city = createCity(ctx.now, seasonBase(ctx.user.monthlyIncome, goal));
   const season = await ctx.tx.season.create({
     data: {
       userId: ctx.user.id,
@@ -213,7 +217,7 @@ export function updateSeason(ctx: GameCtx, body: Body) {
   if (body.goalName !== undefined) ctx.seasonPatch.goalName = goalNameOf(body.goalName);
   if (body.existingSavings !== undefined) {
     if (ctx.now - season.startedAt.getTime() > CARRIED_EDIT_MS) fail("locked", "すでにある貯金を直せるのは、シーズン開始から24時間以内です", 409);
-    const carried = splitCarried(int(body.existingSavings, "すでにある貯金", { max: 2_000_000_000 }), ctx.user.monthlyBudget);
+    const carried = splitCarried(int(body.existingSavings, "すでにある貯金", { max: 2_000_000_000 }), ctx.user.monthlyIncome);
     ctx.seasonPatch.reserveCarried = carried.reserve;
     ctx.seasonPatch.carriedSavings = carried.savings;
     // この操作の残り（表示）にもすぐ効かせる
@@ -380,7 +384,7 @@ function purchaseInput(body: Body) {
   };
 }
 
-/** 金鉱で精算する対象か：進行中シーズン・サブスク以外・当期（収入期間）の購入 */
+/** 金鉱で精算する対象か：進行中シーズン・固定費とサブスクの支払い以外・当期（収入期間）の購入 */
 function settleable(ctx: GameCtx, p: { date: string; isSubscription: boolean }) {
   if (!ctx.mine || p.isSubscription) return false;
   const at = parseDateInTz(p.date, ctx.user.timezone);
@@ -474,11 +478,11 @@ async function wishFor(ctx: GameCtx, body: Body) {
   return wish;
 }
 
-/** サブスクの支払い（どのサブスクの何期間分か）。同じサブスク・同じ期間は1件だけ */
+/** 固定費・サブスクの支払い（どの登録の何期間分か）。同じ登録・同じ期間は1件だけ */
 async function subscriptionFor(ctx: GameCtx, body: Body) {
   if (!body.subscriptionId) return null;
-  const sub = await ctx.tx.subscription.findFirst({ where: { id: str(body.subscriptionId, "サブスク"), userId: ctx.user.id } });
-  if (!sub) fail("not_found", "サブスクが見つかりません", 404);
+  const sub = await ctx.tx.subscription.findFirst({ where: { id: str(body.subscriptionId, "固定費・サブスク"), userId: ctx.user.id } });
+  if (!sub) fail("not_found", "固定費・サブスクが見つかりません", 404);
   const key = str(body.periodKey, "対象の期間", { max: 7 });
   if (!/^\d{4}-\d{2}$/.test(key)) fail("invalid", "対象の期間が不正です");
   const dup = await ctx.tx.purchase.findFirst({ where: { subscriptionId: sub!.id, periodKey: key, deletedAt: null } });
@@ -489,7 +493,7 @@ async function subscriptionFor(ctx: GameCtx, body: Body) {
 /**
  * 支出の記録（docs/record-input-redesign.md §6）。
  * - 普通の支出：精算順（ユーザ通貨 → 未回収 → 所持金貨 → 債券＋手数料）で払う。payWith で使う通貨を選べる（選んだ通貨だけを使い、足りない分は債券）
- * - サブスクの支払い：登録額（ベース）は採掘から差し引き済みなので精算しない。登録額との差を差分として解消する
+ * - 固定費・サブスクの支払い：登録額（ベース）は採掘から差し引き済みなので精算しない。登録額との差を差分として解消する
  * - ほしい物：価格（ベース）を 像の積立金貨 → 精算順 で払い、価格との差を差分として解消する（余った積立も債券 → おまかせ交換へ）
  */
 export async function recordPurchase(ctx: GameCtx, body: Body) {
@@ -503,7 +507,7 @@ export async function recordPurchase(ctx: GameCtx, body: Body) {
   const input = purchaseInput(subPay ? { ...body, name: body.name ?? subPay.sub.name, isSubscription: true } : wish ? { ...body, name: body.name ?? wish.name } : body);
   const cat = await resolveCategory(ctx, body);
   const baseAmount = subPay ? subPay.sub.amount : wish ? wish.price : null;
-  // 出どころ（指定がなければ、サブスクに登録した出どころ → いつもの置き場所。docs/money-accounts.md RS-01・03）
+  // 出どころ（指定がなければ、固定費・サブスクに登録した出どころ → いつもの置き場所。docs/money-accounts.md RS-01・03）
   const accountId = await spendAccountFor(ctx, body.accountId, subPay?.sub.accountId);
   // いつもの置き場所以外を選んだら、出どころの記入の報酬（RW-02）
   const chosen = accountId !== ctx.user.defaultSpendAccountId;
@@ -706,7 +710,7 @@ function exchangeToBond(ctx: GameCtx, from: "gold" | "custom", amount: number, b
   // 債券についてくる資源の種類（省略時はおまかせ）
   const resource = body.resource === undefined ? "auto" : oneOf(body.resource, [...RESOURCES, "treasury", "auto"] as const, "資源");
   const grant = () => {
-    const eligible = bondResourceEligible(before, amount, bondCap(ctx.user.monthlyBudget));
+    const eligible = bondResourceEligible(before, amount, bondCap(ctx.user.monthlyIncome));
     const gains = addStock(ctx, quoteBondGains(eligible, resource, cityNeeds(ctx.city!).needs, facilityLevels(ctx)));
     return { resourceEligible: eligible, gains };
   };
@@ -777,33 +781,47 @@ export function exchange(ctx: GameCtx, body: Body) {
   return { ...q, gains, gain: totalGains(gains), citySpentAdded: q.goldCost };
 }
 
-// ---- サブスク ----
+// ---- 固定費・サブスク（docs/take-home-and-fixed-costs.md §5） ----
+
+const SUBSCRIPTION_KINDS = ["SUBSCRIPTION", "FIXED"] as const;
 
 function subscriptionInput(body: Body) {
-  const startDate = date(body.startDate, "契約開始日");
-  const endDate = optDate(body.endDate, "解約日");
-  if (endDate && endDate < startDate) fail("invalid", "解約日は契約開始日より後にしてください");
+  // 種類：サブスク（自由予算の内訳・公園が建つ）か、固定費（手取り月収から先に引く・公園は建たない）
+  const kind = oneOf(body.kind ?? "SUBSCRIPTION", SUBSCRIPTION_KINDS, "種類");
+  const fixed = kind === "FIXED";
+  const startDate = date(body.startDate, fixed ? "開始日" : "契約開始日");
+  const endDate = optDate(body.endDate, fixed ? "終了日" : "解約日");
+  if (endDate && endDate < startDate) fail("invalid", fixed ? "終了日は開始日より後にしてください" : "解約日は契約開始日より後にしてください");
   return {
-    name: str(body.name, "サービス名", { max: 100 }),
+    kind,
+    name: str(body.name, fixed ? "名前" : "サービス名", { max: 100 }),
     amount: int(body.amount, "金額", { min: 1, max: 10_000_000 }),
     cycle: oneOf(body.cycle ?? "MONTHLY", ["MONTHLY", "YEARLY"] as const, "支払い周期"),
     startDate,
     endDate,
+    // 支払日（任意。月額だけに使う。FC-12）
+    payDay: given(body.payDay) ? int(body.payDay, "支払日", { min: 1, max: 31 }) : null,
     memo: optStr(body.memo, "メモ"),
   };
 }
 
 /**
- * サブスクは現実の契約の記録なので、自由予算を超えても保存は拒否しない（設計原則5）。
+ * 固定費・サブスクは現実の契約の記録なので、手取り月収・自由予算を超えても保存は拒否しない（設計原則5。FC-04）。
  * 超える月があれば警告を返す（その月の採掘は0になる）
  */
 async function subscriptionWarnings(ctx: GameCtx): Promise<{ warning: string | null; overruns: Overrun[] }> {
   ctx.subs = await ctx.tx.subscription.findMany({ where: { userId: ctx.user.id }, orderBy: { createdAt: "asc" } });
   const overruns = budgetOverruns(budgetPlan(ctx), ctx.now);
-  return { warning: overruns.length ? `${describeOverruns(overruns)}。その月の金貨の配当は0になります` : null, overruns };
+  const fixedOver = overruns.filter((o) => o.fixedOver > 0);
+  const warning = fixedOver.length
+    ? `${fixedOver.slice(0, 3).map((o) => o.monthKey).join("、")}${fixedOver.length > 3 ? ` ほか${fixedOver.length - 3}か月` : ""} は固定費が手取り月収を超えます。その月の自由予算と金貨の配当は0になります`
+    : overruns.length
+      ? `${describeOverruns(overruns)}。その月の金貨の配当は0になります`
+      : null;
+  return { warning, overruns };
 }
 
-/** サブスクの出どころ（任意。支出タブのサブスクの行の初期値。docs/money-accounts.md RS-03）。null・空はいつもの置き場所 */
+/** 固定費・サブスクの出どころ（任意。支出タブの支払いの行の初期値。docs/money-accounts.md RS-03）。null・空はいつもの置き場所 */
 async function subscriptionPayment(ctx: GameCtx, body: Body, prev?: string | null) {
   if (body.accountId === undefined) return prev === undefined ? {} : { accountId: prev };
   if (prev !== undefined && body.accountId === prev) return { accountId: prev };
@@ -818,7 +836,7 @@ export async function createSubscription(ctx: GameCtx, body: Body) {
 
 export async function updateSubscription(ctx: GameCtx, id: string, body: Body) {
   const sub = await ctx.tx.subscription.findFirst({ where: { id, userId: ctx.user.id } });
-  if (!sub) fail("not_found", "サブスクが見つかりません", 404);
+  if (!sub) fail("not_found", "固定費・サブスクが見つかりません", 404);
   await ctx.tx.subscription.update({ where: { id }, data: { ...subscriptionInput({ ...sub, ...body }), ...(await subscriptionPayment(ctx, body, sub!.accountId)) } });
   await syncSpecials(ctx);
   return { id, ...(await subscriptionWarnings(ctx)) };
@@ -826,9 +844,29 @@ export async function updateSubscription(ctx: GameCtx, id: string, body: Body) {
 
 export async function deleteSubscription(ctx: GameCtx, id: string) {
   const r = await ctx.tx.subscription.deleteMany({ where: { id, userId: ctx.user.id } });
-  if (!r.count) fail("not_found", "サブスクが見つかりません", 404);
+  if (!r.count) fail("not_found", "固定費・サブスクが見つかりません", 404);
   await syncSpecials(ctx);
   return { id };
+}
+
+/**
+ * 支払いの行を「この回は記録しない」にする（FC-15）：開始前に払った分・置き場所の開始残高にもう入っている分。
+ * 残高も通貨も動かさない。undo で元に戻す
+ */
+export async function skipSubscriptionPayment(ctx: GameCtx, id: string, body: Body) {
+  const sub = await ctx.tx.subscription.findFirst({ where: { id, userId: ctx.user.id } });
+  if (!sub) fail("not_found", "固定費・サブスクが見つかりません", 404);
+  const key = str(body.periodKey, "対象の期間", { max: 7 });
+  if (!/^\d{4}-\d{2}$/.test(key)) fail("invalid", "対象の期間が不正です");
+  const skipped = new Set(sub!.skippedPeriods);
+  if (bool(body.undo)) skipped.delete(key);
+  else {
+    const paid = await ctx.tx.purchase.findFirst({ where: { subscriptionId: id, periodKey: key, deletedAt: null } });
+    if (paid) fail("already", "この期間の支払いは記録済みです", 409);
+    skipped.add(key);
+  }
+  await ctx.tx.subscription.update({ where: { id }, data: { skippedPeriods: [...skipped].sort() } });
+  return { id, periodKey: key, skipped: skipped.has(key) };
 }
 
 // ---- ほしい物 ----
@@ -908,19 +946,19 @@ export async function contributeWish(ctx: GameCtx, id: string, body: Body) {
 // ---- 設定 ----
 
 export async function updateSettings(ctx: GameCtx, body: Body) {
-  const data: { monthlyBudget?: number; timezone?: string; bondMiningRate?: number; incomeDay?: number; incomeEras?: Prisma.InputJsonValue } = {};
+  const data: { monthlyIncome?: number; timezone?: string; bondMiningRate?: number; incomeDay?: number; incomeEras?: Prisma.InputJsonValue } = {};
   if (body.incomeDay !== undefined) {
     // 収入日は次の収入日から効く。今の期間はそこまで延ばす・縮める（docs/record-input-redesign.md §5.1 IN-06）
     data.incomeDay = int(body.incomeDay, "収入日", { min: 1, max: 31 });
     ctx.cal = changePayday(ctx.cal, data.incomeDay, ctx.now);
     data.incomeEras = erasJson(ctx.cal) as unknown as Prisma.InputJsonValue;
   }
-  if (body.monthlyBudget !== undefined) {
-    data.monthlyBudget = int(body.monthlyBudget, "月間自由予算", { max: 10_000_000 });
-    // 予算を下げてユーザ通貨（自由予算の内訳）が予算を超える月が出るなら保存しない
-    if (data.monthlyBudget < ctx.user.monthlyBudget) {
-      const overruns = budgetOverruns(budgetPlan(ctx, { budget: data.monthlyBudget }), ctx.now);
-      if (overruns.length) fail("over_budget", `${describeOverruns(overruns)}。ユーザ通貨の発生額を減らすか、予算を見直してください`, 400, { overruns });
+  if (body.monthlyIncome !== undefined) {
+    data.monthlyIncome = int(body.monthlyIncome, "手取り月収", { max: 10_000_000 });
+    // 手取り月収を下げて B − S − C が負になる月が出るなら保存しない（docs/take-home-and-fixed-costs.md TH-04）
+    if (data.monthlyIncome < ctx.user.monthlyIncome) {
+      const overruns = budgetOverruns(budgetPlan(ctx, { income: data.monthlyIncome }), ctx.now);
+      if (overruns.length) fail("over_budget", `${describeOverruns(overruns)}。固定費・サブスク・ユーザ通貨の発生額を見直すか、手取り月収を見直してください`, 400, { overruns });
     }
   }
   if (body.bondMiningRate !== undefined) {
@@ -933,7 +971,7 @@ export async function updateSettings(ctx: GameCtx, body: Body) {
     if (!isValidTimeZone(tz)) fail("invalid", "タイムゾーンが不正です");
     data.timezone = tz;
   }
-  // 採掘は変更前の予算・債券化率で現在まで計算済み。ここから新しい設定で採掘する
+  // 採掘は変更前の手取り月収・債券化率で現在まで計算済み。ここから新しい設定で採掘する
   ctx.user = await ctx.tx.user.update({ where: { id: ctx.user.id }, data });
   ctx.cal = calOf(ctx.user);
   return { ok: true };

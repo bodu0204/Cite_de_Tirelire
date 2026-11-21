@@ -36,7 +36,7 @@ export default function DividendPage() {
           配当資金
         </h1>
         <p className="mt-1 text-sm text-muted">
-          銀行が、月間自由予算からサブスク料金とユーザ通貨の発生額を引いた額を、1か月かけて金貨で配当します（1G＝1円相当）。購入はユーザ通貨・金貨の順に精算され、足りない分は債券が肩代わりします。
+          銀行が、手取り月収から固定費・サブスク料金・ユーザ通貨の発生額を引いた額を、1か月かけて金貨で配当します（1G＝1円相当）。購入はユーザ通貨・金貨の順に精算され、足りない分は債券が肩代わりします。
         </p>
       </div>
       <Card>
@@ -74,8 +74,12 @@ export default function DividendPage() {
 
       <Card title="配当速度の内訳（月あたり）">
         <dl className="num grid grid-cols-[1fr_auto] gap-y-1 text-sm">
-          <dt className="text-muted">月間自由予算 B</dt>
-          <dd className="text-right">{yen(b.budget)}</dd>
+          <dt className="text-muted">手取り月収 M</dt>
+          <dd className="text-right">{yen(b.income)}</dd>
+          <dt className="text-muted">固定費 F</dt>
+          <dd className="text-right">−{yen(b.fixed)}</dd>
+          <dt className="border-t border-line pt-1 text-muted">自由予算 B</dt>
+          <dd className="border-t border-line pt-1 text-right">{yen(b.budget)}</dd>
           <dt className="text-muted">サブスク S</dt>
           <dd className="text-right">−{yen(b.subs)}</dd>
           <dt className="text-muted">ユーザ通貨 C（今月の発生額）</dt>
@@ -101,7 +105,7 @@ export default function DividendPage() {
           </p>
         )}
         <p className="mt-1 text-xs text-muted">
-          配当の一部を債券に回します。債券に入った分は同じ額の建設資金になり、債券は急な出費（金貨が足りない購入）を肩代わりします。持っている間は毎日利息が建設資金として街に入ります（今 +{yen(Math.floor(v.dev.interestPerDay))}/日・備えLv{v.dev.reserveLevel}）。上限 {fmt(bond.cap)}（自由予算の3か月分）に達したら自動で止まります。
+          配当の一部を債券に回します。債券に入った分は同じ額の建設資金になり、債券は急な出費（金貨が足りない購入）を肩代わりします。持っている間は毎日利息が建設資金として街に入ります（今 +{yen(Math.floor(v.dev.interestPerDay))}/日・備えLv{v.dev.reserveLevel}）。上限 {fmt(bond.cap)}（手取り月収の3か月分）に達したら自動で止まります。
         </p>
         <label className="mt-3 block text-sm">
           <span className="mb-1 block font-medium">債券化率</span>
@@ -142,7 +146,7 @@ export default function DividendPage() {
         <Stat label="所持金貨" value={`${fmt(v.currencies.gold)}G`} sub={v.currencies.reserved > 0 ? `像に積立 ${fmt(v.currencies.reserved)}G` : undefined} />
         <Stat label="当月の配当累計" value={`${fmt(Math.floor(mine.minedThisMonth))}G`} sub={mine.monthKey} />
         <Stat label="当月の購入精算額" value={yen(mine.settledThisMonth)} />
-        <Stat label="月間サブスク" value={yen(mine.subscriptionsMonthly)} sub={`予算 ${yen(v.user.monthlyBudget)}`} />
+        <Stat label="月間サブスク" value={yen(mine.subscriptionsMonthly)} sub={`固定費 ${yen(b.fixed)}・自由予算 ${yen(b.budget)}`} />
         <Stat
           label={`配当 Lv${mine.level}`}
           value={`交換 +${Math.round(goldMineBonus(mine.level) * 100)}%`}
